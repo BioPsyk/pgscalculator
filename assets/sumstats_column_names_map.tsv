@@ -1,0 +1,9 @@
+input	CHR	POS	0	RSID	EffectAllele	OtherAllele	B	SE	P	N	Neff	CaseN	ControlN	EAF	CaseEAF	ControlEAF	EAF_1KG
+prscs	NA	NA	NA	SNP	A1	A2	BETA	NA	P	NA	NA	NA	NA	NA	NA	NA	NA
+prscs_cix	NA	NA	NA	1	2	3	4	NA	5	NA	NA	NA	NA	NA	NA	NA	NA
+sbayesr	NA	NA	NA	SNP	A1	A2	b	se	p	N	NA	NA	NA	freq	NA	NA	NA
+sbayesr_cix	NA	NA	NA	1	2	3	5	6	7	8	NA	NA	NA	4	NA	NA	NA
+prsice	CHR	BP	NA	SNP	A1	A2	BETA	SE	P	NA	NA	NA	NA	NA	NA	NA	NA
+prsice_cix	2	3	NA	1	4	5	6	7	8	NA	NA	NA	NA	NA	NA	NA	NA
+ldpred2	chr	pos	NA	rsid	a1	a0	beta	beta_se	p	N	NA	NA	NA	NA	NA	NA	NA
+ldpred2_cix	2	3	NA	1	4	5	6	7	8	9	NA	NA	NA	NA	NA	NA	NA

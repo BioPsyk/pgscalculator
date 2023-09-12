@@ -1,0 +1,3 @@
+cohort	snps	population	format	file
+ukbb	hapmap3	eur	ldpred2	ldpred2_UKBB_EUR_hm3.tsv
+ukbb	hapmap3	eur	prscs	gdk_secure_paths_overview.tsv
