@@ -4,6 +4,8 @@ nextflow.enable.dsl = 2
 
 // Nextflow process to split a gwas cleansumstats default output into chunks
 // Generates a space delimited file for prs-cs input
+// Generates a tab delimited format format for prs-cs
+
 
 process split_reformat_gwas {
   label 'mod_mem'
