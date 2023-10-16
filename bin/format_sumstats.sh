@@ -91,5 +91,5 @@ BEGIN {
     printf $(input_col[in_header[ordered_cols[i]]]) "\n" >  output_prefix "_" $(chr_col) ".tsv"
   }
 }
-' "$input_file"
+' <(zcat "$input_file")
 
