@@ -12,13 +12,12 @@ if (params.mapfile) { mapfile = file(params.mapfile, checkIfExists: true) }
 Channel.fromPath(params.input, type: 'file').set { ch_input }
 
 workflow {
-    if(params.method=="prscs"){wf_prscs(ch_input, mapfile)}
+  if(params.method=="prscs"){
+    wf_prscs(ch_input, mapfile, params.trait, params.n)
+  }
 } 
 
-//params.method
-//params.trait
 //params.split_gwas_path
-//params.n
 
 
 
@@ -26,9 +25,6 @@ workflow {
 
     //Run PRS-CS
 //
-//    Channel.of(1..22) \
-//    | combine(prscs_input_ch, by: 0) \
-//    | combine(Channel.of(params.n)) \
 //    | combine(prscs_ukbb_hm3_eur_ld_ch, by: 0) \
 //    | combine(genotypes_ch, by: 0) \
 //    | combine(Channel.of(params.trait)) \

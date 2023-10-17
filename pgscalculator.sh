@@ -14,10 +14,12 @@ function general_usage(){
  echo "options:"
  echo "-h		 Display help message for pgscalculator"
  echo "-i <file> 	 path to infile"
+ echo "-l <dir> 	 LD map dir, absolute paths"
+ echo "-g <dir> 	 target genotypes"
  echo "-o <dir> 	 path to output directory"
  echo "-b <dir> 	 path to system tmp or scratch (default: /tmp)"
  echo "-w <dir> 	 path to workdir/intermediate files (default: work)"
- echo "-l  	 	 dev mode, saving intermediate files, no cleanup of workdir(default: not active)"
+ echo "-d  	 	 dev mode, saving intermediate files, no cleanup of workdir(default: not active)"
  echo "-v  	 	 get the version number"
 }
 
@@ -35,13 +37,17 @@ project_dir="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 paramarray=($@)
 
 # starting getops with :, puts the checking in silent mode for errors.
-getoptsstring=":hvi:o:b:w:l"
+getoptsstring=":hvi:o:b:w:l:g:d"
 
 infile=""
+ldfile=""
+genofile=""
 outdir="out"
 
 # some logical defaults
 infile_given=false
+lddir_given=false
+genofile_given=false
 outdir_given=false
 tmpdir_given=false
 devmode_given=false
@@ -66,6 +72,14 @@ while getopts "${getoptsstring}" opt "${paramarray[@]}"; do
       infile="$OPTARG"
       infile_given=true
       ;;
+    l )
+      lddir="$OPTARG"
+      lddir_given=true
+      ;;
+    g )
+      genofile="$OPTARG"
+      genofile_given=true
+      ;;
     o )
       outdir="$OPTARG"
       outdir_given=true
@@ -78,7 +92,7 @@ while getopts "${getoptsstring}" opt "${paramarray[@]}"; do
       workdir="$OPTARG"
       workdir_given=true
       ;;
-    l )
+    d )
       devmode="--dev"
       devmode_given=true
       ;;
@@ -107,6 +121,8 @@ mkdir -p ${workdir}
 mkdir -p ${tmpdir}
 
 infile_host=$(realpath "${infile}")
+lddir_host=$(realpath "${lddir}")
+genofile_host=$(realpath "${genofile}")
 outdir_host=$(realpath "${outdir}")
 tmpdir_host=$(realpath "${tmpdir}")
 workdir_host=$(realpath "${workdir}")
@@ -114,6 +130,14 @@ workdir_host=$(realpath "${workdir}")
 # Test that file and folder exists, all of these will always get mounted
 if [ ! -f $infile_host ]; then
   >&2 echo "infile doesn't exist"
+  exit 1
+fi
+if [ ! -d $lddir_host ]; then
+  >&2 echo "lddir doesn't exist"
+  exit 1
+fi
+if [ ! -d $genofile_host ]; then
+  >&2 echo "genofile doesn't exist"
   exit 1
 fi
 if [ ! -d $outdir_host ]; then
@@ -146,6 +170,12 @@ infile_name=$(basename "${infile_host}")
 indir_container="/pgscalculator/input"
 infile_container="${indir_container}/${infile_name}"
 
+# lddir
+lddir_container="/pgscalculator/lddir"
+
+# genodir
+genodir_container="/pgscalculator/genodir"
+
 # outdir
 outdir_container="/pgscalculator/outdir"
 
@@ -165,6 +195,8 @@ singularity run \
    ${mount_flags} \
    -B "${indir_host}:${indir_container}" \
    -B "${outdir_host}:${outdir_container}" \
+   -B "${lddir_host}:${lddir_container}" \
+   -B "${genodir_host}:${genodir_container}" \
    -B "${tmpdir_host}:${tmpdir_container}" \
    -B "${workdir_host}:${workdir_container}" \
    "tmp/${singularity_image_tag}" \
@@ -173,6 +205,8 @@ singularity run \
      run /pgscalculator ${runtype} \
      ${devmode} \
      --input "${infile_container}" \
+     --lddir "${lddir_container}" \
+     --genodir "${genodir_container}" \
      --outdir "${outdir_container}" 
 
 #Set correct permissions to pipeline_info files
