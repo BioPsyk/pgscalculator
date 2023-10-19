@@ -67,9 +67,11 @@ RUN apt-get update && apt-get install -y \
 RUN R -e "install.packages('sbayesR', repos='https://cloud.r-project.org/')"
 
 # Install PRS-CS
-RUN wget https://github.com/getian107/PRScs/raw/master/PRScs.py -O /usr/local/bin/PRScs.py && \
-    chmod +x /usr/local/bin/PRScs.py
+RUN apt-get update && apt-get install -y git
 
+RUN git clone https://github.com/getian107/PRScs.git /usr/local/PRScs && \
+    ln -s /usr/local/PRScs/PRScs.py /usr/local/bin/PRScs.py && \
+    chmod +x /usr/local/bin/PRScs.py
 
 # Final conf
 RUN useradd -rm -s /bin/bash -g users -u 1000 nextflow

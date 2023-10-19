@@ -13,10 +13,12 @@ function general_usage(){
  echo ""
  echo "options:"
  echo "-h		 Display help message for pgscalculator"
- echo "-i <file> 	 path to infile"
+ echo "-s <file> 	 path to infile"
  echo "-l <dir> 	 LD map dir, absolute paths"
  echo "-g <dir> 	 target genotypes"
  echo "-f <file> 	 target genotypes files in genotype folder"
+ echo "-m <value> 	 method (default: prscs)"
+ echo "-c <file> 	 run specific config file"
  echo "-o <dir> 	 path to output directory"
  echo "-b <dir> 	 path to system tmp or scratch (default: /tmp)"
  echo "-w <dir> 	 path to workdir/intermediate files (default: work)"
@@ -38,19 +40,22 @@ project_dir="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 paramarray=($@)
 
 # starting getops with :, puts the checking in silent mode for errors.
-getoptsstring=":hvi:o:b:w:l:g:f:d"
+getoptsstring=":hvs:o:b:w:l:g:f:m:c:d"
 
 infile=""
 ldfile=""
 genodir=""
 genofile=""
+conffile=""
 outdir="out"
+method=""
 
 # some logical defaults
 infile_given=false
 lddir_given=false
 genodir_given=false
 genofile_given=false
+conffile_given=false
 outdir_given=false
 tmpdir_given=false
 devmode_given=false
@@ -71,7 +76,7 @@ while getopts "${getoptsstring}" opt "${paramarray[@]}"; do
       cat ${project_dir}/VERSION 1>&2
       exit 0
       ;;
-    i )
+    s )
       infile="$OPTARG"
       infile_given=true
       ;;
@@ -86,6 +91,14 @@ while getopts "${getoptsstring}" opt "${paramarray[@]}"; do
     f )
       genofile="$OPTARG"
       genofile_given=true
+      ;;
+    c )
+      conffile="$OPTARG"
+      conffile_given=true
+      ;;
+    m )
+      method="$OPTARG"
+      method_given=true
       ;;
     o )
       outdir="$OPTARG"
@@ -131,6 +144,7 @@ infile_host=$(realpath "${infile}")
 lddir_host=$(realpath "${lddir}")
 genodir_host=$(realpath "${genodir}")
 genofile_host=$(realpath "${genofile}")
+conffile_host=$(realpath "${conffile}")
 outdir_host=$(realpath "${outdir}")
 tmpdir_host=$(realpath "${tmpdir}")
 workdir_host=$(realpath "${workdir}")
@@ -151,6 +165,11 @@ fi
 if [ ! -f $genofile_host ]; then
   >&2 echo "genofile doesn't exist"
   >&2 echo "path tried: $genofile_host"
+  exit 1
+fi
+if [ ! -f $conffile_host ]; then
+  >&2 echo "conffile doesn't exist"
+  >&2 echo "path tried: $conffile_host"
   exit 1
 fi
 if [ ! -d $outdir_host ]; then
@@ -195,6 +214,12 @@ genofile_name=$(basename "${genofile_host}")
 genodir2_container="/pgscalculator/genodir2"
 genofile_container="${genodir2_container}/${genofile_name}"
 
+# genofile
+confdir_host=$(dirname "${conffile_host}")
+conffile_name=$(basename "${conffile_host}")
+confdir_container="/pgscalculator/confdir"
+conffile_container="${confdir_container}/${conffile_name}"
+
 # outdir
 outdir_container="/pgscalculator/outdir"
 
@@ -217,6 +242,7 @@ singularity run \
    -B "${lddir_host}:${lddir_container}" \
    -B "${genodir_host}:${genodir_container}" \
    -B "${genodir2_host}:${genodir2_container}" \
+   -B "${confdir_host}:${confdir_container}" \
    -B "${tmpdir_host}:${tmpdir_container}" \
    -B "${workdir_host}:${workdir_container}" \
    "tmp/${singularity_image_tag}" \
@@ -224,10 +250,12 @@ singularity run \
      -log "${outdir_container}/.nextflow.log" \
      run /pgscalculator ${runtype} \
      ${devmode} \
+     --method ${method} \
      --input "${infile_container}" \
      --lddir "${lddir_container}" \
      --genodir "${genodir_container}" \
      --genofile "${genofile_container}" \
+     --conffile "${conffile_container}" \
      --outdir "${outdir_container}" 
 
 #Set correct permissions to pipeline_info files
