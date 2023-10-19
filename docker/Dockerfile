@@ -40,7 +40,40 @@ RUN apt-get update --fix-missing && \
     apt-get install python3 python3-pip python gawk graphviz dos2unix pigz \
     libbz2-dev liblzma-dev vim -y
 
+# Install other dependencies and utilities
+RUN apt-get update && apt-get install -y \
+    wget \
+    unzip \
+    --no-install-recommends && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
+
+# Download and install PLINK
+RUN wget https://s3.amazonaws.com/plink1-assets/plink_linux_x86_64_20231018.zip && \
+    unzip plink_linux_x86_64_20231018.zip && \
+    mv plink /usr/local/bin/
+
+# Install sbayesR, Install R and dependencies
+RUN apt-get update && apt-get install -y \
+    r-base \
+    r-base-dev \
+    libcurl4-openssl-dev \
+    libssl-dev \
+    libxml2-dev \
+    --no-install-recommends && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
+
+RUN R -e "install.packages('sbayesR', repos='https://cloud.r-project.org/')"
+
+# Install PRS-CS
+RUN wget https://github.com/getian107/PRScs/raw/master/PRScs.py -O /usr/local/bin/PRScs.py && \
+    chmod +x /usr/local/bin/PRScs.py
+
+
+# Final conf
 RUN useradd -rm -s /bin/bash -g users -u 1000 nextflow
 RUN rm -rf /pgscalculator/* && chown nextflow:users /pgscalculator && chmod g+s /pgscalculator
 
 USER nextflow
+
