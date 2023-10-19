@@ -16,6 +16,7 @@ function general_usage(){
  echo "-i <file> 	 path to infile"
  echo "-l <dir> 	 LD map dir, absolute paths"
  echo "-g <dir> 	 target genotypes"
+ echo "-f <file> 	 target genotypes files in genotype folder"
  echo "-o <dir> 	 path to output directory"
  echo "-b <dir> 	 path to system tmp or scratch (default: /tmp)"
  echo "-w <dir> 	 path to workdir/intermediate files (default: work)"
@@ -37,16 +38,18 @@ project_dir="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 paramarray=($@)
 
 # starting getops with :, puts the checking in silent mode for errors.
-getoptsstring=":hvi:o:b:w:l:g:d"
+getoptsstring=":hvi:o:b:w:l:g:f:d"
 
 infile=""
 ldfile=""
+genodir=""
 genofile=""
 outdir="out"
 
 # some logical defaults
 infile_given=false
 lddir_given=false
+genodir_given=false
 genofile_given=false
 outdir_given=false
 tmpdir_given=false
@@ -77,6 +80,10 @@ while getopts "${getoptsstring}" opt "${paramarray[@]}"; do
       lddir_given=true
       ;;
     g )
+      genodir="$OPTARG"
+      genodir_given=true
+      ;;
+    f )
       genofile="$OPTARG"
       genofile_given=true
       ;;
@@ -122,6 +129,7 @@ mkdir -p ${tmpdir}
 
 infile_host=$(realpath "${infile}")
 lddir_host=$(realpath "${lddir}")
+genodir_host=$(realpath "${genodir}")
 genofile_host=$(realpath "${genofile}")
 outdir_host=$(realpath "${outdir}")
 tmpdir_host=$(realpath "${tmpdir}")
@@ -136,8 +144,13 @@ if [ ! -d $lddir_host ]; then
   >&2 echo "lddir doesn't exist"
   exit 1
 fi
-if [ ! -d $genofile_host ]; then
+if [ ! -d $genodir_host ]; then
+  >&2 echo "genodir doesn't exist"
+  exit 1
+fi
+if [ ! -f $genofile_host ]; then
   >&2 echo "genofile doesn't exist"
+  >&2 echo "path tried: $genofile_host"
   exit 1
 fi
 if [ ! -d $outdir_host ]; then
@@ -176,6 +189,12 @@ lddir_container="/pgscalculator/lddir"
 # genodir
 genodir_container="/pgscalculator/genodir"
 
+# genofile
+genodir2_host=$(dirname "${genofile_host}")
+genofile_name=$(basename "${genofile_host}")
+genodir2_container="/pgscalculator/genodir2"
+genofile_container="${genodir2_container}/${genofile_name}"
+
 # outdir
 outdir_container="/pgscalculator/outdir"
 
@@ -197,6 +216,7 @@ singularity run \
    -B "${outdir_host}:${outdir_container}" \
    -B "${lddir_host}:${lddir_container}" \
    -B "${genodir_host}:${genodir_container}" \
+   -B "${genodir2_host}:${genodir2_container}" \
    -B "${tmpdir_host}:${tmpdir_container}" \
    -B "${workdir_host}:${workdir_container}" \
    "tmp/${singularity_image_tag}" \
@@ -207,6 +227,7 @@ singularity run \
      --input "${infile_container}" \
      --lddir "${lddir_container}" \
      --genodir "${genodir_container}" \
+     --genofile "${genofile_container}" \
      --outdir "${outdir_container}" 
 
 #Set correct permissions to pipeline_info files
