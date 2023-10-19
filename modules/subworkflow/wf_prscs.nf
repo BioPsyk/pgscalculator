@@ -11,13 +11,33 @@ workflow wf_prscs {
     mapfile
     trait
     n
+    lddir
+    genodir
+    genofile
 
     main:
+    // channel of ldfiles
+    Channel
+    .fromPath("${lddir}/*.hdf5")
+    .map { file -> 
+        def chrNumber = file.baseName
+        return tuple(chrNumber, file) 
+    }
+    .view()
+
+    // channel of genotypes
+    Channel.fromPath("${genofile}")
+    .splitCsv(sep: '\t', header: false)
+    .map { row -> tuple(row[0], row[1], file(row[2])) }
+    .view()
+
+  
+    // format sumstat
     format_sumstats(input, mapfile, "prscs")
     .flatMap { it }
     .map { file ->
       def parts = file.name.split("_")
-      [parts[0], parts[1].replace(".tsv", "")]
+      [parts[1].replace(".tsv", ""), file]
     }
     .view()
     .set { result }

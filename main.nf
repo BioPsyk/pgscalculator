@@ -13,13 +13,18 @@ Channel.fromPath(params.input, type: 'file').set { ch_input }
 
 workflow {
   if(params.method=="prscs"){
-    wf_prscs(ch_input, mapfile, params.trait, params.n)
+    wf_prscs(ch_input, 
+      mapfile, 
+      params.trait, 
+      params.n, 
+      params.lddir, 
+      params.genodir, 
+      params.genofile
+    )
   }
 } 
 
 //params.split_gwas_path
-
-
 
 
 
