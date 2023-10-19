@@ -1,0 +1,4 @@
+dir	cohort	snps	population	method	format
+placeholder	ukb	hapmap3 eur	ldpred2	.hdf5
+ld-prscs/kgp	kgp	hapmap3	eur	prscs	.hdf5
+ld-prscs/ukb	ukb	hapmap3	eur	prscs	.hdf5
