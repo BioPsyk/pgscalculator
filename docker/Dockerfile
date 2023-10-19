@@ -37,7 +37,7 @@ RUN mv nextflow/build/releases/nextflow-21.12.1-edge-all /usr/bin/nextflow && \
   chmod +x /usr/bin/nextflow
 
 RUN apt-get update --fix-missing && \
-    apt-get install python3 python3-pip python gawk graphviz dos2unix pigz \
+    apt-get install gawk graphviz dos2unix pigz \
     libbz2-dev liblzma-dev vim -y
 
 # Install other dependencies and utilities
@@ -72,6 +72,32 @@ RUN apt-get update && apt-get install -y git
 RUN git clone https://github.com/getian107/PRScs.git /usr/local/PRScs && \
     ln -s /usr/local/PRScs/PRScs.py /usr/local/bin/PRScs.py && \
     chmod +x /usr/local/bin/PRScs.py
+
+# Install python in the right order (ensure python 3.10)
+RUN apt-get update && apt-get install -y software-properties-common
+RUN add-apt-repository ppa:deadsnakes/ppa
+RUN apt-get update && apt-get install -y python3.10 python3.10-venv python3.10-dev
+RUN apt-get update && apt-get install -y python3.10-distutils
+RUN curl https://bootstrap.pypa.io/get-pip.py | python3.10
+RUN ln -sf /usr/bin/python3.10 /usr/bin/python3 && ln -sf /usr/bin/pip3.10 /usr/bin/pip3
+RUN apt-get autoremove -y && apt-get clean && rm -rf /var/lib/apt/lists/*
+
+RUN python3 -m pip install scipy
+
+# install also python2
+RUN apt-get update && apt-get install -y python
+RUN ln -sf /usr/bin/python2.7 /usr/bin/python
+RUN curl https://bootstrap.pypa.io/pip/2.7/get-pip.py -o get-pip.py && \
+    python get-pip.py && \
+    rm get-pip.py
+
+RUN python -m pip install scipy
+RUN python -m pip install h5py
+
+
+
+
+
 
 # Final conf
 RUN useradd -rm -s /bin/bash -g users -u 1000 nextflow
