@@ -3,6 +3,7 @@
 nextflow.enable.dsl=2
 
 include { format_sumstats } from '../process/pr_format_sumstats.nf'
+include { calc_posteriors_prscs } from '../process/pr_calc_posteriors.nf'
 
 workflow wf_prscs {
 
@@ -16,22 +17,26 @@ workflow wf_prscs {
     genofile
 
     main:
-    // channel of ldfiles
-    Channel
-    .fromPath("${lddir}/*.hdf5")
-    .map { file -> 
-        def chrNumber = file.baseName
-        return tuple(chrNumber, file) 
-    }
-    .view()
+   // // channel of ldfiles
+   // Channel
+   // .fromPath("${lddir}/*.hdf5")
+   // .map { file -> 
+   //     def chrNumber = file.baseName
+   //     return tuple(chrNumber, file) 
+   // }
+   // .set { ldfiles }
 
     // channel of genotypes
     Channel.fromPath("${genofile}")
     .splitCsv(sep: '\t', header: false)
-    .map { row -> tuple(row[0], row[1], file(row[2])) }
-    .view()
+    .map { row -> tuple(row[0], row[1], file("$genodir/${row[2]}")) }
+    .filter { type -> type[1] in ['bed', 'bim', 'fam'] }
+    .groupTuple()
+    .map { chrid, _, files -> [chrid, *files] }
+    .set { genotypes }
 
-  
+    "${genodir}/snpinfo_1kg_hm3"
+
     // format sumstat
     format_sumstats(input, mapfile, "prscs")
     .flatMap { it }
@@ -39,11 +44,15 @@ workflow wf_prscs {
       def parts = file.name.split("_")
       [parts[1].replace(".tsv", ""), file]
     }
-    .view()
-    .set { result }
+    .set { sumstats }
 
     // Calc posteriors
-   calc_posteriors_prscs_ukbb_eur_hm3 \
+    
+    sumstats
+    .join(genotypes)
+    .set{ calc_posterior_input }
+ 
+    calc_posteriors_prscs(calc_posterior_input, n, file("${lddir}")) \
 
     //Run PRS-CS
 
@@ -85,7 +94,7 @@ workflow wf_prscs {
     
 
     emit:
-    result
+    calc_posterior_input
 }
 
 
