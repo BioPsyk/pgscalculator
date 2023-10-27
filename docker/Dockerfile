@@ -67,11 +67,10 @@ RUN apt-get update && apt-get install -y \
 RUN R -e "install.packages('sbayesR', repos='https://cloud.r-project.org/')"
 
 # Install PRS-CS
+WORKDIR /repos
 RUN apt-get update && apt-get install -y git
-
-RUN git clone https://github.com/getian107/PRScs.git /usr/local/PRScs && \
-    ln -s /usr/local/PRScs/PRScs.py /usr/local/bin/PRScs.py && \
-    chmod +x /usr/local/bin/PRScs.py
+RUN git clone https://github.com/getian107/PRScs.git PRScs
+WORKDIR /pgscalculator
 
 # Install python in the right order (ensure python 3.10)
 RUN apt-get update && apt-get install -y software-properties-common
