@@ -1,4 +1,22 @@
-// Nextflow process to format a gwas cleansumstats default output 
+// Nextflow processes format of a gwas cleansumstats default output 
+
+process change_build_sumstats {
+    publishDir "${params.outdir}/intermediates", mode: 'rellink', overwrite: true, enabled: params.dev
+     
+    label 'low_mem'
+
+    input:
+        path(input_file)
+        path(input_map)
+
+    output:
+        path('clean_sumstat_grch37')
+
+    script:
+        """
+        change_build_sumstats.sh ${input_file} ${input_map} "clean_sumstat_grch37"
+        """
+}
 
 process format_sumstats {
     publishDir "${params.outdir}/intermediates", mode: 'rellink', overwrite: true, enabled: params.dev
@@ -15,7 +33,7 @@ process format_sumstats {
 
     script:
         """
-        format_sumstats.sh $input_file ${mapfile} ${method} formatted
+        format_sumstats.sh ${input_file} ${mapfile} ${method} formatted
         """
 }
 

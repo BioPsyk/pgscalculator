@@ -13,7 +13,7 @@ function general_usage(){
  echo ""
  echo "options:"
  echo "-h		 Display help message for pgscalculator"
- echo "-s <file> 	 path to infile"
+ echo "-s <dir> 	 path to sumstats infold"
  echo "-l <dir> 	 LD map dir, absolute paths"
  echo "-g <dir> 	 target genotypes"
  echo "-f <file> 	 target genotypes files in genotype folder"
@@ -42,7 +42,7 @@ paramarray=($@)
 # starting getops with :, puts the checking in silent mode for errors.
 getoptsstring=":hvs:o:b:w:l:g:f:m:c:d"
 
-infile=""
+infold=""
 ldfile=""
 genodir=""
 genofile=""
@@ -51,7 +51,7 @@ outdir="out"
 method=""
 
 # some logical defaults
-infile_given=false
+infold_given=false
 lddir_given=false
 genodir_given=false
 genofile_given=false
@@ -77,8 +77,8 @@ while getopts "${getoptsstring}" opt "${paramarray[@]}"; do
       exit 0
       ;;
     s )
-      infile="$OPTARG"
-      infile_given=true
+      infold="$OPTARG"
+      infold_given=true
       ;;
     l )
       lddir="$OPTARG"
@@ -140,7 +140,7 @@ mkdir -p ${workdir}
 # make workdir if it doesn't already exist
 mkdir -p ${tmpdir}
 
-infile_host=$(realpath "${infile}")
+infold_host=$(realpath "${infold}")
 lddir_host=$(realpath "${lddir}")
 genodir_host=$(realpath "${genodir}")
 genofile_host=$(realpath "${genofile}")
@@ -150,16 +150,19 @@ tmpdir_host=$(realpath "${tmpdir}")
 workdir_host=$(realpath "${workdir}")
 
 # Test that file and folder exists, all of these will always get mounted
-if [ ! -f $infile_host ]; then
-  >&2 echo "infile doesn't exist"
+if [ ! -d $infold_host ]; then
+  >&2 echo "infold doesn't exist"
+  >&2 echo "path tried: $infold_host"
   exit 1
 fi
 if [ ! -d $lddir_host ]; then
   >&2 echo "lddir doesn't exist"
+  >&2 echo "path tried: $lddir_host"
   exit 1
 fi
 if [ ! -d $genodir_host ]; then
   >&2 echo "genodir doesn't exist"
+  >&2 echo "path tried: $genodir_host"
   exit 1
 fi
 if [ ! -f $genofile_host ]; then
@@ -197,10 +200,10 @@ source "${project_dir}/scripts/init-containerization.sh"
 mount_flags=$(format_mount_flags "-B")
 
 # indir
-indir_host=$(dirname "${infile_host}")
-infile_name=$(basename "${infile_host}")
+#indir_host=$(dirname "${infile_host}")
+#infile_name=$(basename "${infile_host}")
 indir_container="/pgscalculator/input"
-infile_container="${indir_container}/${infile_name}"
+#infile_container="${indir_container}/${infile_name}"
 
 # lddir
 lddir_container="/pgscalculator/lddir"
@@ -237,7 +240,7 @@ singularity run \
    --contain \
    --cleanenv \
    ${mount_flags} \
-   -B "${indir_host}:${indir_container}" \
+   -B "${infold_host}:${indir_container}" \
    -B "${outdir_host}:${outdir_container}" \
    -B "${lddir_host}:${lddir_container}" \
    -B "${genodir_host}:${genodir_container}" \
@@ -251,7 +254,7 @@ singularity run \
      run /pgscalculator ${runtype} \
      ${devmode} \
      --method ${method} \
-     --input "${infile_container}" \
+     --input "${indir_container}" \
      --lddir "${lddir_container}" \
      --genodir "${genodir_container}" \
      --genofile "${genofile_container}" \
