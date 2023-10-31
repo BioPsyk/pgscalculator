@@ -5,7 +5,7 @@
 ```
 # quick start (run prs-cs)
 ./pgscalculator.sh \
-  -s tests/example_data/sumstats/sumstat_1 \
+  -s references/sumstats/sumstat_FG1970 \
   -l references/ld-prscs/ldblk_1kg_eur \
   -g references/genotypes_test/plink \
   -f references/genotypes_test/mapfiles/prscs_dir_mapfiles.txt \

@@ -65,3 +65,12 @@ wget -O ld-sbayesr/ukb/ukb.tar.gz
 ```
 
 
+# Sumstats
+There is a smaller vcf that can be used for smaller testing, but no snps appear to overlap with the join ldref and target genotypes, so I will put a larger sumstat in the reference that can be used for testing instead.
+
+```
+mkdir -p references/sumstats
+cp -R /home/jesgaaopen/ibp_pipeline_cleansumstats/raw_library/sumstat_clean_library_finngen/R8/version_1.6.0/sumstat_FG1970  references/sumstats/
+
+```
+

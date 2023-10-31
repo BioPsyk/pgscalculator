@@ -206,7 +206,9 @@ indir_container="/pgscalculator/input"
 #infile_container="${indir_container}/${infile_name}"
 
 # lddir
-lddir_container="/pgscalculator/lddir"
+foldername=$(basename "$lddir_host")
+lddir_container="/pgscalculator/$foldername"
+#lddir_container="/pgscalculator/lddir"
 
 # genodir
 genodir_container="/pgscalculator/genodir"
