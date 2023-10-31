@@ -3,6 +3,7 @@ nextflow.enable.dsl = 2
 
 // include subworkflows
 include { wf_prscs } from './modules/subworkflow/wf_prscs.nf'
+include { wf_sbayesr } from './modules/subworkflow/wf_sbayesr.nf'
 
 // include processes
 include { extract_metadata_from_sumstat } from './modules/process/pr_extract_metadata_from_sumstat.nf'
@@ -11,7 +12,6 @@ include { change_build_sumstats } from './modules/process/pr_format_sumstats.nf'
 // support files from assets
 if (params.mapfile) { mapfile = file(params.mapfile, checkIfExists: true) }
 
-//"/faststorage/jail/project/proto_psych_pgs/data/reference_gwas/PGC_SCZ_2014.vcf.gz"
 //input = file(params.input, checkIfExists: true)
 Channel.fromPath("${params.input}/cleaned_GRCh37.gz", type: 'file').set { ch_input_grch37_map }
 Channel.fromPath("${params.input}/cleaned_GRCh38.gz", type: 'file').set { ch_input_grch38 }
@@ -35,6 +35,11 @@ workflow {
       params.genodir, 
       params.genofile
     )
+  }else if(params.method=="sbayesr"){
+    wf_sbayesr(change_build_sumstats.out, 
+      mapfile
+    )
+
   }
 } 
 

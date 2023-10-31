@@ -18,14 +18,6 @@ workflow wf_prscs {
     genofile
 
     main:
-   // // channel of ldfiles
-   // Channel
-   // .fromPath("${lddir}/*.hdf5")
-   // .map { file -> 
-   //     def chrNumber = file.baseName
-   //     return tuple(chrNumber, file) 
-   // }
-   // .set { ldfiles }
 
     // channel of genotypes
     Channel.fromPath("${genofile}")
