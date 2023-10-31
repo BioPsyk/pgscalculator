@@ -1,6 +1,6 @@
 .DS_Store
 *.swp
 tmp
-out
+out*
 work
 references
