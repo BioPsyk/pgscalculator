@@ -94,7 +94,10 @@ RUN python -m pip install scipy
 RUN python -m pip install h5py
 
 
-
+# Install sbayesR GCTB version
+RUN wget https://cnsgenomics.com/software/gctb/download/gctb_2.05beta_Linux.zip && \
+  unzip gctb_2.05beta_Linux.zip && \
+  mv gctb_2.05beta_Linux/gctb /usr/bin/gctb 
 
 
 
