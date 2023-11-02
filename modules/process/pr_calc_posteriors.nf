@@ -9,20 +9,51 @@ process calc_posteriors_prscs {
             val(N)
             
     output:
-        tuple val(chr), path("outdir_pst_eff_a1_b0.5_phiauto_chr${chr}.txt")
+        tuple val(chr), path("prscs_pst_eff_a1_b0.5_phiauto_chr${chr}.txt")
 
     script:
         def integerN = Math.round(N as float)
         """
-        mkdir outdir
+        mkdir prscs
         python /repos/PRScs/PRScs.py \
             --ref_dir=$lddir \
             --sst_file=${gwas} \
             --bim_prefix="geno" \
             --n_gwas=${integerN} \
             --chrom=${chr} \
-            --out_dir=outdir
+            --out_dir=prscs
         """ 
 }
 
+// calculate per chromosome posterior SNP effects for sBayesR
+
+process calc_posteriors_sbayesr {
+    label 'big_mem'
+    cpus 6
+    
+    input:
+        tuple val(chr), path(gwas_chr), path("ld.bin"), path("ld.info")
+    
+    output:
+        tuple val(chr), path("chr${chr}.snpRes")
+
+    script:
+        //ld_prefix="${lddir}/ukbEURu_hm3_all_v3_50k.ldm.sparse"
+        ld_prefix="ld"
+        """
+        gctb --sbayes R \
+            --gwas-summary ${gwas_chr} \
+            --ldm ${ld_prefix} \
+            --gamma 0.0,0.01,0.1,1 \
+            --pi 0.95,0.02,0.02,0.01 \
+            --burn-in 5000 \
+            --chain-length 25000 \
+            --out chr${chr} \
+            --exclude-mhc \
+            --no-mcmc-bin \
+            --thread 6 \
+            --seed 80851 \
+            --impute-n
+        """
+}
 

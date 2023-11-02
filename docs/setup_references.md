@@ -49,20 +49,23 @@ rm -r ldblk_ukbb_eur
 cd ../..	
 ```
 
-### sbayes-R
+### sbayesr
 All references can be downloaded from here: https://github.com/getian107/PRScs
 
 ```
-# Make PRSCS folder
-mkdir -p ld-sbayesr/kgp
+# Make sbayesr folder
 mkdir -p ld-sbayesr/ukb
 
-# Get the European 1000G project
-wget -O ld-sbayesr/kgp/kgp.tar.gz 
+wget https://zenodo.org/records/3350914/files/ukbEURu_hm3_sparse.zip
+unzip ukbEURu_hm3_sparse.zip
 
-# Get the European UKB project
-wget -O ld-sbayesr/ukb/ukb.tar.gz 
+
+
 ```
+
+
+
+
 
 
 # Sumstats

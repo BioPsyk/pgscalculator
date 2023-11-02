@@ -37,7 +37,8 @@ workflow {
     )
   }else if(params.method=="sbayesr"){
     wf_sbayesr(change_build_sumstats.out, 
-      mapfile
+      mapfile,
+      params.lddir
     )
 
   }
