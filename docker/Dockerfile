@@ -26,8 +26,8 @@ WORKDIR /pgscalculator
 #---------------------------------------------------------------------------------
 # Creating runtime image with software built in builder image
 
-# Represents docker.io/library/adoptopenjdk:11-jre-openj9 at 2021-01-14
-FROM adoptopenjdk@sha256:477d0c53aca999692d2432e529af1f7abd715205fcfc36534ac9ff490f4da0e8
+#ubuntu:23.04
+FROM ubuntu@sha256:04714a1bfbb2d8b5390b5cc0c055e48ebfabd4aa395821b860730ff3277ed74a
 
 COPY --from=java_builder /pgscalculator /pgscalculator
 
@@ -44,14 +44,30 @@ RUN apt-get update --fix-missing && \
 RUN apt-get update && apt-get install -y \
     wget \
     unzip \
+    curl \
     --no-install-recommends && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
-# Download and install PLINK
-RUN wget https://s3.amazonaws.com/plink1-assets/plink_linux_x86_64_20231018.zip && \
-    unzip plink_linux_x86_64_20231018.zip && \
-    mv plink /usr/local/bin/
+# Copy micromamba from the official image
+COPY --from=mambaorg/micromamba:latest /usr/bin/micromamba /usr/local/bin/micromamba
+
+
+#RUN apt-get update && \
+#    apt-get install -y --no-install-recommends ca-certificates && \
+#    update-ca-certificates && \
+#    wget -nv https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh -O /tmp/miniconda.sh && \
+#    /bin/bash /tmp/miniconda.sh -b -p /opt/conda && \
+#    rm /tmp/miniconda.sh && \
+#    /opt/conda/bin/conda clean -tipsy && \
+#    ln -s /opt/conda/etc/profile.d/conda.sh /etc/profile.d/conda.sh && \
+#    echo ". /opt/conda/etc/profile.d/conda.sh" >> ~/.bashrc && \
+#    echo "conda activate base" >> ~/.bashrc
+
+
+
+#RUN /opt/conda/bin/conda install -c conda-forge mamba
+
 
 # Install sbayesR, Install R and dependencies
 RUN apt-get update && apt-get install -y \
@@ -72,26 +88,41 @@ RUN apt-get update && apt-get install -y git
 RUN git clone https://github.com/getian107/PRScs.git PRScs
 WORKDIR /pgscalculator
 
-# Install python in the right order (ensure python 3.10)
+## Install python in the right order (ensure python 3.11)
 RUN apt-get update && apt-get install -y software-properties-common
-RUN add-apt-repository ppa:deadsnakes/ppa
-RUN apt-get update && apt-get install -y python3.10 python3.10-venv python3.10-dev
-RUN apt-get update && apt-get install -y python3.10-distutils
-RUN curl https://bootstrap.pypa.io/get-pip.py | python3.10
-RUN ln -sf /usr/bin/python3.10 /usr/bin/python3 && ln -sf /usr/bin/pip3.10 /usr/bin/pip3
-RUN apt-get autoremove -y && apt-get clean && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y python3.11
+RUN apt-get update && apt-get install -y python3.11-dev
+RUN apt-get update && apt-get install -y python3.11-venv
+RUN apt-get update && apt-get install -y python3.11-distutils
+RUN apt-get update && apt-get install -y python3-scipy
+#RUN apt-get update && apt-get install -y python3-pip
+#RUN curl https://bootstrap.pypa.io/get-pip.py | python3.11
+#RUN ln -sf /usr/bin/python3.11 /usr/bin/python3 && ln -sf /usr/bin/pip3.11 /usr/bin/pip3
+#RUN apt-get autoremove -y && apt-get clean && rm -rf /var/lib/apt/lists/*
 
-RUN python3 -m pip install scipy
+RUN python3 --version
+
+#RUN python3 -m pip install scipy
+#RUN pip install scipy
 
 # install also python2
-RUN apt-get update && apt-get install -y python
-RUN ln -sf /usr/bin/python2.7 /usr/bin/python
-RUN curl https://bootstrap.pypa.io/pip/2.7/get-pip.py -o get-pip.py && \
-    python get-pip.py && \
-    rm get-pip.py
+RUN micromamba create -n py27 python=2.7 -c conda-forge
+RUN micromamba install -n py27 scipy -c conda-forge
+RUN micromamba install -n py27 h5py -c conda-forge
 
-RUN python -m pip install scipy
-RUN python -m pip install h5py
+
+## From within the process use
+#source /opt/conda/bin/activate py27
+
+
+#RUN apt-get update && apt-get install -y python
+#RUN ln -sf /usr/bin/python2.7 /usr/bin/python
+#RUN curl https://bootstrap.pypa.io/pip/2.7/get-pip.py -o get-pip.py && \
+#    python get-pip.py && \
+#    rm get-pip.py
+#
+#RUN python -m pip install scipy
+#RUN python -m pip install h5py
 
 
 # Install sbayesR GCTB version
@@ -99,11 +130,15 @@ RUN wget https://cnsgenomics.com/software/gctb/download/gctb_2.05beta_Linux.zip 
   unzip gctb_2.05beta_Linux.zip && \
   mv gctb_2.05beta_Linux/gctb /usr/bin/gctb 
 
+# Download and install PLINK
+RUN wget https://s3.amazonaws.com/plink1-assets/plink_linux_x86_64_20231018.zip && \
+    unzip plink_linux_x86_64_20231018.zip && \
+    mv plink /usr/local/bin/
 
 
 # Final conf
-RUN useradd -rm -s /bin/bash -g users -u 1000 nextflow
+RUN useradd -rm -s /bin/bash -g users nextflow
+#RUN useradd -rm -s /bin/bash -g users -u 1000 nextflow
 RUN rm -rf /pgscalculator/* && chown nextflow:users /pgscalculator && chmod g+s /pgscalculator
 
 USER nextflow
-
