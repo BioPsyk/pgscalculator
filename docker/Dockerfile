@@ -135,6 +135,8 @@ RUN wget https://s3.amazonaws.com/plink1-assets/plink_linux_x86_64_20231018.zip 
     unzip plink_linux_x86_64_20231018.zip && \
     mv plink /usr/local/bin/
 
+RUN apt-get update --fix-missing && \
+  apt-get install -y openjdk-11-jre
 
 # Final conf
 RUN useradd -rm -s /bin/bash -g users nextflow
