@@ -1,5 +1,4 @@
 // Nextflow processes format of a gwas cleansumstats default output 
-
 process change_build_sumstats {
     publishDir "${params.outdir}/intermediates", mode: 'rellink', overwrite: true, enabled: params.dev
      
@@ -36,4 +35,5 @@ process format_sumstats {
         format_sumstats.sh ${input_file} ${mapfile} ${method} formatted
         """
 }
+
 
