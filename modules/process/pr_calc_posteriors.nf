@@ -26,7 +26,6 @@ process calc_posteriors_prscs {
 }
 
 // calculate per chromosome posterior SNP effects for sBayesR
-
 process calc_posteriors_sbayesr {
     label 'big_mem'
     cpus 6
@@ -38,7 +37,6 @@ process calc_posteriors_sbayesr {
         tuple val(chr), path("chr${chr}.snpRes")
 
     script:
-        //ld_prefix="${lddir}/ukbEURu_hm3_all_v3_50k.ldm.sparse"
         ld_prefix="ld"
         """
         gctb --sbayes R \
@@ -46,14 +44,18 @@ process calc_posteriors_sbayesr {
             --ldm ${ld_prefix} \
             --gamma 0.0,0.01,0.1,1 \
             --pi 0.95,0.02,0.02,0.01 \
-            --burn-in 5000 \
-            --chain-length 25000 \
-            --out chr${chr} \
+            --burn-in 2000 \
+            --chain-length 10000 \
+            --out-freq 10 \
+            --unscale-genotype \
             --exclude-mhc \
-            --no-mcmc-bin \
+            --p-value 0.99 \
+            --rsq 0.95 \
+            --impute-n \
             --thread 6 \
-            --seed 80851 \
-            --impute-n
+            --out chr${chr}
         """
 }
 
+           // --no-mcmc-bin \
+           // --seed 80851 \

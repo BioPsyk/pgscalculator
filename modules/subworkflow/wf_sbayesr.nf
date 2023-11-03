@@ -27,7 +27,7 @@ workflow wf_sbayesr {
     .fromPath("${lddir}/*.bin")
     .map { file ->
         // Split the file name by underscores and select the third element
-        def chrNumber = file.baseName.split("_")[2].replaceAll(/[^0-9]/, '')
+        def chrNumber = file.baseName.split("_")[1].replaceAll(/[^0-9]/, '')
         return tuple(chrNumber, file)
     }
     .set { ldfiles1 }
@@ -37,7 +37,7 @@ workflow wf_sbayesr {
     .fromPath("${lddir}/*.info")
     .map { file ->
         // Split the file name by underscores and select the third element
-        def chrNumber = file.baseName.split("_")[2].replaceAll(/[^0-9]/, '')
+        def chrNumber = file.baseName.split("_")[1].replaceAll(/[^0-9]/, '')
         return tuple(chrNumber, file)
     }
     .set { ldfiles2 }
@@ -50,6 +50,7 @@ workflow wf_sbayesr {
     .join(ch_ldfiles)
     .set { ch_calc_posteriors }  
 
+    //ch_calc_posteriors
     calc_posteriors_sbayesr(ch_calc_posteriors)
     
     emit:

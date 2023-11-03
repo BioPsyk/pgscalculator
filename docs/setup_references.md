@@ -56,9 +56,8 @@ All references can be downloaded from here: https://github.com/getian107/PRScs
 # Make sbayesr folder
 mkdir -p ld-sbayesr/ukb
 
-wget https://zenodo.org/records/3350914/files/ukbEURu_hm3_sparse.zip
-unzip ukbEURu_hm3_sparse.zip
-
+wget https://cnsgenomics.com/data/GCTB/band_ukb_10k_hm3.zip
+unzip band_ukb_10k_hm3.zip
 
 
 ```

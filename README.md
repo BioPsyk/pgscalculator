@@ -18,7 +18,7 @@
 # quick start (run sbayesR)
 ./pgscalculator.sh \
   -s references/sumstats/sumstat_FG1970 \
-  -l /faststorage/project/proto_psych_pgs_devel/data/ukbEURu_hm3_shrunk_sparse \
+  -l references/ld-sbayesr/ukb/band_ukb_10k_hm3 \
   -g references/genotypes_test/plink \
   -f references/genotypes_test/mapfiles/prscs_dir_mapfiles.txt \
   -m "sbayesr" \
@@ -26,7 +26,9 @@
   -o out2 \
   -d
 
-#references/ld-sbayesr/ukb/ukbEURu_hm3_shrunk_sparse
+#  -l /faststorage/project/proto_psych_pgs_devel/data/ukb_50k_bigset_2.8M \
+#  -l references/ld-sbayesr/ukb/ukbEURu_hm3_shrunk_sparse
+#  -l /faststorage/project/proto_psych_pgs_devel/data/ukbEURu_hm3_shrunk_sparse \
 ```
 
 ## Running on HPC
