@@ -36,4 +36,21 @@ process format_sumstats {
         """
 }
 
+process add_N {
+    publishDir "${params.outdir}/intermediates", mode: 'rellink', overwrite: true, enabled: params.dev
+     
+    label 'low_mem'
+
+    input:
+        path(input_file), path(meta)
+
+    output:
+        path('added_N')
+
+    script:
+        """
+        add_N_to_sumstat.sh ${meta}
+        """
+}
+
 
