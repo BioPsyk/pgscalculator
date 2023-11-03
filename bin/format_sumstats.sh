@@ -26,6 +26,9 @@ BEGIN {
           for (i=2; i<=NF; i++) {
               if ($i != "NA") {
                   out_header[i] = $i
+              }else{
+                  # Set in_header to NA
+                  in_header[i] = "NA"
               }
           }
       } else if ($1 == format"_cix") {
@@ -56,6 +59,16 @@ BEGIN {
       if ($i == "CHR") {
         chr_col=i
       }
+  }
+
+  # check that everything in in_header also exists as input_col
+  for (k in in_header) {
+    if(in_header[k] != "NA"){
+      if (!(in_header[k] in input_col)) {
+        print "Header not found in input sumstat columns: " in_header[k]
+        exit 1
+      }
+    }
   }
 
   if (chr_col){
