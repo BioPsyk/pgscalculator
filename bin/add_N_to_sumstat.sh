@@ -71,15 +71,30 @@ if ${tfcol_CaseN} && ${tfcol_ControlN} ;then
     controlN = $(controlIdx)
     neff = 4 / ((1 / caseN) + (1 / controlN))
     if (existingIdx) {
-      $(existingIdx)=neff
+      $(existingIdx)=int(neff)
+      print $0
+    }else {
+      print $0, int(neff)
     }
-    print $0
   }
   ' <(zcat ${file})
 elif $tfcol_N ;then
-  zcat ${file}
+  awk -vOFS="\t" '
+  NR==1{
+    for (i = 1; i <= NF; i++) {
+      if ($i ~ /^N$/) {
+	existingIdx=i
+      }
+    }
+    print $0; next
+  }
+  NR>1{
+    $(existingIdx)=int($(existingIdx))
+    print $0
+  }
+  ' <(zcat ${file})
 elif [[ "${tfEffectiveN}" != "" ]];then
-  awk -vOFS="\t" -vneff="${EffectiveN}" 'NR==1{print $0,"N"}; NR>1{print $0, neff}' <(zcat ${file})
+  awk -vOFS="\t" -vneff="${EffectiveN}" 'NR==1{print $0,"N"}; NR>1{print $0, int(neff)}' <(zcat ${file})
 else
   echo "must provide the col_N, col_CaseN and col_ControlN, or stats_EffectiveN"
   exit 1
