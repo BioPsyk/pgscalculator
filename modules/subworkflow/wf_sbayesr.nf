@@ -3,6 +3,7 @@
 nextflow.enable.dsl=2
 
 include { format_sumstats } from '../process/pr_format_sumstats.nf'
+include { pr_add_N_effective } from '../process/pr_add_N_effective.nf'
 include { calc_posteriors_sbayesr } from '../process/pr_calc_posteriors.nf'
 
 workflow wf_sbayesr {
@@ -11,10 +12,13 @@ workflow wf_sbayesr {
     input
     mapfile
     lddir
+    metafile
 
     main:
+
     // format sumstat
-    format_sumstats(input, mapfile, "sbayesr")
+    pr_add_N_effective(input, metafile)
+    format_sumstats(pr_add_N_effective.out, mapfile, "sbayesr")
     .flatMap { it }
     .map { file ->
       def parts = file.name.split("_")
