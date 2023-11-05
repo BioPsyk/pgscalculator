@@ -11,7 +11,13 @@ map_file="$2"
 format="$3"
 output_prefix="$4"
 
-awk -v format="$format" -v mapfile="$map_file" -v output_prefix="$output_prefix" -vFS="\t" -vOFS="\t" \
+# Methods specific delim
+MOFS="\t"
+if [ ${format} == "sbayesr" ]; then
+  MOFS=" "
+fi
+
+awk -v format="$format" -v mapfile="$map_file" -v output_prefix="$output_prefix" -vFS="\t" -vOFS="${MOFS}" \
 '
 BEGIN {
   # Process the map file

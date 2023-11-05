@@ -100,15 +100,15 @@ cat <<EOF | gzip -c > ./input_file.tsv.gz
 EOF
 
 cat <<EOF > ./expected-result_1.tsv
-SNP	A1	A2	freq	b	se	p	N
-rs12726220	A	G	0.948	-0.0315	0.0277	0.2547	30000
-rs12739293	T	C	0.133	0.007	0.0175	0.6873	30000
-rs12754538	T	C	0.308	-6e-04	0.015	0.9663	30000
+SNP A1 A2 freq b se p N
+rs12726220 A G 0.948 -0.0315 0.0277 0.2547 30000
+rs12739293 T C 0.133 0.007 0.0175 0.6873 30000
+rs12754538 T C 0.308 -6e-04 0.015 0.9663 30000
 EOF
 
 cat <<EOF > ./expected-result_2.tsv
-SNP	A1	A2	freq	b	se	p	N
-rs10197378	A	G	0.183	-0.0189	0.0155	0.2226	30000
+SNP A1 A2 freq b se p N
+rs10197378 A G 0.183 -0.0189 0.0155 0.2226 30000
 EOF
 
 _run_script "sbayesr"

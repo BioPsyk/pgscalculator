@@ -17,7 +17,7 @@
 
 # quick start (run sbayesR)
 ./pgscalculator.sh \
-  -s references/sumstats/sumstat_FG1970 \
+  -s references/sumstats/sumstat_5668 \
   -l references/ld-sbayesr/ukb/band_ukb_10k_hm3 \
   -g references/genotypes_test/plink \
   -f references/genotypes_test/mapfiles/prscs_dir_mapfiles.txt \
