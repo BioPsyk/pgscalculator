@@ -31,13 +31,13 @@ process calc_posteriors_sbayesr {
     cpus 6
     
     input:
-        tuple val(chr), path(gwas_chr), path("ld.bin"), path("ld.info")
+        tuple val(chr), path(gwas_chr), path(ldbin), path(ldinfo)
     
     output:
         tuple val(chr), path("chr${chr}.snpRes")
 
     script:
-        ld_prefix="ld"
+        ld_prefix="band_chr${chr}.ldm.sparse"
         """
         gctb --sbayes R \
             --gwas-summary ${gwas_chr} \
@@ -51,11 +51,9 @@ process calc_posteriors_sbayesr {
             --exclude-mhc \
             --p-value 0.99 \
             --rsq 0.95 \
-            --impute-n \
             --thread 6 \
+            --seed 80851 \
             --out chr${chr}
         """
 }
 
-           // --no-mcmc-bin \
-           // --seed 80851 \

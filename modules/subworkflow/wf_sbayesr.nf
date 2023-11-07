@@ -27,6 +27,9 @@ workflow wf_sbayesr {
     .set { sumstats }
 
     //channel of ldfiles
+    //Channel.fromPath("${lddir}/*.ukb10k.mldm")
+    //.set { ch_mldm }
+
     Channel
     .fromPath("${lddir}/*.bin")
     .map { file ->
@@ -35,7 +38,6 @@ workflow wf_sbayesr {
         return tuple(chrNumber, file)
     }
     .set { ldfiles1 }
-
 
     Channel
     .fromPath("${lddir}/*.info")
