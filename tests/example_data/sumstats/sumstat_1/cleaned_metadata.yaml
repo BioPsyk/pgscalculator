@@ -21,7 +21,5 @@ cleansumstats_col_SE: SE
 cleansumstats_col_Z: Z
 cleansumstats_col_P: P
 cleansumstats_col_N: N
-cleansumstats_col_CaseN: CaseN
-cleansumstats_col_ControlN: ControlN
 cleansumstats_col_INFO: INFO
 cleansumstats_col_Notes: If possible, missing stats have been calculated from the avialable. If OtherAllele was missing we use the alternate allele according to the dbsnp reference

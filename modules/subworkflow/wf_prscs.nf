@@ -4,7 +4,7 @@ nextflow.enable.dsl=2
 
 include { format_sumstats } from '../process/pr_format_sumstats.nf'
 include { calc_posteriors_prscs } from '../process/pr_calc_posteriors.nf'
-include { calc_score_prscs } from '../process/pr_calc_score.nf'
+include { calc_score } from '../process/pr_calc_score.nf'
 
 workflow wf_prscs {
 
@@ -53,11 +53,11 @@ workflow wf_prscs {
     calc_posteriors_prscs.out
     .join(genotypes)
     .set{ ch_calc_score_input }
-    calc_score_prscs(ch_calc_score_input)
+    calc_score(ch_calc_score_input)
 
     
     emit:
-    calc_score_prscs.out
+    calc_score.out
 }
 
 

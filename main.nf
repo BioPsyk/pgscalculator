@@ -39,7 +39,9 @@ workflow {
     wf_sbayesr(change_build_sumstats.out, 
       mapfile,
       params.lddir,
-      ch_input_metafile
+      ch_input_metafile,
+      params.genodir, 
+      params.genofile
     )
 
   }

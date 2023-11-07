@@ -2,9 +2,10 @@
 
 nextflow.enable.dsl=2
 
-include { format_sumstats } from '../process/pr_format_sumstats.nf'
 include { pr_add_N_effective } from '../process/pr_add_N_effective.nf'
+include { format_sumstats } from '../process/pr_format_sumstats.nf'
 include { calc_posteriors_sbayesr } from '../process/pr_calc_posteriors.nf'
+include { calc_score } from '../process/pr_calc_score.nf'
 
 workflow wf_sbayesr {
 
@@ -13,8 +14,19 @@ workflow wf_sbayesr {
     mapfile
     lddir
     metafile
+    genodir
+    genofile
 
     main:
+
+    // channel of genotypes
+    Channel.fromPath("${genofile}")
+    .splitCsv(sep: '\t', header: false)
+    .map { row -> tuple(row[0], row[1], file("$genodir/${row[2]}")) }
+    .filter { type -> type[1] in ['bed', 'bim', 'fam'] }
+    .groupTuple()
+    .map { chrid, _, files -> [chrid, *files] }
+    .set { genotypes }
 
     // format sumstat
     pr_add_N_effective(input, metafile)
@@ -58,9 +70,15 @@ workflow wf_sbayesr {
 
     //ch_calc_posteriors
     calc_posteriors_sbayesr(ch_calc_posteriors)
+
+    // Calc score
+    calc_posteriors_sbayesr.out
+    .join(genotypes)
+    .set{ ch_calc_score_input }
+    calc_score(ch_calc_score_input)
     
     emit:
-    sumstats
+    calc_score.out
 
 }
 
