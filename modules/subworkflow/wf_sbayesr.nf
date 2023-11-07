@@ -2,8 +2,11 @@
 
 nextflow.enable.dsl=2
 
-include { pr_add_N_effective } from '../process/pr_add_N_effective.nf'
-include { format_sumstats } from '../process/pr_format_sumstats.nf'
+include {  
+ add_N_effective
+ format_sumstats
+ force_EAF_to_sumstat
+} from '../process/pr_format_sumstats.nf'
 include { calc_posteriors_sbayesr } from '../process/pr_calc_posteriors.nf'
 include { calc_score } from '../process/pr_calc_score.nf'
 
@@ -29,8 +32,9 @@ workflow wf_sbayesr {
     .set { genotypes }
 
     // format sumstat
-    pr_add_N_effective(input, metafile)
-    format_sumstats(pr_add_N_effective.out, mapfile, "sbayesr")
+    add_N_effective(input, metafile)
+    force_EAF_to_sumstat(add_N_effective.out, metafile)
+    format_sumstats(force_EAF_to_sumstat.out, mapfile, "sbayesr")
     .flatMap { it }
     .map { file ->
       def parts = file.name.split("_")

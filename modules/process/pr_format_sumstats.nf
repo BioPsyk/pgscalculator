@@ -36,21 +36,37 @@ process format_sumstats {
         """
 }
 
-process add_N {
+process add_N_effective {
     publishDir "${params.outdir}/intermediates", mode: 'rellink', overwrite: true, enabled: params.dev
-     
-    label 'low_mem'
-
     input:
-        path(input_file), path(meta)
+    path(sfile)
+    path(metafile)
 
     output:
-        path('added_N')
+    path("sfile_added_N.gz")
 
     script:
-        """
-        add_N_to_sumstat.sh ${meta}
-        """
+    """
+    add_N_to_sumstat.sh ${sfile} ${metafile} | gzip -c > sfile_added_N.gz
+    """
 }
+
+process force_EAF_to_sumstat {
+    publishDir "${params.outdir}/intermediates", mode: 'rellink', overwrite: true, enabled: params.dev
+    input:
+    path(sfile)
+    path(metafile)
+
+    output:
+    path("sfile_forced_EAF.gz")
+
+    script:
+    """
+    force_EAF_to_sumstat.sh ${sfile} ${metafile} | gzip -c > sfile_forced_EAF.gz
+    """
+}
+
+
+
 
 

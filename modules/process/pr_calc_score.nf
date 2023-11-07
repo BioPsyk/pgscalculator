@@ -14,11 +14,19 @@ process calc_score {
     
     script:
         """
-        ./plink2 --bfile geno \
-        --out tmp \
-        --score ${snp_posteriors} 2 4 6 header cols=+scoresums ignore-dup-ids
+        # Count the number of lines in the file
+        num_lines=\$(head -n20 ${snp_posteriors} | wc -l)
+        
+        # Check if the file has more than one line (more than just the header)
+        if [ "\$num_lines" -gt 1 ]; then
+          ./plink2 --bfile geno \
+          --out tmp \
+          --score ${snp_posteriors} 2 4 6 header cols=+scoresums ignore-dup-ids
 
-        awk '{gsub(/^#/, ""); print}' tmp.score > chr${chr}.score
+          awk '{gsub(/^#/, ""); print}' tmp.score > chr${chr}.score
+        else
+          touch chr${chr}.score
+        fi
         """
 }
 

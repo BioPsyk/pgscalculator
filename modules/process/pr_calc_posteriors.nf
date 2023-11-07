@@ -15,18 +15,30 @@ process calc_posteriors_prscs {
         def integerN = Math.round(N as float)
         """
         mkdir prscs
-        python /repos/PRScs/PRScs.py \
+
+        # Count the number of lines in the file
+        num_lines=\$(head -n20 "$gwas" | wc -l)
+
+        # Check if the file has more than one line (more than just the header)
+        if [ "\$num_lines" -gt 1 ]; then
+
+          python /repos/PRScs/PRScs.py \
             --ref_dir=$lddir \
             --sst_file=${gwas} \
             --bim_prefix="geno" \
             --n_gwas=${integerN} \
             --chrom=${chr} \
             --out_dir=prscs
+        else
+          touch prscs_pst_eff_a1_b0.5_phiauto_chr${chr}.txt
+        fi
         """ 
 }
 
 // calculate per chromosome posterior SNP effects for sBayesR
 process calc_posteriors_sbayesr {
+    publishDir "${params.outdir}/intermediates", mode: 'rellink', overwrite: true, enabled: params.dev
+
     label 'big_mem'
     cpus 6
     
@@ -39,7 +51,12 @@ process calc_posteriors_sbayesr {
     script:
         ld_prefix="band_chr${chr}.ldm.sparse"
         """
-        gctb --sbayes R \
+        # Count the number of lines in the file
+        num_lines=\$(head -n20 "$gwas_chr" | wc -l)
+        
+        # Check if the file has more than one line (more than just the header)
+        if [ "\$num_lines" -gt 1 ]; then
+          gctb --sbayes R \
             --gwas-summary ${gwas_chr} \
             --ldm ${ld_prefix} \
             --gamma 0.0,0.01,0.1,1 \
@@ -54,6 +71,10 @@ process calc_posteriors_sbayesr {
             --thread 6 \
             --seed 80851 \
             --out chr${chr}
+        else
+          touch "chr${chr}.snpRes"
+        fi
         """
 }
+
 
