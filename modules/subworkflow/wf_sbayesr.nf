@@ -25,6 +25,7 @@ workflow wf_sbayesr {
     // channel of genotypes
     Channel.fromPath("${genofile}")
     .splitCsv(sep: '\t', header: false)
+    .map { row -> row.collect { it.trim() } } // Trim whitespace from each field
     .map { row -> tuple(row[0], row[1], file("$genodir/${row[2]}")) }
     .filter { type -> type[1] in ['bed', 'bim', 'fam'] }
     .groupTuple()
@@ -79,7 +80,7 @@ workflow wf_sbayesr {
     calc_posteriors_sbayesr.out
     .join(genotypes)
     .set{ ch_calc_score_input }
-    calc_score(ch_calc_score_input)
+    calc_score(ch_calc_score_input, "${params.sbayesr_posterior_columns}")
     
     emit:
     calc_score.out

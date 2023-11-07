@@ -2,6 +2,32 @@
 
 
 ## Quick start
+Run using an example file for a subset of chromosome 10
+
+```
+./pgscalculator.sh \
+  -s tests/example_data/sumstats/sumstat_1 \
+  -l references/ld-sbayesr/ukb/band_ukb_10k_hm3 \
+  -g references/genotypes_test/plink \
+  -f references/genotypes_test/mapfiles/plink_genodir_genofiles.txt \
+  -m "sbayesr" \
+  -c conf/prscs_default_20231019.config \
+  -o out3 \
+  -d
+
+./pgscalculator.sh \
+  -s tests/example_data/sumstats/sumstat_1 \
+  -l references/ld-sbayesr/ukb/band_ukb_10k_hm3 \
+  -g references/genotypes_test/plink \
+  -f references/genotypes_test/mapfiles/plink_genodir_genofiles.txt \
+  -m "prscs" \
+  -c conf/prscs_default_20231019.config \
+  -o out4 \
+  -d
+
+```
+
+## Run a full size sumstat file
 
 ```
 # quick start (run prs-cs)
@@ -9,7 +35,7 @@
   -s references/sumstats/sumstat_FG1970 \
   -l references/ld-prscs/ldblk_1kg_eur \
   -g references/genotypes_test/plink \
-  -f references/genotypes_test/mapfiles/prscs_dir_mapfiles.txt \
+  -f references/genotypes_test/mapfiles/plink_genodir_genofiles.txt \
   -m "prscs" \
   -c conf/prscs_default_20231019.config \
   -o out \
@@ -20,20 +46,10 @@
   -s references/sumstats/sumstat_FG1970 \
   -l references/ld-sbayesr/ukb/band_ukb_10k_hm3 \
   -g references/genotypes_test/plink \
-  -f references/genotypes_test/mapfiles/prscs_dir_mapfiles.txt \
+  -f references/genotypes_test/mapfiles/plink_genodir_genofiles.txt \
   -m "sbayesr" \
   -c conf/prscs_default_20231019.config \
   -o out2 \
-  -d
-
-./pgscalculator.sh \
-  -s tests/example_data/sumstats/sumstat_1 \
-  -l references/ld-sbayesr/ukb/band_ukb_10k_hm3 \
-  -g references/genotypes_test/plink \
-  -f references/genotypes_test/mapfiles/prscs_dir_mapfiles.txt \
-  -m "sbayesr" \
-  -c conf/prscs_default_20231019.config \
-  -o out3 \
   -d
 
 #  -s references/sumstats/sumstat_5668 \

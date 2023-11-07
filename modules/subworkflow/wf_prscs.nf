@@ -22,6 +22,7 @@ workflow wf_prscs {
     // channel of genotypes
     Channel.fromPath("${genofile}")
     .splitCsv(sep: '\t', header: false)
+    .map { row -> row.collect { it.trim() } } // Trim whitespace from each field
     .map { row -> tuple(row[0], row[1], file("$genodir/${row[2]}")) }
     .filter { type -> type[1] in ['bed', 'bim', 'fam'] }
     .groupTuple()
@@ -53,7 +54,7 @@ workflow wf_prscs {
     calc_posteriors_prscs.out
     .join(genotypes)
     .set{ ch_calc_score_input }
-    calc_score(ch_calc_score_input)
+    calc_score(ch_calc_score_input, "${params.prscs_posterior_columns}")
 
     
     emit:
