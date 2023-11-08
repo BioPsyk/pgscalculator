@@ -17,6 +17,7 @@ function general_usage(){
  echo "-l <dir> 	 LD map dir, absolute paths"
  echo "-g <dir> 	 target genotypes"
  echo "-f <file> 	 target genotypes files in genotype folder"
+ echo "-b <value> 	 genotype genome build, 37 or 38"
  echo "-m <value> 	 method (default: prscs)"
  echo "-c <file> 	 run specific config file"
  echo "-o <dir> 	 path to output directory"
@@ -47,7 +48,7 @@ project_dir="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 paramarray=($@)
 
 # starting getops with :, puts the checking in silent mode for errors.
-getoptsstring=":hvi:o:b:w:l:g:f:m:c:d"
+getoptsstring=":hvi:o:b:w:l:g:f:m:c:db:"
 
 infold=""
 ldfile=""
@@ -56,9 +57,11 @@ genofile=""
 conffile=""
 outdir="out"
 method=""
+build=""
 
 # some logical defaults
 infold_given=false
+build_given=false
 lddir_given=false
 genodir_given=false
 genofile_given=false
@@ -88,6 +91,10 @@ while getopts "${getoptsstring}" opt "${paramarray[@]}"; do
     i )
       infold="$OPTARG"
       infold_given=true
+      ;;
+    b )
+      build="$OPTARG"
+      build_given=true
       ;;
     l )
       lddir="$OPTARG"
@@ -167,6 +174,16 @@ tmpdir_host=$(realpath "${tmpdir}")
 workdir_host=$(realpath "${workdir}")
 
 # Test that file and folder exists, all of these will always get mounted
+if [ $method == "prscs" ] || [ $method == "sbayesr" ]; then
+  >&2 echo "method not available"
+  >&2 echo "method tried: $method"
+  exit 1
+fi
+if [ $build == "37" ] || [ $build == "38" ]; then
+  >&2 echo "build not available"
+  >&2 echo "build tried: $build"
+  exit 1
+fi
 if [ ! -d $infold_host ]; then
   >&2 echo "infold doesn't exist"
   >&2 echo "path tried: $infold_host"
@@ -275,6 +292,7 @@ singularity run \
      ${inactivate_step_1} \
      ${inactivate_step_2} \
      --method ${method} \
+     --gbuild ${build} \
      --input "${indir_container}" \
      --lddir "${lddir_container}" \
      --genodir "${genodir_container}" \

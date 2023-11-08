@@ -17,6 +17,16 @@ Run using an example file for a subset of chromosome 10
 
 ./pgscalculator.sh \
   -i tests/example_data/sumstats/sumstat_1 \
+  -l references/ld-sbayesr/ukb/band_ukb_10k_hm3 \
+  -g references/genotypes_test/plink_old \
+  -f references/genotypes_test/mapfiles/plink_genodir_genofiles.txt \
+  -m "sbayesr" \
+  -c conf/base.config \
+  -o out3 \
+  -d
+
+./pgscalculator.sh \
+  -i tests/example_data/sumstats/sumstat_1 \
   -l references/ld-prscs/ldblk_1kg_eur \
   -g references/genotypes_test/plink \
   -f references/genotypes_test/mapfiles/plink_genodir_genofiles.txt \
