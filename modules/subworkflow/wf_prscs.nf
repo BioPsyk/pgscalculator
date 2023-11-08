@@ -11,7 +11,6 @@ workflow wf_prscs {
     take:
     input
     mapfile
-    trait
     n
     lddir
     genodir
@@ -48,14 +47,12 @@ workflow wf_prscs {
     .join(genotypes)
     .set{ ch_calc_posterior_input }
     calc_posteriors_prscs(ch_calc_posterior_input, n)
-
     
     // Calc score
     calc_posteriors_prscs.out
     .join(genotypes)
     .set{ ch_calc_score_input }
-    calc_score(ch_calc_score_input, "${params.prscs_posterior_columns}")
-
+    calc_score(ch_calc_score_input, "${params.calc_posteriors_prscs.score_columns}")
     
     emit:
     calc_score.out

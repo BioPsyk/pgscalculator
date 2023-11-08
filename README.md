@@ -11,7 +11,7 @@ Run using an example file for a subset of chromosome 10
   -g references/genotypes_test/plink \
   -f references/genotypes_test/mapfiles/plink_genodir_genofiles.txt \
   -m "sbayesr" \
-  -c conf/prscs_default_20231019.config \
+  -c conf/base.config \
   -o out3 \
   -d
 
@@ -21,7 +21,7 @@ Run using an example file for a subset of chromosome 10
   -g references/genotypes_test/plink \
   -f references/genotypes_test/mapfiles/plink_genodir_genofiles.txt \
   -m "prscs" \
-  -c conf/prscs_default_20231019.config \
+  -c conf/base.config \
   -o out4 \
   -d
 
@@ -37,7 +37,7 @@ Run using an example file for a subset of chromosome 10
   -g references/genotypes_test/plink \
   -f references/genotypes_test/mapfiles/plink_genodir_genofiles.txt \
   -m "prscs" \
-  -c conf/prscs_default_20231019.config \
+  -c conf/base.config \
   -o out \
   -d
 
@@ -48,7 +48,7 @@ Run using an example file for a subset of chromosome 10
   -g references/genotypes_test/plink \
   -f references/genotypes_test/mapfiles/plink_genodir_genofiles.txt \
   -m "sbayesr" \
-  -c conf/prscs_default_20231019.config \
+  -c conf/base.config \
   -o out2 \
   -d
 
@@ -62,6 +62,7 @@ Run using an example file for a subset of chromosome 10
 ```
 # On GDK start interactive node
 srun --mem=40g --ntasks 1 --cpus-per-task 6 --time=9:00:00 --account ibp_pipeline_cleansumstats --pty /bin/bash
+srun --mem=10g --ntasks 1 --cpus-per-task 6 --time=1:00:00 --account ibp_pipeline_cleansumstats --pty /bin/bash
 
 
 ```

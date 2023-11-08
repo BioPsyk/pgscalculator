@@ -1,7 +1,7 @@
 // calculate per chromosome posterior SNP effects for sBayesR
 
 process calc_posteriors_prscs {
-    publishDir "${params.outdir}/intermediates", mode: 'rellink', overwrite: true, enabled: params.dev
+    publishDir "${params.outdir}/intermediates/calc_posteriors_prscs", mode: 'rellink', overwrite: true, enabled: params.dev
     label 'big_mem'
 
     input:
@@ -37,7 +37,7 @@ process calc_posteriors_prscs {
 
 // calculate per chromosome posterior SNP effects for sBayesR
 process calc_posteriors_sbayesr {
-    publishDir "${params.outdir}/intermediates", mode: 'rellink', overwrite: true, enabled: params.dev
+    publishDir "${params.outdir}/intermediates/calc_posteriors_sbayesr", mode: 'rellink', overwrite: true, enabled: params.dev
 
     label 'big_mem'
     cpus 6
@@ -59,17 +59,17 @@ process calc_posteriors_sbayesr {
           gctb --sbayes R \
             --gwas-summary ${gwas_chr} \
             --ldm ${ld_prefix} \
-            --gamma 0.0,0.01,0.1,1 \
-            --pi 0.95,0.02,0.02,0.01 \
-            --burn-in 2000 \
-            --chain-length 10000 \
-            --out-freq 10 \
-            --unscale-genotype \
-            --exclude-mhc \
-            --p-value 0.99 \
-            --rsq 0.95 \
-            --thread 6 \
-            --seed 80851 \
+            --gamma ${params.calc_posteriors_sbayesr.gamma} \
+            --pi ${params.calc_posteriors_sbayesr.pi} \
+            --burn-in ${params.calc_posteriors_sbayesr.burn_in} \
+            --chain-length ${params.calc_posteriors_sbayesr.chain_length} \
+            --out-freq ${params.calc_posteriors_sbayesr.out_freq} \
+            --p-value ${params.calc_posteriors_sbayesr.p_value} \
+            --rsq ${params.calc_posteriors_sbayesr.rsq} \
+            --thread ${params.calc_posteriors_sbayesr.thread} \
+            --seed ${params.calc_posteriors_sbayesr.seed} \
+            ${params.calc_posteriors_sbayesr.unscale_genotype} \
+            ${params.calc_posteriors_sbayesr.exclude_mhc} \
             --out chr${chr}
         else
           touch "chr${chr}.snpRes"

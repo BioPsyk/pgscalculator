@@ -29,7 +29,6 @@ workflow {
   if(params.method=="prscs"){
     wf_prscs(change_build_sumstats.out, 
       mapfile, 
-      params.trait, 
       extract_metadata_from_sumstat.out,
       params.lddir, 
       params.genodir, 

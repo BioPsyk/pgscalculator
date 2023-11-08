@@ -80,7 +80,7 @@ workflow wf_sbayesr {
     calc_posteriors_sbayesr.out
     .join(genotypes)
     .set{ ch_calc_score_input }
-    calc_score(ch_calc_score_input, "${params.sbayesr_posterior_columns}")
+    calc_score(ch_calc_score_input, "${params.calc_posteriors_sbayesr.score_columns}")
     
     emit:
     calc_score.out
