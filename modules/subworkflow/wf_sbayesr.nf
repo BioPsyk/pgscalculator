@@ -14,19 +14,18 @@ workflow wf_sbayesr {
 
     take:
     input
-    mapfile
-    lddir
     metafile
-    genodir
-    genofile
 
     main:
 
+    // support files from assets
+    if (params.mapfile) { mapfile = file(params.mapfile, checkIfExists: true) }
+
     // channel of genotypes
-    Channel.fromPath("${genofile}")
+    Channel.fromPath("${params.genofile}")
     .splitCsv(sep: '\t', header: false)
     .map { row -> row.collect { it.trim() } } // Trim whitespace from each field
-    .map { row -> tuple(row[0], row[1], file("$genodir/${row[2]}")) }
+    .map { row -> tuple(row[0], row[1], file("${params.genodir}/${row[2]}")) }
     .filter { type -> type[1] in ['bed', 'bim', 'fam'] }
     .groupTuple()
     .map { chrid, _, files -> [chrid, *files] }
@@ -43,12 +42,8 @@ workflow wf_sbayesr {
     }
     .set { sumstats }
 
-    //channel of ldfiles
-    //Channel.fromPath("${lddir}/*.ukb10k.mldm")
-    //.set { ch_mldm }
-
     Channel
-    .fromPath("${lddir}/*.bin")
+    .fromPath("${params.lddir}/*.bin")
     .map { file ->
         // Split the file name by underscores and select the third element
         def chrNumber = file.baseName.split("_")[1].replaceAll(/[^0-9]/, '')
@@ -57,7 +52,7 @@ workflow wf_sbayesr {
     .set { ldfiles1 }
 
     Channel
-    .fromPath("${lddir}/*.info")
+    .fromPath("${params.lddir}/*.info")
     .map { file ->
         // Split the file name by underscores and select the third element
         def chrNumber = file.baseName.split("_")[1].replaceAll(/[^0-9]/, '')

@@ -13,7 +13,7 @@ function general_usage(){
  echo ""
  echo "options:"
  echo "-h		 Display help message for pgscalculator"
- echo "-s <dir> 	 path to sumstats infold"
+ echo "-i <dir> 	 path to sumstats folder (or posteriors folder if -1)"
  echo "-l <dir> 	 LD map dir, absolute paths"
  echo "-g <dir> 	 target genotypes"
  echo "-f <file> 	 target genotypes files in genotype folder"
@@ -22,8 +22,15 @@ function general_usage(){
  echo "-o <dir> 	 path to output directory"
  echo "-b <dir> 	 path to system tmp or scratch (default: /tmp)"
  echo "-w <dir> 	 path to workdir/intermediate files (default: work)"
- echo "-d  	 	 dev mode, saving intermediate files, no cleanup of workdir(default: not active)"
+ echo "-d  	 	 dev mode, no cleanup of intermediates(default: not active)"
  echo "-v  	 	 get the version number"
+ echo "-1  	 	 disable step1, calc posteriors "
+ echo "-2  	 	 disable step2, calc score "
+ echo ""
+ echo "NOTES: 	 By default all steps are run (step1 and step2). "
+ echo "          Use -1 or -2 to disable one of the steps. "
+ echo "          Disabling all steps will only return formatted sumstats."
+ 
 }
 
 ################################################################################
@@ -40,7 +47,7 @@ project_dir="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 paramarray=($@)
 
 # starting getops with :, puts the checking in silent mode for errors.
-getoptsstring=":hvs:o:b:w:l:g:f:m:c:d"
+getoptsstring=":hvi:o:b:w:l:g:f:m:c:d"
 
 infold=""
 ldfile=""
@@ -59,6 +66,8 @@ conffile_given=false
 outdir_given=false
 tmpdir_given=false
 devmode_given=false
+inactivate_step_1_given=false
+inactivate_step_2_given=false
 
 # default system tmp
 tmpdir="/tmp"
@@ -76,7 +85,7 @@ while getopts "${getoptsstring}" opt "${paramarray[@]}"; do
       cat ${project_dir}/VERSION 1>&2
       exit 0
       ;;
-    s )
+    i )
       infold="$OPTARG"
       infold_given=true
       ;;
@@ -115,6 +124,14 @@ while getopts "${getoptsstring}" opt "${paramarray[@]}"; do
     d )
       devmode="--dev"
       devmode_given=true
+      ;;
+    1 )
+      inactivate_step_1="--disable_calc_posterior"
+      inactivate_step_1_given=true
+      ;;
+    2 )
+      inactivate_step_2="--disable_calc_score"
+      inactivate_step_2_given=true
       ;;
     \? )
       echo "Invalid Option: -$OPTARG" 1>&2
@@ -255,6 +272,8 @@ singularity run \
      -log "${outdir_container}/.nextflow.log" \
      run /pgscalculator ${runtype} \
      ${devmode} \
+     ${inactivate_step_1} \
+     ${inactivate_step_2} \
      --method ${method} \
      --input "${indir_container}" \
      --lddir "${lddir_container}" \

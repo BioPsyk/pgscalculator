@@ -6,7 +6,7 @@ Run using an example file for a subset of chromosome 10
 
 ```
 ./pgscalculator.sh \
-  -s tests/example_data/sumstats/sumstat_1 \
+  -i tests/example_data/sumstats/sumstat_1 \
   -l references/ld-sbayesr/ukb/band_ukb_10k_hm3 \
   -g references/genotypes_test/plink \
   -f references/genotypes_test/mapfiles/plink_genodir_genofiles.txt \
@@ -16,7 +16,7 @@ Run using an example file for a subset of chromosome 10
   -d
 
 ./pgscalculator.sh \
-  -s tests/example_data/sumstats/sumstat_1 \
+  -i tests/example_data/sumstats/sumstat_1 \
   -l references/ld-sbayesr/ukb/band_ukb_10k_hm3 \
   -g references/genotypes_test/plink \
   -f references/genotypes_test/mapfiles/plink_genodir_genofiles.txt \
@@ -32,7 +32,7 @@ Run using an example file for a subset of chromosome 10
 ```
 # quick start (run prs-cs)
 ./pgscalculator.sh \
-  -s references/sumstats/sumstat_FG1970 \
+  -i references/sumstats/sumstat_FG1970 \
   -l references/ld-prscs/ldblk_1kg_eur \
   -g references/genotypes_test/plink \
   -f references/genotypes_test/mapfiles/plink_genodir_genofiles.txt \
@@ -43,7 +43,7 @@ Run using an example file for a subset of chromosome 10
 
 # quick start (run sbayesR)
 ./pgscalculator.sh \
-  -s references/sumstats/sumstat_FG1970 \
+  -i references/sumstats/sumstat_FG1970 \
   -l references/ld-sbayesr/ukb/band_ukb_10k_hm3 \
   -g references/genotypes_test/plink \
   -f references/genotypes_test/mapfiles/plink_genodir_genofiles.txt \
