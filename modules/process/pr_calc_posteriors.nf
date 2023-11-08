@@ -5,8 +5,7 @@ process calc_posteriors_prscs {
     label 'big_mem'
 
     input:
-        tuple val(chr), path(gwas), path(lddir), path("geno.bed"), path("geno.bim"), path("geno.fam")
-            val(N)
+        tuple val(chr), path(gwas), path(lddir), path("geno.bed"), path("geno.bim"), path("geno.fam"), val(N)
             
     output:
         tuple val(chr), path("prscs_pst_eff_a1_b0.5_phiauto_chr${chr}.txt")
@@ -21,8 +20,10 @@ process calc_posteriors_prscs {
 
         # Check if the file has more than one line (more than just the header)
         if [ "\$num_lines" -gt 1 ]; then
+          # PRScs requires python2, which is best accessed through conda
+          #source /opt/micromamba/bin/activate py27
 
-          python /repos/PRScs/PRScs.py \
+          micromamba run -n py27 python /repos/PRScs/PRScs.py \
             --ref_dir=$lddir \
             --sst_file=${gwas} \
             --bim_prefix="geno" \

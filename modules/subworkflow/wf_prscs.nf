@@ -48,8 +48,9 @@ workflow wf_prscs {
     sumstats
     .combine(ch_lddir)
     .join(genotypes)
+    .combine(extract_metadata_from_sumstat.out)
     .set{ ch_calc_posterior_input }
-    calc_posteriors_prscs(ch_calc_posterior_input, extract_metadata_from_sumstat.out)
+    calc_posteriors_prscs(ch_calc_posterior_input)
     
     // Calc score
     calc_posteriors_prscs.out
