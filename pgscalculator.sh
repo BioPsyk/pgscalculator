@@ -174,12 +174,12 @@ tmpdir_host=$(realpath "${tmpdir}")
 workdir_host=$(realpath "${workdir}")
 
 # Test that file and folder exists, all of these will always get mounted
-if [ $method == "prscs" ] || [ $method == "sbayesr" ]; then
+if [ "$method" != "prscs" ] && [ "$method" != "sbayesr" ]; then
   >&2 echo "method not available"
   >&2 echo "method tried: $method"
   exit 1
 fi
-if [ $build == "37" ] || [ $build == "38" ]; then
+if [ "$build" != "37" ] && [ "$build" != "38" ]; then
   >&2 echo "build not available"
   >&2 echo "build tried: $build"
   exit 1

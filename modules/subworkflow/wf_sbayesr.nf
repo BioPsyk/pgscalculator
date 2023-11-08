@@ -9,6 +9,7 @@ include {
 } from '../process/pr_format_sumstats.nf'
 include { calc_posteriors_sbayesr } from '../process/pr_calc_posteriors.nf'
 include { calc_score } from '../process/pr_calc_score.nf'
+include { add_rsid_to_genotypes } from '../process/pr_format_genotypes.nf'
 
 workflow wf_sbayesr {
 
@@ -30,6 +31,31 @@ workflow wf_sbayesr {
     .groupTuple()
     .map { chrid, _, files -> [chrid, *files] }
     .set { genotypes }
+
+    // always add rsids based on our dbsnp reference
+    if ("${params.gbuild}" == "37") {
+         Channel.fromPath("${params.rsid_ref_37}/*")
+         .set { ch_rsid_ref }
+    } else if ("${params.gbuild}" == "38") {
+         Channel.fromPath("${params.rsid_ref_38}/*")
+         .set { ch_rsid_ref }
+    } else {
+        error "Genome build has to be 37 or 38, now it is ${params.gbuild}"
+    }
+
+    ch_rsid_ref.map { file ->
+      // Split the file base name by underscore and take the first part
+      def chrWithPrefix = file.getBaseName().split("_")[0]
+      // Remove 'chr' from the extracted string to get the chromosome number
+      def chr = chrWithPrefix.replaceAll("chr", "")
+      return tuple(chr, file)
+    }.set {ch_rsid_ref2}
+
+
+    genotypes
+    .join(ch_rsid_ref2)
+    .set { ch_add_rsid_to_genotypes }
+    add_rsid_to_genotypes(ch_add_rsid_to_genotypes)
 
     // format sumstat
     add_N_effective(input, metafile)
@@ -73,7 +99,7 @@ workflow wf_sbayesr {
 
     // Calc score
     calc_posteriors_sbayesr.out
-    .join(genotypes)
+    .join(add_rsid_to_genotypes.out)
     .set{ ch_calc_score_input }
     calc_score(ch_calc_score_input, "${params.calc_posteriors_sbayesr.score_columns}")
     
