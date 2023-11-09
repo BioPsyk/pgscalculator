@@ -68,7 +68,12 @@ workflow wf_sbayesr {
       calc_posteriors_sbayesr(ch_calc_posteriors).set { ch_calculated_posteriors }
 
     }else{
-      ch_calculated_posteriors=input
+      input
+      .map { file ->
+        def chrWithPrefix = file.getBaseName().split("_")[0]
+        def chr = chrWithPrefix.replaceAll("chr", "")
+        return tuple(chr, file)
+      }.set { ch_calculated_posteriors }
     }
 
     if(params.calc_score){
@@ -95,9 +100,7 @@ workflow wf_sbayesr {
       }
 
       ch_rsid_ref.map { file ->
-        // Split the file base name by underscore and take the first part
         def chrWithPrefix = file.getBaseName().split("_")[0]
-        // Remove 'chr' from the extracted string to get the chromosome number
         def chr = chrWithPrefix.replaceAll("chr", "")
         return tuple(chr, file)
       }.set {ch_rsid_ref2}

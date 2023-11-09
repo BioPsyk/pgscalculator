@@ -37,7 +37,7 @@ Run using an example file for a subset of chromosome 10
   -m "sbayesr" \
   -c conf/base.config \
   -o out4 \
-  -2 \
+  -1 \
   -d
 
 ```

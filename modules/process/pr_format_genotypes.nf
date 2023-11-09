@@ -3,7 +3,7 @@
 nextflow.enable.dsl = 2
 
 process add_rsid_to_genotypes {
-    publishDir "${params.outdir}/add_rsid_to_genotypes", mode: 'rellink', overwrite: true, enabled: params.dev
+    publishDir "${params.outdir}/intermediates/add_rsid_to_genotypes", mode: 'rellink', overwrite: true, enabled: params.dev
     label 'mod_mem'
     
     input:
