@@ -7,6 +7,7 @@ include { wf_sbayesr } from './modules/subworkflow/wf_sbayesr.nf'
 
 // include processes
 include { change_build_sumstats } from './modules/process/pr_format_sumstats.nf'
+include { copyConfigFiles } from './modules/process/pr_details.nf'
 
 
 workflow {
@@ -27,5 +28,11 @@ workflow {
   if(params.method=="prscs"){wf_prscs(ch_input)
   }else if(params.method=="sbayesr"){wf_sbayesr(ch_input)
   }else{println("method not avail")}
+
+
+  // Add run details to output
+  copyConfigFiles(file("/pgscalculator/nextflow.config"), file("/pgscalculator/conf/base.config"))
+
+
 } 
 

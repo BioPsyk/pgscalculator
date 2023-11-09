@@ -62,15 +62,15 @@ process calc_posteriors_sbayesr {
           gctb --sbayes R \
             --gwas-summary ${gwas_chr} \
             --ldm ${ld_prefix} \
-            --gamma ${params.calc_posteriors_sbayesr.gamma} \
-            --pi ${params.calc_posteriors_sbayesr.pi} \
-            --burn-in ${params.calc_posteriors_sbayesr.burn_in} \
-            --chain-length ${params.calc_posteriors_sbayesr.chain_length} \
-            --out-freq ${params.calc_posteriors_sbayesr.out_freq} \
-            --p-value ${params.calc_posteriors_sbayesr.p_value} \
-            --rsq ${params.calc_posteriors_sbayesr.rsq} \
-            --thread ${params.calc_posteriors_sbayesr.thread} \
-            --seed ${params.calc_posteriors_sbayesr.seed} \
+            ${params.calc_posteriors_sbayesr.gamma} \
+            ${params.calc_posteriors_sbayesr.pi} \
+            ${params.calc_posteriors_sbayesr.burn_in} \
+            ${params.calc_posteriors_sbayesr.chain_length} \
+            ${params.calc_posteriors_sbayesr.out_freq} \
+            ${params.calc_posteriors_sbayesr.p_value} \
+            ${params.calc_posteriors_sbayesr.rsq} \
+            ${params.calc_posteriors_sbayesr.thread} \
+            ${params.calc_posteriors_sbayesr.seed} \
             ${params.calc_posteriors_sbayesr.unscale_genotype} \
             ${params.calc_posteriors_sbayesr.exclude_mhc} \
             --out chr${chr}
