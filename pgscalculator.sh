@@ -58,6 +58,8 @@ conffile=""
 outdir="out"
 method=""
 build=""
+calc_posterior=true
+calc_score=true
 
 # some logical defaults
 infold_given=false
@@ -69,8 +71,8 @@ conffile_given=false
 outdir_given=false
 tmpdir_given=false
 devmode_given=false
-inactivate_step_1_given=false
-inactivate_step_2_given=false
+calc_posterior_given=false
+calc_score_given=false
 
 # default system tmp
 tmpdir="/tmp"
@@ -133,12 +135,12 @@ while getopts "${getoptsstring}" opt "${paramarray[@]}"; do
       devmode_given=true
       ;;
     1 )
-      inactivate_step_1="--disable_calc_posterior"
-      inactivate_step_1_given=true
+      calc_posterior=false
+      calc_posterior_given=true
       ;;
     2 )
-      inactivate_step_2="--disable_calc_score"
-      inactivate_step_2_given=true
+      calc_score=false
+      calc_score_given=true
       ;;
     \? )
       echo "Invalid Option: -$OPTARG" 1>&2
@@ -289,8 +291,8 @@ singularity run \
      -log "${outdir_container}/.nextflow.log" \
      run /pgscalculator ${runtype} \
      ${devmode} \
-     ${inactivate_step_1} \
-     ${inactivate_step_2} \
+     --calc_posterior ${calc_posterior} \
+     --calc_score ${calc_score} \
      --method ${method} \
      --gbuild ${build} \
      --input "${indir_container}" \

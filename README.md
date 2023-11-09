@@ -5,6 +5,7 @@
 Run using an example file for a subset of chromosome 10
 
 ```
+# Run both calc posterior and score
 ./pgscalculator.sh \
   -i tests/example_data/sumstats/sumstat_1 \
   -l references/ld-sbayesr/ukb/band_ukb_10k_hm3 \
@@ -16,6 +17,34 @@ Run using an example file for a subset of chromosome 10
   -o out3 \
   -d
 
+# Run only calc posterior (-2)
+./pgscalculator.sh \
+  -i tests/example_data/sumstats/sumstat_1 \
+  -l references/ld-sbayesr/ukb/band_ukb_10k_hm3 \
+  -m "sbayesr" \
+  -c conf/base.config \
+  -o out4 \
+  -2 \
+  -d
+
+# Run only calc score (-1)
+./pgscalculator.sh \
+  -i out4 \
+  -g references/genotypes_test/plink_old \
+  -b "37" \
+  -f references/genotypes_test/mapfiles/plink_genodir_genofiles.txt \
+  -m "sbayesr" \
+  -c conf/base.config \
+  -o out4 \
+  -2 \
+  -d
+
+
+```
+
+## Run a full size sumstat file
+
+```
 ./pgscalculator.sh \
   -i tests/example_data/sumstats/sumstat_1 \
   -l references/ld-prscs/ldblk_1kg_eur \
@@ -26,11 +55,6 @@ Run using an example file for a subset of chromosome 10
   -o out4 \
   -d
 
-```
-
-## Run a full size sumstat file
-
-```
 # quick start (run prs-cs)
 ./pgscalculator.sh \
   -i references/sumstats/sumstat_FG1970 \
