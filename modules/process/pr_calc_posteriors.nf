@@ -1,14 +1,14 @@
 // calculate per chromosome posterior SNP effects for sBayesR
 
 process calc_posteriors_prscs {
-    publishDir "${params.outdir}/intermediates/calc_posteriors_prscs", mode: 'rellink', overwrite: true, enabled: params.dev
+    publishDir "${params.outdir}/calc_posteriors", mode: 'copy', overwrite: true
     label 'big_mem'
 
     input:
         tuple val(chr), path(gwas), path(lddir), path("geno.bed"), path("geno.bim"), path("geno.fam"), val(N)
             
     output:
-        tuple val(chr), path("prscs_pst_eff_a1_b0.5_phiauto_chr${chr}.txt")
+        tuple val(chr), path("chr${chr}.posteriors")
 
     script:
         def integerN = Math.round(N as float)
@@ -30,15 +30,17 @@ process calc_posteriors_prscs {
             --n_gwas=${integerN} \
             --chrom=${chr} \
             --out_dir=prscs
+
+          mv prscs_pst_eff_a1_b0.5_phiauto_chr${chr}.txt chr${chr}.posteriors
         else
-          touch prscs_pst_eff_a1_b0.5_phiauto_chr${chr}.txt
+          touch chr${chr}.posteriors
         fi
         """ 
 }
 
 // calculate per chromosome posterior SNP effects for sBayesR
 process calc_posteriors_sbayesr {
-    publishDir "${params.outdir}/intermediates/calc_posteriors_sbayesr", mode: 'rellink', overwrite: true, enabled: params.dev
+    publishDir "${params.outdir}/calc_posteriors", mode: 'copy', overwrite: true
 
     label 'big_mem'
     cpus 6
@@ -47,7 +49,7 @@ process calc_posteriors_sbayesr {
         tuple val(chr), path(gwas_chr), path(ldbin), path(ldinfo)
     
     output:
-        tuple val(chr), path("chr${chr}.snpRes")
+        tuple val(chr), path("chr${chr}.posteriors")
 
     script:
         ld_prefix="band_chr${chr}.ldm.sparse"
@@ -72,8 +74,9 @@ process calc_posteriors_sbayesr {
             ${params.calc_posteriors_sbayesr.unscale_genotype} \
             ${params.calc_posteriors_sbayesr.exclude_mhc} \
             --out chr${chr}
+          mv "chr${chr}.snpRes" "chr${chr}.posteriors"
         else
-          touch "chr${chr}.snpRes"
+          touch "chr${chr}.posteriors"
         fi
         """
 }

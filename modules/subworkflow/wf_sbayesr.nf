@@ -65,8 +65,10 @@ workflow wf_sbayesr {
       .set { ch_calc_posteriors }  
 
       //ch_calc_posteriors
-      calc_posteriors_sbayesr(ch_calc_posteriors)
+      calc_posteriors_sbayesr(ch_calc_posteriors).set { ch_calculated_posteriors }
 
+    }else{
+      ch_calculated_posteriors=input
     }
 
     if(params.calc_score){
@@ -100,14 +102,13 @@ workflow wf_sbayesr {
         return tuple(chr, file)
       }.set {ch_rsid_ref2}
 
-
       genotypes
       .join(ch_rsid_ref2)
       .set { ch_add_rsid_to_genotypes }
       add_rsid_to_genotypes(ch_add_rsid_to_genotypes)
 
       // Calc score
-      calc_posteriors_sbayesr.out
+      ch_calculated_posteriors
       .join(add_rsid_to_genotypes.out)
       .set{ ch_calc_score_input }
       calc_score(ch_calc_score_input, "${params.calc_posteriors_sbayesr.score_columns}")

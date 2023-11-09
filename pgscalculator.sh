@@ -48,7 +48,7 @@ project_dir="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 paramarray=($@)
 
 # starting getops with :, puts the checking in silent mode for errors.
-getoptsstring=":hvi:o:b:w:l:g:f:m:c:db:"
+getoptsstring=":hvi:o:b:w:l:g:f:m:c:db:12"
 
 infold=""
 ldfile=""
@@ -167,45 +167,67 @@ mkdir -p ${workdir}
 mkdir -p ${tmpdir}
 
 infold_host=$(realpath "${infold}")
-lddir_host=$(realpath "${lddir}")
-genodir_host=$(realpath "${genodir}")
-genofile_host=$(realpath "${genofile}")
 conffile_host=$(realpath "${conffile}")
 outdir_host=$(realpath "${outdir}")
 tmpdir_host=$(realpath "${tmpdir}")
 workdir_host=$(realpath "${workdir}")
 
 # Test that file and folder exists, all of these will always get mounted
-if [ "$method" != "prscs" ] && [ "$method" != "sbayesr" ]; then
-  >&2 echo "method not available"
-  >&2 echo "method tried: $method"
-  exit 1
-fi
-if [ "$build" != "37" ] && [ "$build" != "38" ]; then
-  >&2 echo "build not available"
-  >&2 echo "build tried: $build"
-  exit 1
-fi
 if [ ! -d $infold_host ]; then
   >&2 echo "infold doesn't exist"
   >&2 echo "path tried: $infold_host"
   exit 1
 fi
-if [ ! -d $lddir_host ]; then
-  >&2 echo "lddir doesn't exist"
-  >&2 echo "path tried: $lddir_host"
+if [ "$method" != "prscs" ] && [ "$method" != "sbayesr" ]; then
+  >&2 echo "method not available"
+  >&2 echo "method tried: $method"
   exit 1
 fi
-if [ ! -d $genodir_host ]; then
-  >&2 echo "genodir doesn't exist"
-  >&2 echo "path tried: $genodir_host"
-  exit 1
+
+# if calc posterior active
+if $calc_posterior; then
+  lddir_host=$(realpath "${lddir}")
+  if [ ! -d $lddir_host ]; then
+    >&2 echo "lddir doesn't exist"
+    >&2 echo "path tried: $lddir_host"
+    exit 1
+  fi
+else
+  lddir_host=$(realpath "${tmpdir}")
 fi
-if [ ! -f $genofile_host ]; then
-  >&2 echo "genofile doesn't exist"
-  >&2 echo "path tried: $genofile_host"
-  exit 1
+
+# if calc score active
+if $calc_score; then
+  if [ "$build" != "37" ] && [ "$build" != "38" ]; then
+    >&2 echo "build not available"
+    >&2 echo "build tried: $build"
+    exit 1
+  fi
+else
+  build="not_defined"
 fi
+if $calc_score; then
+  genodir_host=$(realpath "${genodir}")
+  if [ ! -d $genodir_host ]; then
+    >&2 echo "genodir doesn't exist"
+    >&2 echo "path tried: $genodir_host"
+    exit 1
+  fi
+else
+  genodir_host=$(realpath "${tmpdir}")
+fi
+if $calc_score; then
+  genofile_host=$(realpath "${genofile}")
+  if [ ! -f $genofile_host ]; then
+    >&2 echo "genofile doesn't exist"
+    >&2 echo "path tried: $genofile_host"
+    exit 1
+  fi
+else
+  genofile_host=$(realpath "${tmpdir}")
+fi
+
+# Always check these
 if [ ! -f $conffile_host ]; then
   >&2 echo "conffile doesn't exist"
   >&2 echo "path tried: $conffile_host"

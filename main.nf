@@ -12,8 +12,7 @@ include { change_build_sumstats } from './modules/process/pr_format_sumstats.nf'
 workflow {
  
   if(!params.calc_posterior){
-    Channel.fromPath("${params.input}/", type: 'file')
-    .set { ch_input }
+      Channel.fromPath("${params.input}/calc_posteriors/*", type: 'file').view().set { ch_input }
   }else{
     Channel.fromPath("${params.input}/cleaned_GRCh37.gz", type: 'file').set { ch_input_grch37_map }
     Channel.fromPath("${params.input}/cleaned_GRCh38.gz", type: 'file').set { ch_input_grch38 }

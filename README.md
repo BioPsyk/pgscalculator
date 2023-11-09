@@ -28,6 +28,7 @@ Run using an example file for a subset of chromosome 10
   -d
 
 # Run only calc score (-1)
+# -i is not pointing to the output folder of run only calc posterior
 ./pgscalculator.sh \
   -i out4 \
   -g references/genotypes_test/plink_old \
@@ -38,7 +39,6 @@ Run using an example file for a subset of chromosome 10
   -o out4 \
   -2 \
   -d
-
 
 ```
 
