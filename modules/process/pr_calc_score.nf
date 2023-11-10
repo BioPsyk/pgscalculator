@@ -3,7 +3,7 @@
 nextflow.enable.dsl = 2
 
 process calc_score {
-    publishDir "${params.outdir}/scores", mode: 'rellink', overwrite: true
+    publishDir "${params.outdir}/scores", mode: 'copy', overwrite: true
     label 'mod_mem'
     
     input:

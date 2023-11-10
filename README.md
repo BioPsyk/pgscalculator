@@ -11,10 +11,8 @@ Run using an example file for a subset of chromosome 10. Just replace the input 
   -l references/ld-sbayesr/ukb/band_ukb_10k_hm3 \
   -g references/genotypes_test/plink_old \
   -f references/genotypes_test/mapfiles/plink_genodir_genofiles.txt \
-  -m "sbayesr" \
   -c conf/sbayesr.config \
-  -o out3 \
-  -d
+  -o out3
 
 ```
 ## Divide into two 
@@ -24,11 +22,9 @@ Run using an example file for a subset of chromosome 10. Just replace the input 
 ./pgscalculator.sh \
   -i tests/example_data/sumstats/sumstat_1 \
   -l references/ld-sbayesr/ukb/band_ukb_10k_hm3 \
-  -m "sbayesr" \
-  -c conf/base.config \
+  -c conf/sbayesr.config \
   -o out4 \
-  -2 \
-  -d
+  -2
 
 # Run only calc score (-1)
 # -i is not pointing to the output folder of run only calc posterior
@@ -37,11 +33,9 @@ Run using an example file for a subset of chromosome 10. Just replace the input 
   -g references/genotypes_test/plink_old \
   -b "37" \
   -f references/genotypes_test/mapfiles/plink_genodir_genofiles.txt \
-  -m "sbayesr" \
-  -c conf/base.config \
+  -c conf/sbayesr.config \
   -o out4 \
-  -1 \
-  -d
+  -1
 
 ```
 

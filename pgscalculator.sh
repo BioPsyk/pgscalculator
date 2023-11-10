@@ -17,7 +17,6 @@ function general_usage(){
  echo "-l <dir> 	 LD map dir, absolute paths"
  echo "-g <dir> 	 target genotypes"
  echo "-f <file> 	 target genotypes files in genotype folder"
- echo "-m <value> 	 method (default: prscs)"
  echo "-c <file> 	 run specific config file"
  echo "-o <dir> 	 path to output directory"
  echo "-b <dir> 	 path to system tmp or scratch (default: /tmp)"
@@ -55,7 +54,6 @@ genodir=""
 genofile=""
 conffile=""
 outdir="out"
-method=""
 calc_posterior=true
 calc_score=true
 
@@ -106,10 +104,6 @@ while getopts "${getoptsstring}" opt "${paramarray[@]}"; do
     c )
       conffile="$OPTARG"
       conffile_given=true
-      ;;
-    m )
-      method="$OPTARG"
-      method_given=true
       ;;
     o )
       outdir="$OPTARG"
@@ -169,11 +163,6 @@ workdir_host=$(realpath "${workdir}")
 if [ ! -d $infold_host ]; then
   >&2 echo "infold doesn't exist"
   >&2 echo "path tried: $infold_host"
-  exit 1
-fi
-if [ "$method" != "prscs" ] && [ "$method" != "sbayesr" ]; then
-  >&2 echo "method not available"
-  >&2 echo "method tried: $method"
   exit 1
 fi
 
@@ -309,7 +298,6 @@ singularity run \
      ${devmode} \
      --calc_posterior ${calc_posterior} \
      --calc_score ${calc_score} \
-     --method ${method} \
      --input "${indir_container}" \
      --lddir "${lddir_container}" \
      --genodir "${genodir_container}" \
