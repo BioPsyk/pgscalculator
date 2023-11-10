@@ -31,7 +31,7 @@ workflow {
 
 
   // Add run details to output
-  copyConfigFiles(file("/pgscalculator/nextflow.config"), file("/pgscalculator/conf/base.config"))
+  copyConfigFiles(file("/pgscalculator/nextflow.config"))
 
 
 } 

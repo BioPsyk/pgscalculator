@@ -17,7 +17,6 @@ function general_usage(){
  echo "-l <dir> 	 LD map dir, absolute paths"
  echo "-g <dir> 	 target genotypes"
  echo "-f <file> 	 target genotypes files in genotype folder"
- echo "-b <value> 	 genotype genome build, 37 or 38"
  echo "-m <value> 	 method (default: prscs)"
  echo "-c <file> 	 run specific config file"
  echo "-o <dir> 	 path to output directory"
@@ -57,13 +56,11 @@ genofile=""
 conffile=""
 outdir="out"
 method=""
-build=""
 calc_posterior=true
 calc_score=true
 
 # some logical defaults
 infold_given=false
-build_given=false
 lddir_given=false
 genodir_given=false
 genofile_given=false
@@ -93,10 +90,6 @@ while getopts "${getoptsstring}" opt "${paramarray[@]}"; do
     i )
       infold="$OPTARG"
       infold_given=true
-      ;;
-    b )
-      build="$OPTARG"
-      build_given=true
       ;;
     l )
       lddir="$OPTARG"
@@ -197,15 +190,15 @@ else
 fi
 
 # if calc score active
-if $calc_score; then
-  if [ "$build" != "37" ] && [ "$build" != "38" ]; then
-    >&2 echo "build not available"
-    >&2 echo "build tried: $build"
-    exit 1
-  fi
-else
-  build="not_defined"
-fi
+#if $calc_score; then
+#  if [ "$build" != "37" ] && [ "$build" != "38" ]; then
+#    >&2 echo "build not available"
+#    >&2 echo "build tried: $build"
+#    exit 1
+#  fi
+#else
+#  build="not_defined"
+#fi
 if $calc_score; then
   genodir_host=$(realpath "${genodir}")
   if [ ! -d $genodir_host ]; then
@@ -311,12 +304,12 @@ singularity run \
    "tmp/${singularity_image_tag}" \
    nextflow \
      -log "${outdir_container}/.nextflow.log" \
+     -c ${conffile_container} \
      run /pgscalculator ${runtype} \
      ${devmode} \
      --calc_posterior ${calc_posterior} \
      --calc_score ${calc_score} \
      --method ${method} \
-     --gbuild ${build} \
      --input "${indir_container}" \
      --lddir "${lddir_container}" \
      --genodir "${genodir_container}" \

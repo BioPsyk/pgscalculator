@@ -53,6 +53,15 @@ process calc_posteriors_sbayesr {
 
     script:
         ld_prefix="band_chr${chr}.ldm.sparse"
+
+        def options = params.calc_posteriors_sbayesr.options.collect { key, value ->
+            "--${key.replace('_', '-')} ${value}"
+        }.join(' ')
+        
+        def flags = params.calc_posteriors_sbayesr.flags.findAll { it.value }
+                      .collect { key, _ -> "--${key.replace('_', '-')}" }
+                      .join(' ')
+
         """
         # Count the number of lines in the file
         num_lines=\$(head -n20 "$gwas_chr" | wc -l)
@@ -62,17 +71,8 @@ process calc_posteriors_sbayesr {
           gctb --sbayes R \
             --gwas-summary ${gwas_chr} \
             --ldm ${ld_prefix} \
-            ${params.calc_posteriors_sbayesr.gamma} \
-            ${params.calc_posteriors_sbayesr.pi} \
-            ${params.calc_posteriors_sbayesr.burn_in} \
-            ${params.calc_posteriors_sbayesr.chain_length} \
-            ${params.calc_posteriors_sbayesr.out_freq} \
-            ${params.calc_posteriors_sbayesr.p_value} \
-            ${params.calc_posteriors_sbayesr.rsq} \
-            ${params.calc_posteriors_sbayesr.thread} \
-            ${params.calc_posteriors_sbayesr.seed} \
-            ${params.calc_posteriors_sbayesr.unscale_genotype} \
-            ${params.calc_posteriors_sbayesr.exclude_mhc} \
+            $options \
+            $flags \
             --out chr${chr}
           mv "chr${chr}.snpRes" "chr${chr}.posteriors"
         else
