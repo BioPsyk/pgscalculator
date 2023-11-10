@@ -50,9 +50,5 @@ Run using an example file for a subset of chromosome 10. Just replace the input 
 # On GDK start interactive node (minimum 6 cpus 10g)
 srun --mem=10g --ntasks 1 --cpus-per-task 6 --time=1:00:00 --account ibp_pipeline_cleansumstats --pty /bin/bash
 
-# On GDK start interactive node (minimum 6 cpus 10g)
-srun --mem=10g --ntasks 1 --cpus-per-task 6 --time=1:00:00 --account ibp_pipeline_cleansumstats --pty /bin/bash
-
-
 ```
 
