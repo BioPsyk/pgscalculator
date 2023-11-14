@@ -1,4 +1,4 @@
-# ibp_pgs_pipelines_2
+# pgscalculator
 
 
 ## Quick start
