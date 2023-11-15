@@ -7,7 +7,7 @@ process calc_score {
     label 'mod_mem'
     
     input:
-        tuple val(chr), path(snp_posteriors), path("geno.bed"), path("geno.bim"), path("geno.fam")
+        tuple val(chr), path(snp_posteriors), path("geno.pgen"), path("geno.pvar"), path("geno.psam")
         val(snp_posteriors_cols)
 
     output:
@@ -20,7 +20,7 @@ process calc_score {
         
         # Check if the file has more than one line (more than just the header)
         if [ "\$num_lines" -gt 1 ]; then
-          plink2 --bfile geno \
+          plink2 --pfile geno \
           --out tmp \
           --score ${snp_posteriors} ${snp_posteriors_cols} header cols=+scoresums ignore-dup-ids
 

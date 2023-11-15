@@ -7,9 +7,15 @@ include {
  format_sumstats
  force_EAF_to_sumstat
 } from '../process/pr_format_sumstats.nf'
-include { calc_posteriors_sbayesr } from '../process/pr_calc_posteriors.nf'
+include { 
+ calc_posteriors_sbayesr 
+ concatenate_sbayes_posteriors
+} from '../process/pr_calc_posteriors.nf'
 include { calc_score } from '../process/pr_calc_score.nf'
-include { add_rsid_to_genotypes } from '../process/pr_format_genotypes.nf'
+include { 
+add_rsid_to_genotypes 
+concat_genotypes
+} from '../process/pr_format_genotypes.nf'
 
 workflow wf_sbayesr {
 
@@ -110,15 +116,39 @@ workflow wf_sbayesr {
       .set { ch_add_rsid_to_genotypes }
       add_rsid_to_genotypes(ch_add_rsid_to_genotypes)
 
-      // Calc score
+
+      // concat all posteriors
+      calc_posteriors_sbayesr.out.map {x,y -> y}.collect().set {ch_collected_posteriors}
+      concatenate_sbayes_posteriors(ch_collected_posteriors)
+      concatenate_sbayes_posteriors.out.set { ch_concatenated_posteriors }
+
+      // concat all genotypes
+      add_rsid_to_genotypes.out
+      .map { chr, bed, bim, fam -> 
+          def canonicalBed = new File(bed.toString()).canonicalPath
+          def canonicalBim = new File(bim.toString()).canonicalPath
+          def canonicalFam = new File(fam.toString()).canonicalPath
+          return "$canonicalBed $canonicalBim $canonicalFam"
+      }
+      .collectFile(){ content -> [ "allgenotypes.txt", content + '\n' ] }
+      .set { ch_all_genofile }
+      concat_genotypes(ch_all_genofile)
+
+      // join posteriors and genotypes (1/2)
+      ch_concatenated_posteriors
+      .join(concat_genotypes.out)
+      .set{ ch_calc_score_input_all }
+
+      // join posteriors and genotypes (2/2)
       ch_calculated_posteriors
       .join(add_rsid_to_genotypes.out)
-      .set{ ch_calc_score_input }
-      calc_score(ch_calc_score_input, "${params.calc_posteriors_sbayesr.score_columns}")
-    }
-    
-  //  emit:
-  //  calc_score.out
+      .set{ ch_calc_score_input_per_chr }
 
+      // Calc score
+      ch_calc_score_input_per_chr
+      .mix(ch_calc_score_input_all)
+      .set{ ch_calc_score }
+      calc_score(ch_calc_score, "${params.calc_posteriors_sbayesr.score_columns}")
+    }
 }
 

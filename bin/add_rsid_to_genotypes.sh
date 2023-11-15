@@ -38,7 +38,7 @@ LC_ALL=C join -a 1 -e "." -1 1 -2 1 -o 1.2,2.3,1.4,1.5,1.6,1.7,1.8 "sorted_bim" 
 }
 
 # skip nonmatching alleles and Prepare the final BIM file with rsids updated
-awk -vOFS="\t" '{print $1,$2,$3,$4,$5,$6}' "matched_output"
+awk -vOFS="\t" '{seen[$2]++; if(length($5)==1 && length($6)==1){biallelic[$2]++}; print $1,$2,$3,$4,$5,$6}; END{for (k in seen){if(seen[k]==1 && biallelic[k]==1){print k > "tokeep"}}}' "matched_output"
 
 # Clean up the temporary files
 rm "sorted_bim" "matched_output"

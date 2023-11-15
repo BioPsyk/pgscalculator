@@ -82,3 +82,22 @@ process calc_posteriors_sbayesr {
 }
 
 
+// Concatenate per chromosome posterior SNP effects for sBayesR
+process concatenate_sbayes_posteriors {
+    publishDir "${params.outdir}/calc_posteriors", mode: 'copy', overwrite: true
+
+    input:
+        path(chrposteriors)
+    
+    output:
+        tuple val("all"), path("allchr.posteriors")
+    script:
+        """
+        echo "    Id                 Name  Chrom     Position     A1     A2        A1Frq     A1Effect           SE            PIP  LastSampleEff"  > "allchr.posteriors"
+        for chrfile in ${chrposteriors}
+        do
+          tail -n+2 \$chrfile >> "allchr.posteriors"
+        done
+        """
+}
+
