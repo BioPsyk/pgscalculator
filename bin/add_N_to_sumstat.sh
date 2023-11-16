@@ -66,15 +66,23 @@ if ${tfcol_CaseN} && ${tfcol_ControlN} ;then
       print $0, "N"
     }
   }
-  NR>1 {
+  NR > 1 {
     caseN = $(caseIdx)
     controlN = $(controlIdx)
+  
+    # Check if caseN and controlN are numbers
+    if (caseN !~ /^[0-9]+$/ || controlN !~ /^[0-9]+$/) {
+        print FNR, "Non-numeric value in row" > "skipped_rows"
+        next
+    }
+  
     neff = 4 / ((1 / caseN) + (1 / controlN))
+  
     if (existingIdx) {
-      $(existingIdx)=int(neff)
-      print $0
-    }else {
-      print $0, int(neff)
+        $(existingIdx) = int(neff)
+        print $0
+    } else {
+        print $0, int(neff)
     }
   }
   ' <(zcat ${file})
