@@ -67,6 +67,13 @@ if ${tfcol_CaseN} && ${tfcol_ControlN} ;then
     }
   }
   NR > 1 {
+    
+    # check if chr is NA (which can happen after reverse build liftover)
+    if ( "${1}" == "NA" ){
+        print FNR, "chr is NA" > "skipped_rows"
+        next
+    }
+
     caseN = $(caseIdx)
     controlN = $(controlIdx)
   
