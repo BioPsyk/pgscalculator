@@ -34,7 +34,7 @@ workflow wf_sbayesr {
 
 
       // format sumstat
-      add_N_effective(input, ch_input_metafile)
+      add_N_effective(input, ch_input_metafile, "${params.whichN}")
       force_EAF_to_sumstat(add_N_effective.out, ch_input_metafile)
       format_sumstats(force_EAF_to_sumstat.out, mapfile, "sbayesr")
       .flatMap { it }

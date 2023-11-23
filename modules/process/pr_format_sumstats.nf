@@ -41,13 +41,14 @@ process add_N_effective {
     input:
     path(sfile)
     path(metafile)
+    val(whichN)
 
     output:
     path("sfile_added_N.gz")
 
     script:
     """
-    add_N_to_sumstat.sh ${sfile} ${metafile} | gzip -c > sfile_added_N.gz
+    add_N_to_sumstat.sh ${sfile} ${metafile} ${whichN} | gzip -c > sfile_added_N.gz
     """
 }
 

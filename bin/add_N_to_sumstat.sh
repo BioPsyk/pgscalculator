@@ -41,7 +41,7 @@ tfcol_N="$(recode_to_tf $col_N)"
 tfcol_CaseN="$(recode_to_tf $col_CaseN)"
 tfcol_ControlN="$(recode_to_tf $col_ControlN)"
 
-function add_totalN_from_Nca_Nco(){
+function add_totalN_as_N_from_Nca_Nco(){
   awk -vOFS="\t" '
   NR==1 {
     
@@ -92,25 +92,9 @@ function add_totalN_from_Nca_Nco(){
     }
   }
   ' <(zcat ${file})
-elif $tfcol_N ;then
-  awk -vOFS="\t" '
-  NR==1{
-    for (i = 1; i <= NF; i++) {
-      if ($i ~ /^N$/) {
-	existingIdx=i
-      }
-    }
-    print $0; next
-  }
-  NR>1{
-    $(existingIdx)=int($(existingIdx))
-    print $0
-  }
-  ' <(zcat ${file})
-
 }
 
-function add_effectiveN_from_Nca_Nco(){
+function add_effectiveN_as_N_from_Nca_Nco(){
   awk -vOFS="\t" '
   NR==1 {
     
@@ -161,45 +145,27 @@ function add_effectiveN_from_Nca_Nco(){
     }
   }
   ' <(zcat ${file})
-elif $tfcol_N ;then
-  awk -vOFS="\t" '
-  NR==1{
-    for (i = 1; i <= NF; i++) {
-      if ($i ~ /^N$/) {
-	existingIdx=i
-      }
-    }
-    print $0; next
-  }
-  NR>1{
-    $(existingIdx)=int($(existingIdx))
-    print $0
-  }
-  ' <(zcat ${file})
-
 }
 
 function use_a_stats_value_and_add_as_N_column(){
   awk -vOFS="\t" -vneff="${1}" 'NR==1{print $0,"N"}; NR>1{print $0, int(neff)}' <(zcat ${file})
 }
 
-#priority="effectiveN"
-#priority="totalN"
-if ${priority}=="totalN"; then
+if [ "${priority}" == "totalN" ]; then
   if ${tfcol_N};then
     #use_variant_specifific_totalN, which is the one already present
     zcat ${file}
   elif ${tfcol_CaseN} && ${tfcol_ControlN} ;then
-    add_totalN_from_Nca_Nco
+    add_totalN_as_N_from_Nca_Nco
   elif ${tfTotalN};then
     use_a_stats_value_and_add_as_N_column "${TotalN}"
   else
     echo "must provide the col_N, col_CaseN and col_ControlN, or stats_EffectiveN"
     exit 1
   fi
-else if ${priority}=="effectiveN"; then
+elif [ "${priority}" == "effectiveN" ]; then
   if ${tfcol_CaseN} && ${tfcol_ControlN} ;then
-    add_effectiveN_from_Nca_Nco
+    add_effectiveN_as_N_from_Nca_Nco
   elif [[ "${tfEffectiveN}" != "" ]];then
     use_a_stats_value_and_add_as_N_column ${EffectiveN}
   else
@@ -210,4 +176,20 @@ else
   echo "priority option does not exist: ${priority}"
   exit 1
 fi
+
+#elif $tfcol_N ;then
+#  awk -vOFS="\t" '
+#  NR==1{
+#    for (i = 1; i <= NF; i++) {
+#      if ($i ~ /^N$/) {
+#	existingIdx=i
+#      }
+#    }
+#    print $0; next
+#  }
+#  NR>1{
+#    $(existingIdx)=int($(existingIdx))
+#    print $0
+#  }
+#  ' <(zcat ${file})
 
