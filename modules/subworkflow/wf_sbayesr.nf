@@ -6,6 +6,7 @@ include {
  add_N_effective
  format_sumstats
  force_EAF_to_sumstat
+ add_B_and_SE
 } from '../process/pr_format_sumstats.nf'
 include { 
  calc_posteriors_sbayesr 
@@ -36,7 +37,8 @@ workflow wf_sbayesr {
       // format sumstat
       add_N_effective(input, ch_input_metafile, "${params.whichN}")
       force_EAF_to_sumstat(add_N_effective.out, ch_input_metafile)
-      format_sumstats(force_EAF_to_sumstat.out, mapfile, "sbayesr")
+      add_B_and_SE(force_EAF_to_sumstat.out)
+      format_sumstats(add_B_and_SE.out, mapfile, "sbayesr")
       .flatMap { it }
       .map { file ->
         def parts = file.name.split("_")

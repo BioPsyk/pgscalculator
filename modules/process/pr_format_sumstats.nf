@@ -67,6 +67,19 @@ process force_EAF_to_sumstat {
     """
 }
 
+process add_B_and_SE {
+    publishDir "${params.outdir}/intermediates", mode: 'rellink', overwrite: true, enabled: params.dev
+    input:
+    path(sfile)
+
+    output:
+    path("sfile_added_N.gz")
+
+    script:
+    """
+    add_B_and_SE.sh ${sfile} | gzip -c > sfile_added_N.gz
+    """
+}
 
 
 
