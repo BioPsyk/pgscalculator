@@ -77,7 +77,7 @@ process add_B_and_SE {
 
     script:
     """
-    add_B_and_SE.sh ${sfile} | gzip -c > sfile_added_N.gz
+    fill_in_beta_and_se.sh ${sfile} | gzip -c > sfile_added_N.gz
     """
 }
 
