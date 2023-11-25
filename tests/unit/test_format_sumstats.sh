@@ -34,7 +34,7 @@ mapfile="${ch_assets_sumstats_header_map}"
 function _run_script {
   method=$1
 
-  "${test_script}.sh" input_file.tsv.gz ${mapfile} ${method} "formatted" 
+  "${test_script}.sh" "./input_file.tsv" ${mapfile} ${method} "formatted" 
   _check_results formatted_1.tsv ./expected-result_1.tsv
   _check_results formatted_2.tsv ./expected-result_2.tsv
 
@@ -54,7 +54,7 @@ echo ">> Test ${test_script}"
 
 _setup "prscs base case"
 
-cat <<EOF | gzip -c > ./input_file.tsv.gz
+cat <<EOF > ./input_file.tsv
 0	RSID	CHR	POS	EffectAllele	OtherAllele	EAF	B	SE	P
 1	rs6439928	3	141663261	T	C	0.658	-0.0157	0.0141	0.2648
 10	rs6463169	7	42980893	T	C	0.825	-0.0219	0.0171	0.2012
@@ -86,7 +86,7 @@ _run_script "prscs"
 
 _setup "Reformat sbayesr base case"
 
-cat <<EOF | gzip -c > ./input_file.tsv.gz
+cat <<EOF > ./input_file.tsv
 0	RSID	CHR	POS	EffectAllele	OtherAllele	EAF	B	SE	P	N
 1	rs6439928	3	141663261	T	C	0.658	-0.0157	0.0141	0.2648	30000
 10	rs6463169	7	42980893	T	C	0.825	-0.0219	0.0171	0.2012	30000
