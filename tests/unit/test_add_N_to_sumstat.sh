@@ -33,7 +33,7 @@ function _check_results {
 function _run_script {
 priority="${1}"
 
-  "${test_script}.sh" ./input_file.tsv.gz ./metafile.yaml "${priority}" > ./observed-results.tsv
+  "${test_script}.sh" ./input_file.tsv ./metafile.yaml "${priority}" > ./observed-results.tsv
   _check_results ./observed-results.tsv ./expected-result_1.tsv
 
   echo "- [OK] ${curr_case}"
@@ -56,7 +56,7 @@ cat <<EOF > ./metafile.yaml
 stats_EffectiveN: 13688.4
 EOF
 
-cat <<EOF | gzip -c > ./input_file.tsv.gz
+cat <<EOF > ./input_file.tsv
 0	RSID	CHR	POS	EffectAllele	OtherAllele	EAF	B	SE	P
 1	rs6439928	3	141663261	T	C	0.658	-0.0157	0.0141	0.2648
 10	rs6463169	7	42980893	T	C	0.825	-0.0219	0.0171	0.2012
@@ -137,7 +137,7 @@ cleansumstats_col_ControlN: ControlN
 cleansumstats_col_N: N
 EOF
 
-cat <<EOF | gzip -c > ./input_file.tsv.gz
+cat <<EOF > ./input_file.tsv
 0	RSID	CHR	POS	EffectAllele	OtherAllele	EAF	B	SE	P	N	CaseN	ControlN
 1	rs6439928	3	141663261	T	C	0.658	-0.0157	0.0141	0.2648	14688	24688	44688
 10	rs6463169	7	42980893	T	C	0.825	-0.0219	0.0171	0.2012	14688	24688	44688
@@ -176,7 +176,7 @@ cleansumstats_col_ControlN: ControlN
 cleansumstats_col_N: N
 EOF
 
-cat <<EOF | gzip -c > ./input_file.tsv.gz
+cat <<EOF > ./input_file.tsv
 0	RSID	CHR	POS	EffectAllele	OtherAllele	EAF	B	SE	P	N	CaseN	ControlN
 1	rs6439928	3	141663261	T	C	0.658	-0.0157	0.0141	0.2648	14688	24688	44688
 10	rs6463169	7	42980893	T	C	0.825	-0.0219	0.0171	0.2012	14688	24688	44688
@@ -215,7 +215,7 @@ cleansumstats_col_ControlN: ControlN
 stats_TotalN: 13688
 EOF
 
-cat <<EOF | gzip -c > ./input_file.tsv.gz
+cat <<EOF > ./input_file.tsv
 0	RSID	CHR	POS	EffectAllele	OtherAllele	EAF	B	SE	P	CaseN	ControlN
 1	rs6439928	3	141663261	T	C	0.658	-0.0157	0.0141	0.2648	24688	44688
 10	rs6463169	7	42980893	T	C	0.825	-0.0219	0.0171	0.2012	24688	44688
@@ -251,7 +251,7 @@ cat <<EOF > ./metafile.yaml
 stats_TotalN: 13688
 EOF
 
-cat <<EOF | gzip -c > ./input_file.tsv.gz
+cat <<EOF > ./input_file.tsv
 0	RSID	CHR	POS	EffectAllele	OtherAllele	EAF	B	SE	P     
 1	rs6439928	3	141663261	T	C	0.658	-0.0157	0.0141	0.2648
 10	rs6463169	7	42980893	T	C	0.825	-0.0219	0.0171	0.2012

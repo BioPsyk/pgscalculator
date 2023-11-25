@@ -33,5 +33,5 @@ awk -vFS='\t' -vOFS='\t' '
 
     # Print the original line with B and SE appended if they were missing
     print $0, (!b_col ? beta : ""), (!se_col ? se : "");
-}' <( zcat ${inputfile} )
+}' ${inputfile}
 

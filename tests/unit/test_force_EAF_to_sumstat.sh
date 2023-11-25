@@ -33,7 +33,7 @@ function _check_results {
 mapfile="${ch_assets_sumstats_header_map}"
 function _run_script {
 
-  "${test_script}.sh" ./input_file.tsv.gz ./metafile.yaml > ./observed-results.tsv
+  "${test_script}.sh" ./input_file.tsv ./metafile.yaml > ./observed-results.tsv
   _check_results ./observed-results.tsv ./expected-result_1.tsv
 
   echo "- [OK] ${curr_case}"
@@ -56,7 +56,7 @@ cat <<EOF > ./metafile.yaml
 cleansumstats_col_EAF: EAF
 EOF
 
-cat <<EOF | gzip -c > ./input_file.tsv.gz
+cat <<EOF > ./input_file.tsv
 0	RSID	CHR	POS	EffectAllele	OtherAllele	EAF	B	SE	P
 1	rs6439928	3	141663261	T	C	0.658	-0.0157	0.0141	0.2648
 10	rs6463169	7	42980893	T	C	0.825	-0.0219	0.0171	0.2012
@@ -93,7 +93,7 @@ cat <<EOF > ./metafile.yaml
 cleansumstats_col_SOMETHING: SOMETHING
 EOF
 
-cat <<EOF | gzip -c > ./input_file.tsv.gz
+cat <<EOF > ./input_file.tsv
 0	RSID	CHR	POS	EffectAllele	OtherAllele	EAF_1KG	B	SE	P
 1	rs6439928	3	141663261	T	C	0.658	-0.0157	0.0141	0.2648
 10	rs6463169	7	42980893	T	C	0.825	-0.0219	0.0171	0.2012
@@ -131,7 +131,7 @@ cat <<EOF > ./metafile.yaml
 cleansumstats_col_EAF: EAF
 EOF
 
-cat <<EOF | gzip -c > ./input_file.tsv.gz
+cat <<EOF > ./input_file.tsv
 0	RSID	CHR	POS	EffectAllele	OtherAllele	EAF	B	SE	P	EAF_1KG
 1	rs6439928	3	141663261	T	C	0.658	-0.0157	0.0141	0.2648  0.958
 10	rs6463169	7	42980893	T	C	0.825	-0.0219	0.0171	0.2012  0.925

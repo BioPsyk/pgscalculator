@@ -91,7 +91,7 @@ function add_totalN_as_N_from_Nca_Nco(){
         print $0, int(ntot)
     }
   }
-  ' <(zcat ${file})
+  ' ${file}
 }
 
 function add_effectiveN_as_N_from_Nca_Nco(){
@@ -144,17 +144,17 @@ function add_effectiveN_as_N_from_Nca_Nco(){
         print $0, int(neff)
     }
   }
-  ' <(zcat ${file})
+  ' ${file}
 }
 
 function use_a_stats_value_and_add_as_N_column(){
-  awk -vOFS="\t" -vneff="${1}" 'NR==1{print $0,"N"}; NR>1{print $0, int(neff)}' <(zcat ${file})
+  awk -vOFS="\t" -vneff="${1}" 'NR==1{print $0,"N"}; NR>1{print $0, int(neff)}' ${file}
 }
 
 if [ "${priority}" == "totalN" ]; then
   if ${tfcol_N};then
     #use_variant_specifific_totalN, which is the one already present
-    zcat ${file}
+    cat ${file}
   elif ${tfcol_CaseN} && ${tfcol_ControlN} ;then
     add_totalN_as_N_from_Nca_Nco
   elif ${tfTotalN};then
@@ -177,19 +177,4 @@ else
   exit 1
 fi
 
-#elif $tfcol_N ;then
-#  awk -vOFS="\t" '
-#  NR==1{
-#    for (i = 1; i <= NF; i++) {
-#      if ($i ~ /^N$/) {
-#	existingIdx=i
-#      }
-#    }
-#    print $0; next
-#  }
-#  NR>1{
-#    $(existingIdx)=int($(existingIdx))
-#    print $0
-#  }
-#  ' <(zcat ${file})
 

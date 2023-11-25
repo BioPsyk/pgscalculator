@@ -30,7 +30,7 @@ EAF="$(selRightHand "$(selColRow "^cleansumstats_col_EAF:" $meta)" | sed 's/\s\+
 tfEAF="$(recode_to_tf $EAF)"
 
 # Get header
-HEADER=$(zcat "$file" | head -n 1)
+HEADER=$(head -n1 $file)
 
 if ${tfEAF};then
   # Extra check that EAF exists
@@ -38,11 +38,11 @@ if ${tfEAF};then
     echo "EAF is not present in header despite being present in the metafile"
     exit 1
   fi
-  zcat $file
+  cat $file
 else 
   # Check for EAF_1KG in header and change it to EAF if exists
   if [[ "$HEADER" == *"EAF_1KG"* ]]; then
-    zcat "$file" | sed '1 s/EAF_1KG/EAF/'
+    cat "$file" | sed '1 s/EAF_1KG/EAF/'
   else
     echo "Neither EAF nor EAF_1KG in header of sumstat"
     exit 1

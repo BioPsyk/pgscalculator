@@ -39,59 +39,60 @@ process format_sumstats {
 process add_N_effective {
     publishDir "${params.outdir}/intermediates", mode: 'rellink', overwrite: true, enabled: params.dev
     input:
-    path(sfile)
+    
+    tuple val(chr), path(sfile)
     path(metafile)
     val(whichN)
 
     output:
-    path("sfile_added_N.gz")
+    tuple val(chr), path("${chr}_sfile_added_N")
 
     script:
     """
-    add_N_to_sumstat.sh ${sfile} ${metafile} ${whichN} | gzip -c > sfile_added_N.gz
+    add_N_to_sumstat.sh ${sfile} ${metafile} ${whichN} > ${chr}_sfile_added_N
     """
 }
 
 process force_EAF_to_sumstat {
     publishDir "${params.outdir}/intermediates", mode: 'rellink', overwrite: true, enabled: params.dev
     input:
-    path(sfile)
+    tuple val(chr), path(sfile)
     path(metafile)
 
     output:
-    path("sfile_forced_EAF.gz")
+    tuple val(chr), path("${chr}_sfile_forced_EAF")
 
     script:
     """
-    force_EAF_to_sumstat.sh ${sfile} ${metafile} | gzip -c > sfile_forced_EAF.gz
+    force_EAF_to_sumstat.sh ${sfile} ${metafile} > ${chr}_sfile_forced_EAF
     """
 }
 
 process add_B_and_SE {
     publishDir "${params.outdir}/intermediates", mode: 'rellink', overwrite: true, enabled: params.dev
     input:
-    path(sfile)
+    tuple val(chr), path(sfile)
 
     output:
-    path("sfile_added_B_SE.gz")
+    tuple val(chr), path("${chr}_sfile_added_B_SE")
 
     script:
     """
-    fill_in_beta_and_se.sh ${sfile} | gzip -c > sfile_added_B_SE.gz
+    fill_in_beta_and_se.sh ${sfile} > ${chr}_sfile_added_B_SE
     """
 }
 
 process filter_bad_values {
     publishDir "${params.outdir}/intermediates", mode: 'rellink', overwrite: true, enabled: params.dev
     input:
-    path(sfile)
+    tuple val(chr), path(sfile)
 
     output:
-    path("sfile_filter_bad_values.gz")
+    tuple val(chr), path("${chr}_sfile_filter_bad_values")
 
     script:
     """
-    filter_bad_values.sh ${sfile} | gzip -c > sfile_filter_bad_values.gz
+    filter_bad_values.sh ${sfile} > ${chr}_sfile_filter_bad_values
     """
 }
 

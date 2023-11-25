@@ -35,17 +35,17 @@ workflow wf_sbayesr {
       if (params.mapfile) { mapfile = file(params.mapfile, checkIfExists: true) }
 
 
-      // format sumstat
-      add_N_effective(input, ch_input_metafile, "${params.whichN}")
-      force_EAF_to_sumstat(add_N_effective.out, ch_input_metafile)
-      add_B_and_SE(force_EAF_to_sumstat.out)
-      filter_bad_values(add_B_and_SE.out)
-      format_sumstats(filter_bad_values.out, mapfile, "sbayesr")
+      // format chr-chunked sumstats
+      format_sumstats(input, mapfile, "sbayesr")
       .flatMap { it }
       .map { file ->
         def parts = file.name.split("_")
         [parts[1].replace(".tsv", ""), file]
       }
+      add_N_effective(format_sumstats.out, ch_input_metafile, "${params.whichN}")
+      force_EAF_to_sumstat(add_N_effective.out, ch_input_metafile)
+      add_B_and_SE(force_EAF_to_sumstat.out)
+      filter_bad_values(add_B_and_SE.out)
       .set { sumstats }
 
       Channel

@@ -32,7 +32,7 @@ function _check_results {
 
 function _run_script {
 
-  "${test_script}.sh" ./input_file.tsv.gz > ./observed-results.tsv
+  "${test_script}.sh" ./input_file.tsv > ./observed-results.tsv
   _check_results ./observed-results.tsv ./expected-result_1.tsv
 
   echo "- [OK] ${curr_case}"
@@ -51,7 +51,7 @@ echo ">> Test ${test_script}"
 
 _setup "add beta and se, if missing"
 
-cat <<EOF | gzip -c > ./input_file.tsv.gz
+cat <<EOF > ./input_file.tsv
 0	RSID	CHR	POS	EffectAllele	OtherAllele	EAF	P	N	Z
 1	rs6439928	3	141663261	T	C	0.658	0.2648	13688	0.15
 10	rs6463169	7	42980893	T	C	0.825	0.2012	13688	0.22

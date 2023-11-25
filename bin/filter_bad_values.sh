@@ -33,5 +33,5 @@ awk -vFS="\t" -vOFS="\t" '
   } else {
       print $0;
   }
-}' <(zcat "${file}")
+}' ${file}
 
