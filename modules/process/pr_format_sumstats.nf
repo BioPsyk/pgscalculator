@@ -96,4 +96,18 @@ process filter_bad_values {
     """
 }
 
+process filter_on_ldref_rsids {
+    publishDir "${params.outdir}/intermediates", mode: 'rellink', overwrite: true, enabled: params.dev
+    input:
+    path(sfile)
+    path(rsids)
+
+    output:
+    path("sfile_filter_on_rsids")
+
+    script:
+    """
+    filter_on_ldref_rsids.sh ${sfile} ${rsids} > sfile_filter_on_rsids
+    """
+}
 

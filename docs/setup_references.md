@@ -122,7 +122,5 @@ for chr in $(seq 1 22); do
 done
 wait # This will wait for all background processes to finish
 
-
-
 ```
 

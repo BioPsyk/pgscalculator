@@ -8,6 +8,7 @@ include {
  force_EAF_to_sumstat
  add_B_and_SE
  filter_bad_values
+ filter_on_ldref_rsids
 } from '../process/pr_format_sumstats.nf'
 include { 
  calc_posteriors_sbayesr 
@@ -28,26 +29,7 @@ workflow wf_sbayesr {
 
     if (params.calc_posterior) {
 
-      // metafile for sumstat
-      Channel.fromPath("${params.input}/cleaned_metadata.yaml", type: 'file').set { ch_input_metafile }
-
-      // support files from assets
-      if (params.mapfile) { mapfile = file(params.mapfile, checkIfExists: true) }
-
-
-      // format chr-chunked sumstats
-      format_sumstats(input, mapfile, "sbayesr")
-      .flatMap { it }
-      .map { file ->
-        def parts = file.name.split("_")
-        [parts[1].replace(".tsv", ""), file]
-      }
-      add_N_effective(format_sumstats.out, ch_input_metafile, "${params.whichN}")
-      force_EAF_to_sumstat(add_N_effective.out, ch_input_metafile)
-      add_B_and_SE(force_EAF_to_sumstat.out)
-      filter_bad_values(add_B_and_SE.out)
-      .set { sumstats }
-
+      // Read ld from reference
       Channel
       .fromPath("${params.lddir}/*.bin")
       .map { file ->
@@ -56,7 +38,6 @@ workflow wf_sbayesr {
           return tuple(chrNumber, file)
       }
       .set { ldfiles1 }
-
       Channel
       .fromPath("${params.lddir}/*.info")
       .map { file ->
@@ -69,6 +50,31 @@ workflow wf_sbayesr {
       ldfiles1
       .join(ldfiles2)
       .set {ch_ldfiles }
+
+      // Metafile for sumstat
+      Channel.fromPath("${params.input}/cleaned_metadata.yaml", type: 'file').set { ch_input_metafile }
+
+      // Support files from assets
+      if (params.mapfile) { mapfile = file(params.mapfile, checkIfExists: true) }
+
+      // Use pre-constructed rsid file
+      Channel.fromPath("${params.lddir}/band_ukb_10k_hm3_rsids").set { ch_ld_rsids }
+      filter_on_ldref_rsids(input, ch_ld_rsids)
+
+      // format chr-chunked sumstats
+      format_sumstats(filter_on_ldref_rsids.out, mapfile, "sbayesr")
+      .flatMap { it }
+      .map { file ->
+        def parts = file.name.split("_")
+        [parts[1].replace(".tsv", ""), file]
+      }
+
+      add_N_effective(format_sumstats.out, ch_input_metafile, "${params.whichN}")
+      force_EAF_to_sumstat(add_N_effective.out, ch_input_metafile)
+      add_B_and_SE(force_EAF_to_sumstat.out)
+      filter_bad_values(add_B_and_SE.out)
+      .set { sumstats }
+
 
       sumstats
       .join(ch_ldfiles)
