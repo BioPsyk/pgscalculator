@@ -73,14 +73,26 @@ process add_B_and_SE {
     path(sfile)
 
     output:
-    path("sfile_added_N.gz")
+    path("sfile_added_B_SE.gz")
 
     script:
     """
-    fill_in_beta_and_se.sh ${sfile} | gzip -c > sfile_added_N.gz
+    fill_in_beta_and_se.sh ${sfile} | gzip -c > sfile_added_B_SE.gz
     """
 }
 
+process filter_bad_values {
+    publishDir "${params.outdir}/intermediates", mode: 'rellink', overwrite: true, enabled: params.dev
+    input:
+    path(sfile)
 
+    output:
+    path("sfile_filter_bad_values.gz")
+
+    script:
+    """
+    filter_bad_values.sh ${sfile} | gzip -c > sfile_filter_bad_values.gz
+    """
+}
 
 
