@@ -9,6 +9,7 @@ include {
  add_B_and_SE
  filter_bad_values
  filter_on_ldref_rsids
+ split_on_chromosome
 } from '../process/pr_format_sumstats.nf'
 include { 
  calc_posteriors_sbayesr 
@@ -60,20 +61,21 @@ workflow wf_sbayesr {
       // Use pre-constructed rsid file
       Channel.fromPath("${params.lddir}/band_ukb_10k_hm3_rsids").set { ch_ld_rsids }
       filter_on_ldref_rsids(input, ch_ld_rsids)
-
-      // format chr-chunked sumstats
-      format_sumstats(filter_on_ldref_rsids.out, mapfile, "sbayesr")
+      split_on_chromosome(filter_on_ldref_rsids.out)
       .flatMap { it }
       .map { file ->
         def parts = file.name.split("_")
         [parts[1].replace(".tsv", ""), file]
       }
+      .set { ch_split }
 
-      add_N_effective(format_sumstats.out, ch_input_metafile, "${params.whichN}")
+      // format chr-chunked sumstats
+      add_N_effective(ch_split, ch_input_metafile, "${params.whichN}")
       force_EAF_to_sumstat(add_N_effective.out, ch_input_metafile)
       add_B_and_SE(force_EAF_to_sumstat.out)
       filter_bad_values(add_B_and_SE.out)
-      .set { sumstats }
+      format_sumstats(filter_bad_values.out, mapfile, "sbayesr")
+      format_sumstats.out.set { sumstats }
 
 
       sumstats

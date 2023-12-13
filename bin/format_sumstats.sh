@@ -1,15 +1,14 @@
 #!/bin/bash
 
 # Check for the correct number of arguments
-if [ "$#" -ne 4 ]; then
-    echo "Usage: $0 <input_file> <map_file> <format> <output_file_prefix>"
+if [ "$#" -ne 3 ]; then
+    echo "Usage: $0 <input_file> <map_file> <format>"
     exit 1
 fi
 
 input_file="$1"
 map_file="$2"
 format="$3"
-output_prefix="$4"
 
 # Methods specific delim
 MOFS="\t"
@@ -17,7 +16,7 @@ if [ ${format} == "sbayesr" ]; then
   MOFS=" "
 fi
 
-awk -v format="$format" -v mapfile="$map_file" -v output_prefix="$output_prefix" -vFS="\t" -vOFS="${MOFS}" \
+awk -v format="$format" -v mapfile="$map_file" -vFS="\t" -vOFS="${MOFS}" \
 '
 BEGIN {
   # Process the map file
@@ -60,11 +59,6 @@ BEGIN {
   # Store infile header name positions
   for (i=1; i<=NF; i++) {
       input_col[$i] = i
-
-      # Check if "CHR" is available in the header
-      if ($i == "CHR") {
-        chr_col=i
-      }
   }
 
   # check that everything in in_header also exists as input_col
@@ -77,38 +71,17 @@ BEGIN {
     }
   }
 
-  if (chr_col){
-    # init header in all output files, Loop over chromosome numbers 1-22
-    for (chr = 1; chr <= 22; chr++) {
-      outfile = sprintf("%s_%s.tsv", output_prefix, chr)
-      for (i = 1; i < length(ordered_cols); i++) {
-        printf out_header[ordered_cols[i]] OFS > outfile
-      }
-      print out_header[ordered_cols[length(ordered_cols)]] > outfile
-    }
-  }else{
-    ## init header in the only output file, using chr=0
-    #chr=0
-    #for (h in header) {
-    #  outfile = sprintf("%s_%s.tsv", output_prefix, chr)
-    #  printf $(input_col[col_idx[header[h]]]) (h < NF ? OFS : "\n") > outfile
-    #}
+    # init header in the output 
+    for (h in header) {
+      printf $(input_col[col_idx[header[h]]]) (h < length(header) ? OFS : "\n")
   }
 }
 
 {
-  if(chr==0){ 
-    for (i = 1; i < length(ordered_cols); i++) {
-      printf $(input_col[in_header[ordered_cols[i]]]) OFS > output_prefix "_0" ".tsv"
-    }
-    printf $(input_col[in_header[ordered_cols[i]]]) "\n" > output_prefix "_0" ".tsv"
-    
-  }else{
-    for (i = 1; i < length(ordered_cols); i++) {
-      printf $(input_col[in_header[ordered_cols[i]]]) OFS > output_prefix "_" $(chr_col) ".tsv"
-    }
-    printf $(input_col[in_header[ordered_cols[i]]]) "\n" >  output_prefix "_" $(chr_col) ".tsv"
+  for (i = 1; i < length(ordered_cols); i++) {
+    printf $(input_col[in_header[ordered_cols[i]]]) OFS 
   }
+  printf $(input_col[in_header[ordered_cols[i]]]) "\n"
 }
 ' ${input_file}
 

@@ -20,19 +20,17 @@ process change_build_sumstats {
 process format_sumstats {
     publishDir "${params.outdir}/intermediates/format_sumstats", mode: 'rellink', overwrite: true, enabled: params.dev
      
-    label 'low_mem'
-
     input:
-        path(input_file)
-        file(mapfile)
-        val(method)
+    tuple val(chr), path(input_file)
+    file(mapfile)
+    val(method)
 
     output:
-        path('formatted_*')
+    tuple val(chr), path('formatted')
 
     script:
         """
-        format_sumstats.sh ${input_file} ${mapfile} ${method} formatted
+        format_sumstats.sh ${input_file} ${mapfile} ${method} > formatted
         """
 }
 
@@ -108,6 +106,20 @@ process filter_on_ldref_rsids {
     script:
     """
     filter_on_ldref_rsids.sh ${sfile} ${rsids} > sfile_filter_on_rsids
+    """
+}
+
+process split_on_chromosome {
+    publishDir "${params.outdir}/intermediates", mode: 'rellink', overwrite: true, enabled: params.dev
+    input:
+    path(sfile)
+
+    output:
+    path('split*')
+
+    script:
+    """
+    split_on_chromosome.sh ${sfile} "split"
     """
 }
 
