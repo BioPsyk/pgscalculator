@@ -62,16 +62,18 @@ workflow wf_sbayesr {
       Channel.fromPath("${params.lddir}/band_ukb_10k_hm3_rsids").set { ch_ld_rsids }
       filter_on_ldref_rsids(input, ch_ld_rsids)
       split_on_chromosome(filter_on_ldref_rsids.out)
+      split_on_chromosome.out
       .flatMap { it }
       .map { file ->
         def parts = file.name.split("_")
         [parts[1].replace(".tsv", ""), file]
       }
+      .combine(ch_input_metafile)
       .set { ch_split }
 
       // format chr-chunked sumstats
-      add_N_effective(ch_split, ch_input_metafile, "${params.whichN}")
-      force_EAF_to_sumstat(add_N_effective.out, ch_input_metafile)
+      add_N_effective(ch_split, "${params.whichN}")
+      force_EAF_to_sumstat(add_N_effective.out)
       add_B_and_SE(force_EAF_to_sumstat.out)
       filter_bad_values(add_B_and_SE.out)
       format_sumstats(filter_bad_values.out, mapfile, "sbayesr")

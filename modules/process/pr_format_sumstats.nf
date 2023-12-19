@@ -38,12 +38,11 @@ process add_N_effective {
     publishDir "${params.outdir}/intermediates", mode: 'rellink', overwrite: true, enabled: params.dev
     input:
     
-    tuple val(chr), path(sfile)
-    path(metafile)
+    tuple val(chr), path(sfile), path(metafile)
     val(whichN)
 
     output:
-    tuple val(chr), path("${chr}_sfile_added_N")
+    tuple val(chr), path("${chr}_sfile_added_N"), path(metafile)
 
     script:
     """
@@ -54,8 +53,7 @@ process add_N_effective {
 process force_EAF_to_sumstat {
     publishDir "${params.outdir}/intermediates", mode: 'rellink', overwrite: true, enabled: params.dev
     input:
-    tuple val(chr), path(sfile)
-    path(metafile)
+    tuple val(chr), path(sfile), path(metafile)
 
     output:
     tuple val(chr), path("${chr}_sfile_forced_EAF")
