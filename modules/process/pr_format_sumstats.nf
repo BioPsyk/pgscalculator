@@ -18,7 +18,7 @@ process change_build_sumstats {
 }
 
 process format_sumstats {
-    publishDir "${params.outdir}/intermediates/format_sumstats", mode: 'rellink', overwrite: true, enabled: params.dev
+    publishDir "${params.outdir}/intermediates", mode: 'rellink', overwrite: true, enabled: params.dev
      
     input:
     tuple val(chr), path(input_file)

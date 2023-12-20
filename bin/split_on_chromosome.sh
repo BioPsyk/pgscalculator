@@ -27,7 +27,7 @@ BEGIN {
   }
 }
 {
-    printi $0 > output_prefix "_" $(chr_col) ".tsv"
+    print $0 > output_prefix "_" $(chr_col) ".tsv"
 }
 ' ${input_file}
 

@@ -1,0 +1,26 @@
+cleansumstats_version: 1.6.7
+cleansumstats_date: 2023-11-24-1540
+cleansumstats_user: jesgaaopen
+cleansumstats_cleaned_GRCh38: sumstat_cleaned_GRCh38.gz
+cleansumstats_cleaned_GRCh38_checksum: b5771802b550db875fdf3c8e09c7a285f6c792f761b0d19a1af6b8205ed1038f
+cleansumstats_cleaned_GRCh37_coordinates: sumstat_cleaned_GRCh37.gz
+cleansumstats_cleaned_GRCh37_coordinates_checksum: 1ff7d24eca3942648fc815486323952a85089cd4a9592504e5a7100b0862a5d7
+cleansumstats_removed_lines: sumstat_removed_lines.gz
+cleansumstats_removed_lines_checksum: 2e80c5e439cd26c5ef5d25f0df21c7e6f245fcc007761c3a48c7a5e52825cd01
+cleansumstats_metafile_user_checksum: 18b58ef62e9b263f6cacd65563da8cdc159c968ae47dd8041d6d4d2d5e66ed2a
+cleansumstats_sumstat_raw_checksum: 587a44fecfc5873366093fe9ef175e93bcd4d260d317976747553f859e4e5b56
+stats_EffectiveN: 111487
+stats_TotalN: 111487
+cleansumstats_col_RAWROWINDEX: 0
+cleansumstats_col_CHR: CHR
+cleansumstats_col_POS: POS
+cleansumstats_col_SNP: RSID
+cleansumstats_col_EffectAllele: EffectAllele
+cleansumstats_col_OtherAllele: OtherAllele
+cleansumstats_col_BETA: B
+cleansumstats_col_SE: SE
+cleansumstats_col_OR: OR
+cleansumstats_col_Z: Z
+cleansumstats_col_P: P
+cleansumstats_col_INFO: INFO
+cleansumstats_col_Notes: If possible, missing stats have been calculated from the avialable. If OtherAllele was missing we use the alternate allele according to the dbsnp reference

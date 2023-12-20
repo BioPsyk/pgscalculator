@@ -15,10 +15,13 @@ include {
  calc_posteriors_sbayesr 
  concatenate_sbayes_posteriors
 } from '../process/pr_calc_posteriors.nf'
-include { calc_score } from '../process/pr_calc_score.nf'
 include { 
-add_rsid_to_genotypes 
-concat_genotypes
+  calc_score 
+  calc_merged_score
+} from '../process/pr_calc_score.nf'
+include { 
+  add_rsid_to_genotypes 
+  concat_genotypes
 } from '../process/pr_format_genotypes.nf'
 
 workflow wf_sbayesr {
@@ -136,24 +139,29 @@ workflow wf_sbayesr {
       concatenate_sbayes_posteriors(ch_collected_posteriors)
       concatenate_sbayes_posteriors.out.set { ch_concatenated_posteriors }
 
-      // concat all genotypes
-      add_rsid_to_genotypes.out
-      .map { chr, bed, bim, fam -> 
-          def canonicalBed = new File(bed.toString()).canonicalPath
-          def canonicalBim = new File(bim.toString()).canonicalPath
-          def canonicalFam = new File(fam.toString()).canonicalPath
-          return "$canonicalBed $canonicalBim $canonicalFam"
+      if(params.concat_genotypes){
+
+        // concat all genotypes
+        add_rsid_to_genotypes.out
+        .map { chr, bed, bim, fam -> 
+            def canonicalBed = new File(bed.toString()).canonicalPath
+            def canonicalBim = new File(bim.toString()).canonicalPath
+            def canonicalFam = new File(fam.toString()).canonicalPath
+            return "$canonicalBed $canonicalBim $canonicalFam"
+        }
+        .collectFile(){ content -> [ "allgenotypes.txt", content + '\n' ] }
+        .set { ch_all_genofile }
+        concat_genotypes(ch_all_genofile)
+
+        // join posteriors and genotypes all chromosomes
+        ch_concatenated_posteriors
+        .join(concat_genotypes.out)
+        .set{ ch_calc_score_input_all }
+      }else{
+        Channel.empty().set { ch_calc_score_input_all }
       }
-      .collectFile(){ content -> [ "allgenotypes.txt", content + '\n' ] }
-      .set { ch_all_genofile }
-      concat_genotypes(ch_all_genofile)
 
-      // join posteriors and genotypes (1/2)
-      ch_concatenated_posteriors
-      .join(concat_genotypes.out)
-      .set{ ch_calc_score_input_all }
-
-      // join posteriors and genotypes (2/2)
+      // join posteriors and genotypes per chromosome
       ch_calculated_posteriors
       .join(add_rsid_to_genotypes.out)
       .set{ ch_calc_score_input_per_chr }
@@ -163,6 +171,13 @@ workflow wf_sbayesr {
       .mix(ch_calc_score_input_all)
       .set{ ch_calc_score }
       calc_score(ch_calc_score, "${params.calc_posteriors_sbayesr.score_columns}")
+
+      if(!params.concat_genotypes){
+
+        // Merge per chromosome scores
+        calc_merged_score(calc_score.out.collect())
+
+      }
     }
 }
 
