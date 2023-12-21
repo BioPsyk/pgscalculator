@@ -101,3 +101,22 @@ process concatenate_sbayes_posteriors {
         """
 }
 
+// calculate per chromosome posterior SNP effects for sBayesR
+process qc_posteriors {
+    publishDir "${params.outdir}/calc_posteriors", mode: 'copy', overwrite: true
+
+    label 'big_mem'
+    cpus 6
+    
+    input:
+        tuple val(chr), path("chr${chr}.posteriors")
+    
+    output:
+        tuple val(chr), path("chr${chr}.png")
+
+    script:
+
+        """
+        qc_posteriors.sh "chr${chr}.posteriors"
+        """
+}

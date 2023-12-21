@@ -99,6 +99,17 @@ workflow wf_sbayesr {
       }.set { ch_calculated_posteriors }
     }
 
+    // concat all posteriors
+    calc_posteriors_sbayesr.out.map {x,y -> y}.collect().set {ch_collected_posteriors}
+    concatenate_sbayes_posteriors(ch_collected_posteriors)
+    concatenate_sbayes_posteriors.out.set { ch_concatenated_posteriors }
+
+    // post QC plots
+    ch_calculated_posteriors
+    .mix(ch_concatenated_posteriors)
+    qc_posteriors(ch_calculated_posteriors)
+
+
     if(params.calc_score){
 
       // channel of genotypes
@@ -134,10 +145,6 @@ workflow wf_sbayesr {
       add_rsid_to_genotypes(ch_add_rsid_to_genotypes)
 
 
-      // concat all posteriors
-      calc_posteriors_sbayesr.out.map {x,y -> y}.collect().set {ch_collected_posteriors}
-      concatenate_sbayes_posteriors(ch_collected_posteriors)
-      concatenate_sbayes_posteriors.out.set { ch_concatenated_posteriors }
 
       if(params.concat_genotypes){
 
@@ -178,6 +185,8 @@ workflow wf_sbayesr {
         calc_merged_score(calc_score.out.collect())
 
       }
+
     }
+
 }
 
