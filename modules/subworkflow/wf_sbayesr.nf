@@ -105,9 +105,10 @@ workflow wf_sbayesr {
     concatenate_sbayes_posteriors.out.set { ch_concatenated_posteriors }
 
     // post QC plots
-    ch_calculated_posteriors
-    .mix(ch_concatenated_posteriors)
-    qc_posteriors(ch_calculated_posteriors)
+    //ch_calculated_posteriors
+    //.mix(ch_concatenated_posteriors)
+    //.set { ch_posteriors_for_qc }
+    //qc_posteriors(ch_calculated_posteriors)
 
 
     if(params.calc_score){
