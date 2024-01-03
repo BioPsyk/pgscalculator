@@ -26,11 +26,11 @@ process format_sumstats {
     val(method)
 
     output:
-    tuple val(chr), path('formatted')
+    tuple val(chr), path("${chr}_formatted")
 
     script:
         """
-        format_sumstats.sh ${input_file} ${mapfile} ${method} > formatted
+        format_sumstats.sh ${input_file} ${mapfile} ${method} > "${chr}_formatted"
         """
 }
 
