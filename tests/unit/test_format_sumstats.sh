@@ -34,9 +34,8 @@ mapfile="${ch_assets_sumstats_header_map}"
 function _run_script {
   method=$1
 
-  "${test_script}.sh" "./input_file.tsv" ${mapfile} ${method} "formatted" 
-  _check_results formatted_1.tsv ./expected-result_1.tsv
-  _check_results formatted_2.tsv ./expected-result_2.tsv
+  "${test_script}.sh" "./input_file.tsv" ${mapfile} ${method} > "formatted.tsv" 
+  _check_results formatted.tsv ./expected-result_1.tsv
 
   echo "- [OK] ${curr_case}"
 
@@ -67,16 +66,17 @@ cat <<EOF > ./input_file.tsv
 1005	rs12754538	1	8408079	T	C	0.308	-6e-04	0.015	0.9663
 EOF
 
+# SNP     A1      A2      BETA    P
 cat <<EOF > ./expected-result_1.tsv
-SNP	A1	A2	BETA	P
+rs6439928	T	C	-0.0157	0.2648
+rs6463169	T	C	-0.0219	0.2012
+rs6831643	T	C	-0.0321	0.0193
+rs10197378	A	G	-0.0189	0.2226
+rs10021082	T	C	0.0319	0.2265
+rs12709653	A	G	-0.0142	0.3176
 rs12726220	A	G	-0.0315	0.2547
 rs12739293	T	C	0.007	0.6873
 rs12754538	T	C	-6e-04	0.9663
-EOF
-
-cat <<EOF > ./expected-result_2.tsv
-SNP	A1	A2	BETA	P
-rs10197378	A	G	-0.0189	0.2226
 EOF
 
 _run_script "prscs"
@@ -100,15 +100,15 @@ cat <<EOF > ./input_file.tsv
 EOF
 
 cat <<EOF > ./expected-result_1.tsv
-SNP A1 A2 freq b se p N
+rs6439928 T C 0.658 -0.0157 0.0141 0.2648 30000
+rs6463169 T C 0.825 -0.0219 0.0171 0.2012 30000
+rs6831643 T C 0.669 -0.0321 0.0137 0.0193 30000
+rs10197378 A G 0.183 -0.0189 0.0155 0.2226 30000
+rs10021082 T C 0.958 0.0319 0.0264 0.2265 30000
+rs12709653 A G 0.775 -0.0142 0.0142 0.3176 30000
 rs12726220 A G 0.948 -0.0315 0.0277 0.2547 30000
 rs12739293 T C 0.133 0.007 0.0175 0.6873 30000
 rs12754538 T C 0.308 -6e-04 0.015 0.9663 30000
-EOF
-
-cat <<EOF > ./expected-result_2.tsv
-SNP A1 A2 freq b se p N
-rs10197378 A G 0.183 -0.0189 0.0155 0.2226 30000
 EOF
 
 _run_script "sbayesr"

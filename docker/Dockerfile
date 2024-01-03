@@ -144,6 +144,9 @@ RUN wget https://s3.amazonaws.com/plink2-assets/alpha5/plink2_linux_x86_64_20231
     unzip plink2_linux_x86_64_20231030.zip && \
     mv plink2 /usr/local/bin/
 
+# One additional package
+RUN R -e "install.packages('data.table', repos='https://cloud.r-project.org/')"
+
 # Final conf
 RUN useradd -rm -s /bin/bash -g users nextflow
 #RUN useradd -rm -s /bin/bash -g users -u 1000 nextflow

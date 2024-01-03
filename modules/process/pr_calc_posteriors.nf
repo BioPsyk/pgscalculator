@@ -117,6 +117,7 @@ process qc_posteriors {
     script:
 
         """
-        qc_posteriors.sh "chr${chr}.posteriors"
+        qc_posteriors.sh "/pgscalculator/bin/R/qc_posteriors.R" "chr${chr}.posteriors"
         """
 }
+

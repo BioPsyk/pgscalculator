@@ -8,7 +8,7 @@ function format_mount_flags() {
 
   for mount in "${mounts[@]}"
   do
-    echo "${flag} ${project_dir}/${mount}:/pgscalculator/${mount} "
+    echo "${flag} ${project_dir}/${mount}:/pgscalculator/${mount}"
   done
 }
 
