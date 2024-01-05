@@ -81,6 +81,7 @@ RUN apt-get update && apt-get install -y \
     rm -rf /var/lib/apt/lists/*
 
 RUN R -e "install.packages('sbayesR', repos='https://cloud.r-project.org/')"
+RUN R -e "install.packages('data.table', repos='https://cloud.r-project.org/')"
 
 # Install PRS-CS
 WORKDIR /repos
@@ -140,12 +141,9 @@ RUN apt-get update --fix-missing && \
   apt-get install -y openjdk-11-jre
 
 # Download and install PLINK2
-RUN wget https://s3.amazonaws.com/plink2-assets/alpha5/plink2_linux_x86_64_20231030.zip && \
-    unzip plink2_linux_x86_64_20231030.zip && \
+RUN wget https://s3.amazonaws.com/plink2-assets/alpha5/plink2_linux_x86_64_20231212.zip && \
+    unzip plink2_linux_x86_64_20231212.zip && \
     mv plink2 /usr/local/bin/
-
-# One additional package
-RUN R -e "install.packages('data.table', repos='https://cloud.r-project.org/')"
 
 # Final conf
 RUN useradd -rm -s /bin/bash -g users nextflow
