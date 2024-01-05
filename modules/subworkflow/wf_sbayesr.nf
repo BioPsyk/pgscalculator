@@ -10,6 +10,7 @@ include {
  filter_bad_values
  filter_on_ldref_rsids
  split_on_chromosome
+ concatenate_sumstat_input
 } from '../process/pr_format_sumstats.nf'
 include { 
  calc_posteriors_sbayesr 
@@ -104,9 +105,19 @@ workflow wf_sbayesr {
     concatenate_sbayes_posteriors(ch_collected_posteriors)
     concatenate_sbayes_posteriors.out.set { ch_concatenated_posteriors }
 
+    // concat all input (for QC plots)
+    filter_bad_values.out.map {x,y -> y}.collect().set {ch_collected_input}
+    concatenate_sumstat_input(ch_collected_input)
+    concatenate_sumstat_input.out.set { ch_concatenated_input }
+
     // post QC plots
-    //ch_calculated_posteriors
-    //.mix(ch_concatenated_posteriors)
+    filter_bad_values.out
+    -mix(ch_concatenated_input)
+    .set { ch_input_for_qc }
+    ch_calculated_posteriors
+    .mix(ch_concatenated_posteriors)
+      .join(ch_input_for_qc.out, by: 0)
+      .view()
     //.set { ch_posteriors_for_qc }
     //qc_posteriors(ch_calculated_posteriors)
 

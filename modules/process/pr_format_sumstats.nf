@@ -121,3 +121,23 @@ process split_on_chromosome {
     """
 }
 
+process concatenate_sumstat_input {
+    publishDir "${params.outdir}/intermediates", mode: 'copy', overwrite: true
+
+    input:
+        path(chrinput)
+
+    output:
+        tuple val("all"), path("allchr_input")
+    script:
+        """
+        arr=(${chrinput})
+        head -n1 "\${arr[1]}" > "allchr_input"
+        for chrfile in ${chrinput}
+        do
+          tail -n+2 \$chrfile >> "allchr_input"
+        done
+        """
+}
+
+
