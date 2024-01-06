@@ -3,7 +3,8 @@
 rscript="${1}"
 posteriors="${2}"
 inputfile="${3}"
-inputfile_header="${4}"
+outprefix="${4}"
 
-Rscript ${rscript} ${posteriors} ${inputfile} ${inputfile_header}
+Rscript ${rscript} ${posteriors} ${inputfile} ${outprefix}
+
 

@@ -15,6 +15,7 @@ include {
 include { 
  calc_posteriors_sbayesr 
  concatenate_sbayes_posteriors
+ qc_posteriors
 } from '../process/pr_calc_posteriors.nf'
 include { 
   calc_score 
@@ -112,14 +113,15 @@ workflow wf_sbayesr {
 
     // post QC plots
     filter_bad_values.out
-    -mix(ch_concatenated_input)
+    .mix(ch_concatenated_input)
     .set { ch_input_for_qc }
+
     ch_calculated_posteriors
     .mix(ch_concatenated_posteriors)
-      .join(ch_input_for_qc.out, by: 0)
-      .view()
-    //.set { ch_posteriors_for_qc }
-    //qc_posteriors(ch_calculated_posteriors)
+    .join(ch_input_for_qc, by: 0)
+    .set { ch_posteriors_for_qc }
+
+    qc_posteriors(ch_posteriors_for_qc)
 
 
     if(params.calc_score){
@@ -155,8 +157,6 @@ workflow wf_sbayesr {
       .join(ch_rsid_ref2)
       .set { ch_add_rsid_to_genotypes }
       add_rsid_to_genotypes(ch_add_rsid_to_genotypes)
-
-
 
       if(params.concat_genotypes){
 
