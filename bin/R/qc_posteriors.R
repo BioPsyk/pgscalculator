@@ -17,12 +17,20 @@ me$blownUp <- 1*(abs(me$A1Effect) > 10*abs(me$B) & abs(me$A1Effect) > quantile(a
 # write plot table
 write.table(me, file = stdout(), row.names = FALSE, quote = FALSE)
 
-# plot
-outfilename <- paste(outprefix,".png",sep="")
+# plot Position vs A1Effect
+outfilename <- paste(outprefix, "_position_vs_effect",".png",sep="")
 png(filename=outfilename)
 plot(me$Position, me$A1Effect, col=c("black", "grey")[1 +me$Chrom %% 2])
 points(me$Position[me$blownUp == 1], me$A1Effect[me$blownUp == 1], col=2, pch=16)
 abline(h=quantile(abs(me$B), 0.95),col=2, lty=2)
 abline(h=-quantile(abs(me$B), 0.95),col=2, lty=2)
+dev.off()
+
+# plot  A1Effect vs Beta
+outfilename <- paste(outprefix, "_effect_vs_beta",".png",sep="")
+png(filename=outfilename)
+plot(me$A1Effect, me$B)
+points(me$B[me$blownUp == 1], me$A1Effect[me$blownUp == 1], col=2, pch=16)
+abline(0, 1, col="grey", lty=2)
 dev.off()
 

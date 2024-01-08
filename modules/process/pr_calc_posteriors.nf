@@ -112,7 +112,7 @@ process qc_posteriors {
         tuple val(chr), path("posteriors"), path("input")
     
     output:
-        tuple val(chr), path("chr${chr}.png")
+        tuple val(chr), path('*.png')
 
     script:
 
