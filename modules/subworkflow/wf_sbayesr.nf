@@ -7,7 +7,8 @@ include {
  format_sumstats
  force_EAF_to_sumstat
  add_B_and_SE
- filter_bad_values
+ filter_bad_values_1
+ filter_bad_values_2
  filter_on_ldref_rsids
  split_on_chromosome
  concatenate_sumstat_input
@@ -79,9 +80,10 @@ workflow wf_sbayesr {
       // format chr-chunked sumstats
       add_N_effective(ch_split, "${params.whichN}")
       force_EAF_to_sumstat(add_N_effective.out)
-      add_B_and_SE(force_EAF_to_sumstat.out)
-      filter_bad_values(add_B_and_SE.out)
-      format_sumstats(filter_bad_values.out, mapfile, "sbayesr")
+      filter_bad_values_1(force_EAF_to_sumstat.out)
+      add_B_and_SE(filter_bad_values_1.out)
+      filter_bad_values_2(add_B_and_SE.out)
+      format_sumstats(filter_bad_values_2.out, mapfile, "sbayesr")
       format_sumstats.out.set { sumstats }
 
 
@@ -107,12 +109,12 @@ workflow wf_sbayesr {
     concatenate_sbayes_posteriors.out.set { ch_concatenated_posteriors }
 
     // concat all input (for QC plots)
-    filter_bad_values.out.map {x,y -> y}.collect().set {ch_collected_input}
+    filter_bad_values_2.out.map {x,y -> y}.collect().set {ch_collected_input}
     concatenate_sumstat_input(ch_collected_input)
     concatenate_sumstat_input.out.set { ch_concatenated_input }
 
     // post QC plots
-    filter_bad_values.out
+    filter_bad_values_2.out
     .mix(ch_concatenated_input)
     .set { ch_input_for_qc }
 

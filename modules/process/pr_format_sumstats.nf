@@ -78,7 +78,20 @@ process add_B_and_SE {
     """
 }
 
-process filter_bad_values {
+process filter_bad_values_1 {
+    publishDir "${params.outdir}/intermediates", mode: 'rellink', overwrite: true, enabled: params.dev
+    input:
+    tuple val(chr), path(sfile)
+
+    output:
+    tuple val(chr), path("${chr}_sfile_filter_bad_values")
+
+    script:
+    """
+    filter_bad_values.sh ${sfile} > ${chr}_sfile_filter_bad_values
+    """
+}
+process filter_bad_values_2 {
     publishDir "${params.outdir}/intermediates", mode: 'rellink', overwrite: true, enabled: params.dev
     input:
     tuple val(chr), path(sfile)

@@ -1,6 +1,7 @@
 #!/bin/bash
 
-file=${1}
+file="${1}"
+which="${2}"
 
 # Define output files
 exclusion_file="excluded"
@@ -10,6 +11,9 @@ awk -vFS="\t" -vOFS="\t" '
 {
   if (NR == 1) {
       # Process header row
+      b_col = 0
+      se_col = 0
+      eaf_col = 0
       for (i = 1; i <= NF; i++) {
           if ($i == "B") b_col = i;
           if ($i == "SE") se_col = i;
@@ -22,16 +26,28 @@ awk -vFS="\t" -vOFS="\t" '
       next;
   }
 
-  # Extract necessary fields
-  beta = $(b_col);
-  se = $(se_col);
-  eaf = $(eaf_col);
+  # Check if exclude row
+  exclude=0
+  if(b_col){ 
+    if($(b_col)==0) exclude=1
+    if($(b_col)=="NA") exclude=1
+  }
+  if(se_col){ 
+    if($(se_col)==0) exclude=1
+    if($(se_col)=="NA") exclude=1
+  }
+  if(eaf_col){
+    if($(eaf_col)==0) exclude=1
+    if($(eaf_col)==1) exclude=1
+    if($(eaf_col)=="NA") exclude=1
+  }
 
   # Check exclusion criteria
-  if (beta == 0 || se == 0 || eaf == 0 || eaf == 1) {
+  if (exclude) {
       print $0 > "'$exclusion_file'";
   } else {
       print $0;
   }
 }' ${file}
+
 
