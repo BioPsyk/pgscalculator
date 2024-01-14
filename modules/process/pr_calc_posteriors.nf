@@ -117,8 +117,11 @@ process qc_posteriors {
     script:
 
         """
-        qc_posteriors.sh "/pgscalculator/bin/R/qc_posteriors.R" "$posteriors" "$input" "chr${chr}"
+        if [ "$(head -n2 ${posteriors} | wc -l)" -gt 1 ]; then
+          qc_posteriors.sh "/pgscalculator/bin/R/qc_posteriors.R" "$posteriors" "$input" "chr${chr}"
+        else
+          touch ${chr}_noplot.png 
+        fi
         """
 }
-
 
