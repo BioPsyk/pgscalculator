@@ -188,24 +188,25 @@ fi
 #else
 #  build="not_defined"
 #fi
+
 if $calc_score; then
+
   genodir_host=$(realpath "${genodir}")
   if [ ! -d $genodir_host ]; then
     >&2 echo "genodir doesn't exist"
     >&2 echo "path tried: $genodir_host"
     exit 1
   fi
-else
-  genodir_host=$(realpath "${tmpdir}")
-fi
-if $calc_score; then
+
   genofile_host=$(realpath "${genofile}")
   if [ ! -f $genofile_host ]; then
     >&2 echo "genofile doesn't exist"
     >&2 echo "path tried: $genofile_host"
     exit 1
   fi
+
 else
+  genodir_host=$(realpath "${tmpdir}")
   genofile_host=$(realpath "${tmpdir}")
 fi
 
