@@ -15,9 +15,9 @@ workflow {
   if(!params.calc_posterior){
       Channel.fromPath("${params.input}/calc_posteriors/*", type: 'file').set { ch_input }
   }else{
-    Channel.fromPath("${params.input}/cleaned_GRCh37.gz", type: 'file').set { ch_input_grch37_map }
+    //Channel.fromPath("${params.input}/cleaned_GRCh37.gz", type: 'file').set { ch_input_grch37_map }
     //Channel.fromPath("${params.input}/cleaned_GRCh38.gz", type: 'file').set { ch_input_grch38 }
-    //Channel.fromPath("${params.input}/cleaned_GRCh38.gz", type: 'file').set { ch_input }
+    Channel.fromPath("${params.input}/cleaned_GRCh38.gz", type: 'file').set { ch_input }
   }
     
   // Choose PGS workflow
