@@ -1,0 +1,2 @@
+This file acts as an empty mount point when geno type information is going to be used
+
