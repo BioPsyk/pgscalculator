@@ -156,15 +156,22 @@ workflow wf_sbayesr {
         return tuple(chr, file)
       }.set {ch_rsid_ref2}
 
-      genotypes
-      .join(ch_rsid_ref2)
-      .set { ch_add_rsid_to_genotypes }
-      add_rsid_to_genotypes(ch_add_rsid_to_genotypes)
+
+      if(params.remap_rsids){
+        genotypes
+        .join(ch_rsid_ref2)
+        .set { ch_add_rsid_to_genotypes }
+        add_rsid_to_genotypes(ch_add_rsid_to_genotypes)
+        .set { ch_genotypes_to_score }
+      }else{
+        genotypes
+        .set { ch_genotypes_to_score }
+      }
 
       if(params.concat_genotypes){
 
         // concat all genotypes
-        add_rsid_to_genotypes.out
+        ch_genotypes_to_score
         .map { chr, bed, bim, fam -> 
             def canonicalBed = new File(bed.toString()).canonicalPath
             def canonicalBim = new File(bim.toString()).canonicalPath
@@ -185,7 +192,7 @@ workflow wf_sbayesr {
 
       // join posteriors and genotypes per chromosome
       ch_calculated_posteriors
-      .join(add_rsid_to_genotypes.out)
+      .join(ch_genotypes_to_score)
       .set{ ch_calc_score_input_per_chr }
 
       // Calc score
