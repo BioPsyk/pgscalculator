@@ -94,6 +94,28 @@ workflow wf_sbayesr {
       //ch_calc_posteriors
       calc_posteriors_sbayesr(ch_calc_posteriors).set { ch_calculated_posteriors }
 
+      // concat all posteriors
+      ch_calculated_posteriors.map {x,y -> y}.collect().set {ch_collected_posteriors}
+      concatenate_sbayes_posteriors(ch_collected_posteriors)
+      concatenate_sbayes_posteriors.out.set { ch_concatenated_posteriors }
+  
+      // concat all input (for QC plots)
+      filter_bad_values_2.out.map {x,y -> y}.collect().set {ch_collected_input}
+      concatenate_sumstat_input(ch_collected_input)
+      concatenate_sumstat_input.out.set { ch_concatenated_input }
+  
+      // post QC plots
+      filter_bad_values_2.out
+      .mix(ch_concatenated_input)
+      .set { ch_input_for_qc }
+  
+      ch_calculated_posteriors
+      .mix(ch_concatenated_posteriors)
+      .join(ch_input_for_qc, by: 0)
+      .set { ch_posteriors_for_qc }
+  
+      qc_posteriors(ch_posteriors_for_qc)
+ 
     }else{
       input
       .map { file ->
@@ -103,27 +125,6 @@ workflow wf_sbayesr {
       }.set { ch_calculated_posteriors }
     }
 
-    // concat all posteriors
-    calc_posteriors_sbayesr.out.map {x,y -> y}.collect().set {ch_collected_posteriors}
-    concatenate_sbayes_posteriors(ch_collected_posteriors)
-    concatenate_sbayes_posteriors.out.set { ch_concatenated_posteriors }
-
-    // concat all input (for QC plots)
-    filter_bad_values_2.out.map {x,y -> y}.collect().set {ch_collected_input}
-    concatenate_sumstat_input(ch_collected_input)
-    concatenate_sumstat_input.out.set { ch_concatenated_input }
-
-    // post QC plots
-    filter_bad_values_2.out
-    .mix(ch_concatenated_input)
-    .set { ch_input_for_qc }
-
-    ch_calculated_posteriors
-    .mix(ch_concatenated_posteriors)
-    .join(ch_input_for_qc, by: 0)
-    .set { ch_posteriors_for_qc }
-
-    qc_posteriors(ch_posteriors_for_qc)
 
 
     if(params.calc_score){
