@@ -49,7 +49,7 @@ paramarray=($@)
 getoptsstring=":hvi:o:b:w:l:g:f:m:c:db:12"
 
 infold=""
-ldfile=""
+lddir=""
 genodir=""
 genofile=""
 conffile=""
@@ -175,7 +175,7 @@ if $calc_posterior; then
     exit 1
   fi
 else
-  lddir_host=$(realpath "${tmpdir}")
+  lddir_host="$(realpath ${project_dir}/tests/example_data/ldref)"
 fi
 
 # if calc score active
@@ -206,8 +206,8 @@ if $calc_score; then
   fi
 
 else
-  genodir_host=$(realpath "${tmpdir}")
-  genofile_host=$(realpath "${tmpdir}")
+  genodir_host="$(realpath ${project_dir}/tests/example_data/genotypes)"
+  genofile_host="$(realpath ${project_dir}/tests/example_data/genotypes/genofiles_placehoder.txt)"
 fi
 
 # Always check these
@@ -278,6 +278,19 @@ workdir_container="/pgscalculator/work"
 # Use outdir as fake home to avoid lock issues for the hidden .nextflow/history file
 FAKE_HOME="${outdir_container}"
 export SINGULARITY_HOME="${FAKE_HOME}"
+export APPTAINER_HOME="${FAKE_HOME}"
+
+# Debug multiple mount warning
+#cat <<EOF > ./temporaryfile.txt
+#   ${mount_flags} \
+#   -B "${infold_host}:${indir_container}" 
+#   -B "${outdir_host}:${outdir_container}" 
+#   -B "${lddir_host}:${lddir_container}" 
+#   -B "${genodir_host}:${genodir_container}" 
+#   -B "${genodir2_host}:${genodir2_container}" 
+#   -B "${confdir_host}:${confdir_container}" 
+#   -B "${tmpdir_host}:${tmpdir_container}" 
+#EOF
 
 singularity run \
    --contain \
