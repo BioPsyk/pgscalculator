@@ -117,7 +117,7 @@ process qc_posteriors {
     script:
 
         """
-        if [ "$(head -n2 ${posteriors} | wc -l)" -gt 1 ]; then
+        if [ "\$(head -n2 ${posteriors} | wc -l)" -gt 1 ]; then
           qc_posteriors.sh "/pgscalculator/bin/R/qc_posteriors.R" "$posteriors" "$input" "chr${chr}"
         else
           touch ${chr}_noplot.png 

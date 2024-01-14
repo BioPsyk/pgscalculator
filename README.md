@@ -32,7 +32,6 @@ Run using an example file for a subset of chromosome 10. Just replace the input 
 ./pgscalculator.sh \
   -i out4 \
   -g references/genotypes_test/plink_old \
-  -b "37" \
   -f references/genotypes_test/mapfiles/plink_genodir_genofiles.txt \
   -c conf/sbayesr.config \
   -o out4 \
