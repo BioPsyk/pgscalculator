@@ -201,12 +201,8 @@ workflow wf_sbayesr {
       .set{ ch_calc_score }
       calc_score(ch_calc_score, "${params.calc_posteriors_sbayesr.score_columns}")
 
-      if(!params.concat_genotypes){
-
-        // Merge per chromosome scores
-        calc_merged_score(calc_score.out.collect())
-
-      }
+      // Merge and calculate per chromosome scores
+      calc_merged_score(calc_score.out.collect())
 
     }
 

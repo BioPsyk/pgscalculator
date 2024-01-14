@@ -7,7 +7,7 @@ Run using an example file for a subset of chromosome 10. Just replace the input 
 ```
 # Run both calc posterior and score in one run
 ./pgscalculator.sh \
-  -i tests/example_data/sumstats/sumstat_1 \
+  -i tests/example_data/sumstats/sumstat_2 \
   -l references/ld-sbayesr/ukb/band_ukb_10k_hm3 \
   -g references/genotypes_test/plink \
   -f references/genotypes_test/mapfiles/plink_genodir_genofiles.txt \
@@ -21,7 +21,7 @@ Run using an example file for a subset of chromosome 10. Just replace the input 
 ```
 # Run only calc posterior (-2)
 ./pgscalculator.sh \
-  -i tests/example_data/sumstats/sumstat_1 \
+  -i tests/example_data/sumstats/sumstat_2 \
   -l references/ld-sbayesr/ukb/band_ukb_10k_hm3 \
   -c conf/sbayesr.config \
   -o out4 \
@@ -31,10 +31,10 @@ Run using an example file for a subset of chromosome 10. Just replace the input 
 # -i is not pointing to the output folder of run only calc posterior
 ./pgscalculator.sh \
   -i out4 \
-  -g references/genotypes_test/plink_old \
+  -g references/genotypes_test/plink \
   -f references/genotypes_test/mapfiles/plink_genodir_genofiles.txt \
   -c conf/sbayesr.config \
-  -o out4 \
+  -o out5 \
   -1
 
 ```

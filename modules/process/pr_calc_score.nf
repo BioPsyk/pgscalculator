@@ -22,6 +22,7 @@ process calc_score {
         if [ "\$num_lines" -gt 1 ]; then
           plink2 --pfile geno \
           --out tmp \
+          --threads 1 \
           --score ${snp_posteriors} ${snp_posteriors_cols} header cols=+scoresums ignore-dup-ids
 
           awk '{gsub(/^#/, ""); print}' tmp.sscore > chr${chr}.score
