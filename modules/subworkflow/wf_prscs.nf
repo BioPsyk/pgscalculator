@@ -10,16 +10,10 @@ include { extract_metadata_from_sumstat } from '../process/pr_extract_metadata_f
 workflow wf_prscs {
 
     take:
-    ch_input_grch38
-    ch_input_grch37_map
+    input
     ch_input_metafile
 
     main:
-
-    // Change sumstat build to GRCh37 metafile
-    change_build_sumstats(ch_input_grch38, ch_input_grch37_map)
-    change_build_sumstats.out
-    .set { input }
 
     // support files from assets
     if (params.mapfile) { mapfile = file(params.mapfile, checkIfExists: true) }
