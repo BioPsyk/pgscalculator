@@ -4,3 +4,4 @@ tmp
 out*
 work
 references
+**/*.swo
