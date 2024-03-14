@@ -22,11 +22,11 @@ Change config to prscs method
 # Run both calc posterior and score in one run
 ./pgscalculator.sh \
   -i tests/example_data/sumstats/sumstat_2 \
-  -l references/ld-sbayesr/ukb/band_ukb_10k_hm3 \
+  -l references/ld-prscs/ldblk_1kg_eur \
   -g references/genotypes_test/plink \
   -f references/genotypes_test/mapfiles/plink_genodir_genofiles.txt \
   -c conf/prscs.config \
-  -o out3 \
+  -o out3b \
   -d
 
 ```

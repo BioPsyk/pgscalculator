@@ -2,7 +2,10 @@
 nextflow.enable.dsl = 2
 
 // include subworkflows
-include { wf_prscs } from './modules/subworkflow/wf_prscs.nf'
+include {
+  wf_prscs_calc_posteriors
+  wf_prscs_calc_score
+ } from './modules/subworkflow/wf_prscs.nf'
 include { 
   wf_sbayesr_calc_posteriors
   wf_sbayesr_calc_score
@@ -11,7 +14,6 @@ include {
 // include processes
 include { change_build_sumstats } from './modules/process/pr_format_sumstats.nf'
 include { copyConfigFiles } from './modules/process/pr_details.nf'
-
 
 workflow {
  
