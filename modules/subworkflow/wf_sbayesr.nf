@@ -89,8 +89,20 @@ workflow wf_sbayesr_calc_posteriors {
   }
   .set { ch_split }
 
-  // join for variant map
+  // add metafile
   ch_split
+  .combine(ch_input_metafile)
+  .set { ch_split2 }
+
+  // format chr-chunked sumstats
+  add_N_effective(ch_split2, "${params.whichN}")
+  force_EAF_to_sumstat(add_N_effective.out)
+  filter_bad_values_1(force_EAF_to_sumstat.out)
+  add_B_and_SE(filter_bad_values_1.out)
+  filter_bad_values_2(add_B_and_SE.out)
+
+  // join for variant map
+  filter_bad_values_2.out
   .join(genotypes_bim)
   .join(ch_ldfiles)
   .set { ch_to_map }  
@@ -99,7 +111,7 @@ workflow wf_sbayesr_calc_posteriors {
   variant_map_for_sbayesr(ch_to_map)
 
   //Filter sumstat based on map
-  ch_split
+  filter_bad_values_2.out
   .join(variant_map_for_sbayesr.out)
   .set { to_sumstat_variant_filter }
   filter_sumstat_variants_on_map_file(to_sumstat_variant_filter)
@@ -107,18 +119,8 @@ workflow wf_sbayesr_calc_posteriors {
   // Remove b38 as it is not needed and will continue to be present in the mapfile
   rmcol_build_sumstats(filter_sumstat_variants_on_map_file.out, 2)
 
-  // add metafile
-  rmcol_build_sumstats.out
-  .combine(ch_input_metafile)
-  .set { more_sumstat_preprocessing }
-
-  // format chr-chunked sumstats
-  add_N_effective(more_sumstat_preprocessing, "${params.whichN}")
-  force_EAF_to_sumstat(add_N_effective.out)
-  filter_bad_values_1(force_EAF_to_sumstat.out)
-  add_B_and_SE(filter_bad_values_1.out)
-  filter_bad_values_2(add_B_and_SE.out)
-  format_sumstats(filter_bad_values_2.out, mapfile, "sbayesr")
+  // Formatting according to sbayesr
+  format_sumstats(rmcol_build_sumstats.out, mapfile, "sbayesr")
   format_sumstats.out.set { sumstats }
 
 
