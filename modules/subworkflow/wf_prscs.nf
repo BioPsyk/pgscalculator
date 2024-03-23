@@ -3,8 +3,14 @@
 nextflow.enable.dsl=2
 
 include { 
- format_sumstats 
  split_on_chromosome
+ rmcol_build_sumstats
+ add_N_effective
+ format_sumstats
+ force_EAF_to_sumstat
+ add_B_and_SE
+ filter_bad_values_1
+ filter_bad_values_2
 } from '../process/pr_format_sumstats.nf'
 include { split_on_chromosome_prscs_ld } from '../process/pr_format_ld.nf'
 include { calc_posteriors_prscs } from '../process/pr_calc_posteriors.nf'
@@ -25,8 +31,10 @@ workflow wf_prscs_calc_posteriors {
     // support files from assets
     if (params.mapfile) { mapfile = file(params.mapfile, checkIfExists: true) }
 
-    // Make quick access metafile object
-//    extract_metadata_from_sumstat(mapfile)
+    // Metafile for sumstat
+    Channel.fromPath("${params.input}/cleaned_metadata.yaml", type: 'file').set { ch_input_metafile }
+    // Make quick access metafile object for N
+    extract_metadata_from_sumstat(ch_input_metafile)
 
     //set ld dir and ld-metafile
     Channel.fromPath("${params.lddir}")
@@ -64,11 +72,20 @@ workflow wf_prscs_calc_posteriors {
     }
     .set { ch_split }
 
-     //ch_split.view()
-     //genotypes_bim.view()
+    // add metafile
+    ch_split
+    .combine(ch_input_metafile)
+    .set { ch_split2 }
+  
+    // format chr-chunked sumstats
+    add_N_effective(ch_split2, "${params.whichN}")
+    force_EAF_to_sumstat(add_N_effective.out)
+    filter_bad_values_1(force_EAF_to_sumstat.out)
+    add_B_and_SE(filter_bad_values_1.out)
+    filter_bad_values_2(add_B_and_SE.out)
 
     // join for variant map
-    ch_split
+    filter_bad_values_2.out
     .join(genotypes_bim)
     .join(ch_lddir_split)
     .set { ch_to_map }  
@@ -77,33 +94,29 @@ workflow wf_prscs_calc_posteriors {
     variant_map_for_prscs(ch_to_map)
 
     //Filter sumstat based on map
-    ch_split
+    filter_bad_values_2.out
     .join(variant_map_for_prscs.out)
     .set { to_sumstat_variant_filter }
     filter_sumstat_variants_on_map_file(to_sumstat_variant_filter)
 
- //   // format sumstat
- //   format_sumstats(input, mapfile, "prscs")
- //   .flatMap { it }
- //   .map { file ->
- //     def parts = file.name.split("_")
- //     [parts[1].replace(".tsv", ""), file]
- //   }
- //   .set { sumstats }
+    // Remove b38 as it is not needed and will continue to be present in the mapfile
+    rmcol_build_sumstats(filter_sumstat_variants_on_map_file.out, 2)
 
+    // Formatting according to prscs
+    format_sumstats(rmcol_build_sumstats.out, mapfile, "prscs")
+    format_sumstats.out.set { sumstats }
 
- //   // Calc posteriors
- //   sumstats
- //   .combine(ch_lddir)
- //   .join(genotypes)
- //   .combine(extract_metadata_from_sumstat.out)
- //   .set{ ch_calc_posterior_input }
- //   calc_posteriors_prscs(ch_calc_posterior_input)
-
- //   calc_posteriors_prscs.out.set { ch_calculated_posteriors }
- //   
- //   emit:
- //   ch_calculated_posteriors
+    // Calc posteriors
+    sumstats
+    .combine(ch_lddir)
+    .join(genotypes_bim)
+    .combine(extract_metadata_from_sumstat.out)
+    .set{ ch_calc_posterior_input }
+    calc_posteriors_prscs(ch_calc_posterior_input)
+    calc_posteriors_prscs.out.set { ch_calculated_posteriors }
+    //
+    //emit:
+    //ch_calculated_posteriors
     
 }
 

@@ -5,7 +5,7 @@ process calc_posteriors_prscs {
     label 'big_mem'
 
     input:
-        tuple val(chr), path(gwas), path(lddir), path("geno.bed"), path("geno.bim"), path("geno.fam"), val(N)
+        tuple val(chr), path(gwas), path(lddir), path("geno.bim"), val(N)
             
     output:
         tuple val(chr), path("chr${chr}.posteriors")
