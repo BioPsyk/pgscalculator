@@ -31,9 +31,9 @@ workflow {
 
     if(!params.calc_posterior){
       Channel.fromPath("${params.input}/calc_posteriors/*", type: 'file').set { ch_input }
+    }else{
+      wf_prscs_calc_posteriors(ch_input)
     }
-    wf_prscs(ch_input)
-
   }else if(params.method=="sbayesr"){
 
     if(!params.calc_posterior){

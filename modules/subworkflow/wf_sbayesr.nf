@@ -78,21 +78,8 @@ workflow wf_sbayesr_calc_posteriors {
   .map { chrid, _, files -> [chrid, *files] }
   .set { genotypes_bim }
 
-// Not sure if I need this
-// Use pre-constructed rsid file
-//  Channel.fromPath("${params.lddir}/band_ukb_10k_hm3_rsids").set { ch_ld_rsids }
-//  filter_on_ldref_rsids(input, ch_ld_rsids)
 
-// TO remove
-//  // Subset sumstat variants based on bim file (from the target genotype variants for scoring)
-//  //genotypes_bim.map {x,y -> y}.collect().set { ch_to_concatenate_bim }
-//
-//  // Do not concatenade. Instead apply this filtering after the sumstat split, so that we can facilitate multi-threading.
-//  //concat_bim_files(ch_to_concatenate_bim)
-//  //subset_on_bim_file(input, concat_bim_files.out)
-//
-
-//  // Split sumstat per chromosome
+  // Split sumstat per chromosome
   split_on_chromosome(input)
   split_on_chromosome.out
   .flatMap { it }

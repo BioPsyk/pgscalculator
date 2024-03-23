@@ -167,7 +167,7 @@ process split_on_chromosome {
 
     script:
     """
-    split_on_chromosome.sh ${sfile} "split"
+    split_on_chromosome.sh ${sfile} "CHR" "splitss" "zcat"
     """
 }
 
