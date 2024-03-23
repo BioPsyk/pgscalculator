@@ -3,6 +3,12 @@
 nextflow.enable.dsl=2
 
 include {  
+ variant_map_for_sbayesr
+ filter_sumstat_variants_on_map_file
+} from '../process/pr_variant_map_calculations.nf'
+
+include {  
+ rmcol_build_sumstats
  add_N_effective
  format_sumstats
  force_EAF_to_sumstat
@@ -59,30 +65,75 @@ workflow wf_sbayesr_calc_posteriors {
   // Metafile for sumstat
   Channel.fromPath("${params.input}/cleaned_metadata.yaml", type: 'file').set { ch_input_metafile }
 
-  // Support files from assets
+  // Support files, default from assets/
   if (params.mapfile) { mapfile = file(params.mapfile, checkIfExists: true) }
 
-  // Use pre-constructed rsid file
-  Channel.fromPath("${params.lddir}/band_ukb_10k_hm3_rsids").set { ch_ld_rsids }
-  filter_on_ldref_rsids(input, ch_ld_rsids)
-  split_on_chromosome(filter_on_ldref_rsids.out)
+  // channel of genotype bim files
+  Channel.fromPath("${params.genofile}")
+  .splitCsv(sep: '\t', header: false)
+  .map { row -> row.collect { it.trim() } } // Trim whitespace from each field
+  .map { row -> tuple(row[0], row[1], file("${params.genodir}/${row[2]}")) }
+  .filter { type -> type[1] in ['bim'] }
+  .groupTuple()
+  .map { chrid, _, files -> [chrid, *files] }
+  .set { genotypes_bim }
+
+// Not sure if I need this
+// Use pre-constructed rsid file
+//  Channel.fromPath("${params.lddir}/band_ukb_10k_hm3_rsids").set { ch_ld_rsids }
+//  filter_on_ldref_rsids(input, ch_ld_rsids)
+
+// TO remove
+//  // Subset sumstat variants based on bim file (from the target genotype variants for scoring)
+//  //genotypes_bim.map {x,y -> y}.collect().set { ch_to_concatenate_bim }
+//
+//  // Do not concatenade. Instead apply this filtering after the sumstat split, so that we can facilitate multi-threading.
+//  //concat_bim_files(ch_to_concatenate_bim)
+//  //subset_on_bim_file(input, concat_bim_files.out)
+//
+
+//  // Split sumstat per chromosome
+  split_on_chromosome(input)
   split_on_chromosome.out
   .flatMap { it }
   .map { file ->
     def parts = file.name.split("_")
     [parts[1].replace(".tsv", ""), file]
   }
-  .combine(ch_input_metafile)
   .set { ch_split }
 
+  // join for variant map
+  ch_split
+  .join(genotypes_bim)
+  .join(ch_ldfiles)
+  .set { ch_to_map }  
+
+  // make variant map
+  variant_map_for_sbayesr(ch_to_map)
+
+  //Filter sumstat based on map
+  ch_split
+  .join(variant_map_for_sbayesr.out)
+  .set { to_sumstat_variant_filter }
+  filter_sumstat_variants_on_map_file(to_sumstat_variant_filter)
+  
+  // Remove b38 as it is not needed and will continue to be present in the mapfile
+  rmcol_build_sumstats(filter_sumstat_variants_on_map_file.out, 2)
+
+  // add metafile
+  rmcol_build_sumstats.out
+  .combine(ch_input_metafile)
+  .set { more_sumstat_preprocessing }
+
   // format chr-chunked sumstats
-  add_N_effective(ch_split, "${params.whichN}")
+  add_N_effective(more_sumstat_preprocessing, "${params.whichN}")
   force_EAF_to_sumstat(add_N_effective.out)
   filter_bad_values_1(force_EAF_to_sumstat.out)
   add_B_and_SE(filter_bad_values_1.out)
   filter_bad_values_2(add_B_and_SE.out)
   format_sumstats(filter_bad_values_2.out, mapfile, "sbayesr")
   format_sumstats.out.set { sumstats }
+
 
 
   sumstats
