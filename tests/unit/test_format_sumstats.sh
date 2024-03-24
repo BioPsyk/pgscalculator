@@ -68,6 +68,7 @@ EOF
 
 # SNP     A1      A2      BETA    P
 cat <<EOF > ./expected-result_1.tsv
+SNP	A1	A2	BETA	P
 rs6439928	T	C	-0.0157	0.2648
 rs6463169	T	C	-0.0219	0.2012
 rs6831643	T	C	-0.0321	0.0193
@@ -100,6 +101,7 @@ cat <<EOF > ./input_file.tsv
 EOF
 
 cat <<EOF > ./expected-result_1.tsv
+SNP A1 A2 freq b se p N
 rs6439928 T C 0.658 -0.0157 0.0141 0.2648 30000
 rs6463169 T C 0.825 -0.0219 0.0171 0.2012 30000
 rs6831643 T C 0.669 -0.0321 0.0137 0.0193 30000

@@ -114,9 +114,9 @@ workflow wf_prscs_calc_posteriors {
     .set{ ch_calc_posterior_input }
     calc_posteriors_prscs(ch_calc_posterior_input)
     calc_posteriors_prscs.out.set { ch_calculated_posteriors }
-    //
-    //emit:
-    //ch_calculated_posteriors
+    
+    emit:
+    ch_calculated_posteriors
     
 }
 
