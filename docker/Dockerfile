@@ -63,11 +63,6 @@ RUN apt-get update && apt-get install -y \
 #RUN /opt/conda/bin/conda install -c conda-forge mamba
 
 
-# Install sbayesR (GCTB version)
-WORKDIR /pgscalculator
-RUN wget https://cnsgenomics.com/software/gctb/download/gctb_2.05beta_Linux.zip --no-check-certificate && \
-  unzip gctb_2.05beta_Linux.zip && \
-  mv gctb_2.05beta_Linux/gctb /usr/bin/gctb 
 
 # Install PRS-CS
 WORKDIR /repos
@@ -95,6 +90,17 @@ RUN micromamba create -n py27 python=2.7 -c conda-forge --yes && \
 #RUN apt-get update && apt-get install -y python3.11-venv
 #RUN apt-get update && apt-get install -y python3.11-distutils
 #RUN apt-get update && apt-get install -y python3-scipy
+
+# Install sbayesR (GCTB version)
+WORKDIR /pgscalculator
+RUN wget https://cnsgenomics.com/software/gctb/download/gctb_2.05beta_Linux.zip --no-check-certificate && \
+  unzip gctb_2.05beta_Linux.zip && \
+  mv gctb_2.05beta_Linux/gctb /usr/bin/gctb 
+
+## Install libgomp1 (needed for GCTB)
+RUN apt-get update && apt-get install -y \
+    libgomp1 \
+ && rm -rf /var/lib/apt/lists/*
 
 
 # Download and install PLINK
