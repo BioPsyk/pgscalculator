@@ -1,8 +1,27 @@
 # pgscalculator
 
+## Set up
+
+```
+# i. Make sure git and singularity are installed, see [singularity installation](docs/singularity-installation.md)
+singularity --version
+git --version
+
+# ii. clone and enter the cleansumstats github project
+git clone https://github.com/BioPsyk/pgscalculator.git
+cd cleansumstats
+
+# iii. Download our container image, move it to a folder called tmp within the repo (<1GB)
+mkdir -p tmp
+chmod ug+rwX tmp
+singularity pull tmp/ibp-pgscalculator-base_version-0.5.3.sif docker://biopsyk/ibp-pgscalculator:0.5.3
+#mv ibp-cleansumstats-base_version-1.2.2.sif tmp/
+
+```
 
 ## Quick start
-Run using an example file for a subset of chromosome 10. Just replace the input in -i with a folder cleaned by cleansumstats.
+
+Run using an example file for a random subset of variants on all chromosomes. Just replace the input in -i with a folder cleaned by cleansumstats.
 
 ```
 # Run both calc posterior and score in one run
