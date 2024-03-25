@@ -49,20 +49,18 @@ RUN apt-get update && apt-get install -y \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
+# Install R and dependencies
+RUN apt-get update && apt-get install -y \
+    r-base \
+    r-base-dev \
+    libcurl4-openssl-dev \
+    libssl-dev \
+    libxml2-dev \
+    --no-install-recommends && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
 
-#RUN apt-get update && \
-#    apt-get install -y --no-install-recommends ca-certificates && \
-#    update-ca-certificates && \
-#    wget -nv https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh -O /tmp/miniconda.sh && \
-#    /bin/bash /tmp/miniconda.sh -b -p /opt/conda && \
-#    rm /tmp/miniconda.sh && \
-#    /opt/conda/bin/conda clean -tipsy && \
-#    ln -s /opt/conda/etc/profile.d/conda.sh /etc/profile.d/conda.sh && \
-#    echo ". /opt/conda/etc/profile.d/conda.sh" >> ~/.bashrc && \
-#    echo "conda activate base" >> ~/.bashrc
-#RUN /opt/conda/bin/conda install -c conda-forge mamba
-
-
+RUN R -e "install.packages('data.table', repos='https://cloud.r-project.org/')"
 
 # Install PRS-CS
 WORKDIR /repos
