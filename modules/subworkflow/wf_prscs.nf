@@ -138,7 +138,7 @@ workflow wf_prscs_calc_score {
     .set { genotypes }
 
     // Calc score
-    calc_posteriors_prscs.out
+    input
     .join(genotypes)
     .set{ ch_calc_score_input }
     calc_score(ch_calc_score_input, "${params.calc_posteriors_prscs.score_columns}")

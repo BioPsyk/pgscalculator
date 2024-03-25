@@ -31,9 +31,20 @@ workflow {
 
     if(!params.calc_posterior){
       Channel.fromPath("${params.input}/calc_posteriors/*", type: 'file').set { ch_input }
+      input
+      .map { file ->
+        def chrWithPrefix = file.getBaseName().split("_")[0]
+        def chr = chrWithPrefix.replaceAll("chr", "")
+        return tuple(chr, file)
+      }.set { ch_calculated_posteriors }
     }else{
       wf_prscs_calc_posteriors(ch_input)
+      wf_prscs_calc_posteriors.out.ch_calculated_posteriors.set{ ch_calculated_posteriors }
     }
+    if(params.calc_score){
+      wf_prscs_calc_score(ch_calculated_posteriors)
+    }
+
   }else if(params.method=="sbayesr"){
 
     if(!params.calc_posterior){
