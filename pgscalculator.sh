@@ -189,8 +189,9 @@ fi
 #  build="not_defined"
 #fi
 
-if $calc_score; then
+#if $calc_score; then
 
+# Always use genodir and genofile. Because we need at least the .bim for the posterior calculation
   genodir_host=$(realpath "${genodir}")
   if [ ! -d $genodir_host ]; then
     >&2 echo "genodir doesn't exist"
@@ -205,10 +206,10 @@ if $calc_score; then
     exit 1
   fi
 
-else
-  genodir_host="$(realpath ${project_dir}/tests/example_data/genotypes)"
-  genofile_host="$(realpath ${project_dir}/tests/example_data/genotypes/genofiles_placehoder.txt)"
-fi
+#else
+#  genodir_host="$(realpath ${project_dir}/tests/example_data/genotypes)"
+#  genofile_host="$(realpath ${project_dir}/tests/example_data/genotypes/genofiles_placehoder.txt)"
+#fi
 
 # Always check these
 if [ ! -f $conffile_host ]; then
@@ -328,7 +329,7 @@ then
   :
 else
   function cleanup {
-    echo ">> Cleaning up (disable with -l) "
+    echo ">> Cleaning up (disable with -d) "
     echo ">> Removing ${outdir_host}/.nextflow"
     rm -r ${outdir_host}/.nextflow
     echo ">> Done"

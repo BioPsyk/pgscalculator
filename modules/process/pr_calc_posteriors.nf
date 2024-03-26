@@ -1,17 +1,19 @@
-// calculate per chromosome posterior SNP effects for sBayesR
-
+// calculate per chromosome posterior SNP effects for prscs
 process calc_posteriors_prscs {
     publishDir "${params.outdir}/calc_posteriors", mode: 'copy', overwrite: true
     label 'big_mem'
 
     input:
-        tuple val(chr), path(gwas), path(lddir), path("geno.bed"), path("geno.bim"), path("geno.fam"), val(N)
+        tuple val(chr), path(gwas), path(lddir), path("geno.bim"), val(N)
             
     output:
         tuple val(chr), path("chr${chr}.posteriors")
 
     script:
         def integerN = Math.round(N as float)
+        def options = params.calc_posteriors_prscs.options.collect { key, value ->
+            "--${key}=${value}"
+        }.join(' ')
         """
         mkdir prscs
 
@@ -21,14 +23,13 @@ process calc_posteriors_prscs {
         # Check if the file has more than one line (more than just the header)
         if [ "\$num_lines" -gt 1 ]; then
           # PRScs requires python2, which is best accessed through conda
-          #source /opt/micromamba/bin/activate py27
-
           micromamba run -n py27 python /repos/PRScs/PRScs.py \
             --ref_dir=$lddir \
             --sst_file=${gwas} \
             --bim_prefix="geno" \
             --n_gwas=${integerN} \
             --chrom=${chr} \
+            $options \
             --out_dir=prscs
 
           mv prscs_pst_eff_a1_b0.5_phiauto_chr${chr}.txt chr${chr}.posteriors

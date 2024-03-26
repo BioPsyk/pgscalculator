@@ -1,9 +1,16 @@
 #!/bin/bash
 
 input_file="${1}"
-output_prefix="${2}"
+chr_col_name="${2}"
+output_prefix="${3}"
+read_cmd="${4}"
 
-awk -voutput_prefix="${output_prefix}" -vFS="\t" -vOFS="\t" \
+
+
+awk \
+ -voutput_prefix="${output_prefix}" \
+ -vchr_col_name="${chr_col_name}" \
+ -vFS="\t" -vOFS="\t" \
 '
 BEGIN {
   # Read the first line of the main input file
@@ -14,7 +21,7 @@ BEGIN {
       input_col[$i] = i
 
       # Check if "CHR" is available in the header
-      if ($i == "CHR") {
+      if ($i == chr_col_name) {
         chr_col=i
       }
   }
@@ -29,5 +36,5 @@ BEGIN {
 {
     print $0 > output_prefix "_" $(chr_col) ".tsv"
 }
-' ${input_file}
+' <(${read_cmd} ${input_file})
 

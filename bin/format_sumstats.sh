@@ -71,10 +71,11 @@ BEGIN {
     }
   }
 
-    # init header in the output 
-    for (h in header) {
-      printf $(input_col[col_idx[header[h]]]) (h < length(header) ? OFS : "\n")
+  # Print the header based on ordered_cols and out_header
+  for (i in ordered_cols) {
+      printf out_header[ordered_cols[i]] (i < length(ordered_cols) ? OFS : "\n")
   }
+
 }
 
 {
