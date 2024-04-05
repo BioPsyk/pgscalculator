@@ -58,10 +58,12 @@ workflow {
     }else{
       wf_sbayesr_calc_posteriors(ch_input)
       wf_sbayesr_calc_posteriors.out.ch_calculated_posteriors.set{ ch_calculated_posteriors }
+      wf_sbayesr_calc_posteriors.out.variant_map_for_sbayesr_map.set{ ch_variant_map }
+      wf_sbayesr_calc_posteriors.out.variant_map_for_sbayesr_map_noNA.set{ ch_variant_map_noNA }
     }
 
     if(params.calc_score){
-      wf_sbayesr_calc_score(ch_calculated_posteriors)
+      wf_sbayesr_calc_score(ch_calculated_posteriors, ch_variant_map, ch_variant_map_noNA)
     }
 
   }else{

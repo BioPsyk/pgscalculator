@@ -36,7 +36,8 @@ process variant_map_for_sbayesr {
     tuple val(chr), path(ss), path(bim), path(ldbin), path(ldinfo)
 
     output:
-    tuple val(chr), path("${chr}_variants_mapfile")
+    tuple val(chr), path("${chr}_variants_mapfile"), emit: map
+    tuple val(chr), path("${chr}_variants_mapfile_no_NA"), emit: map_noNA
 
     script:
         """
@@ -50,6 +51,7 @@ process variant_map_for_sbayesr {
         awk -vFS=" " -vOFS="\t" 'NR>1{print \$1":"\$4, \$5, \$6, \$2 }' ${ldinfo} > ld2
 
         variant_map_for_sbayesr.sh ss2 bim2 ld2 "${chr}_variants_mapfile"
+        awk -vFS="\t" -vOFS="\t" '{if (\$9 != "NA") { print \$0 }}' "${chr}_variants_mapfile" > "${chr}_variants_mapfile_no_NA"
         """
 }
 
