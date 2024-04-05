@@ -1,6 +1,6 @@
 // calculate per chromosome posterior SNP effects for prscs
 process calc_posteriors_prscs {
-    publishDir "${params.outdir}/calc_posteriors", mode: 'copy', overwrite: true
+    publishDir "${params.outdir}/intermediates/calc_posteriors", mode: 'rellink', overwrite: true
     label 'big_mem'
 
     input:
@@ -41,7 +41,7 @@ process calc_posteriors_prscs {
 
 // calculate per chromosome posterior SNP effects for sBayesR
 process calc_posteriors_sbayesr {
-    publishDir "${params.outdir}/calc_posteriors", mode: 'copy', overwrite: true
+    publishDir "${params.outdir}/intermediates/calc_posteriors", mode: 'rellink', overwrite: true
 
     label 'big_mem'
     cpus 6
@@ -82,22 +82,40 @@ process calc_posteriors_sbayesr {
         """
 }
 
-
-// Concatenate per chromosome posterior SNP effects for sBayesR
-process concatenate_sbayes_posteriors {
+// Concatenate per chromosome posterior SNP effects for PRSCS
+process concatenate_sbayes_PRSCS {
     publishDir "${params.outdir}/calc_posteriors", mode: 'copy', overwrite: true
 
     input:
         path(chrposteriors)
     
     output:
-        tuple val("all"), path("allchr.posteriors")
+        tuple val("all"), path("raw_posteriors_chrall")
     script:
         """
-        echo "    Id                 Name  Chrom     Position     A1     A2        A1Frq     A1Effect           SE            PIP  LastSampleEff"  > "allchr.posteriors"
+        echo "Chrom	Id	Position	A1	A2"  > "raw_posteriors_chrall"
         for chrfile in ${chrposteriors}
         do
-          tail -n+2 \$chrfile >> "allchr.posteriors"
+          tail -n+2 \$chrfile >> "raw_posteriors_chrall"
+        done
+        """
+}
+
+// Concatenate per chromosome posterior SNP effects for sBayesR
+process concatenate_sbayes_posteriors {
+    publishDir "${params.outdir}/extra", mode: 'copy', overwrite: true
+
+    input:
+        path(chrposteriors)
+    
+    output:
+        tuple val("all"), path("raw_posteriors_chrall")
+    script:
+        """
+        echo "    Id                 Name  Chrom     Position     A1     A2        A1Frq     A1Effect           SE            PIP  LastSampleEff"  > "raw_posteriors_chrall"
+        for chrfile in ${chrposteriors}
+        do
+          tail -n+2 \$chrfile >> "raw_posteriors_chrall"
         done
         """
 }

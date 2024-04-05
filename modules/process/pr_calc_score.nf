@@ -3,7 +3,7 @@
 nextflow.enable.dsl = 2
 
 process calc_score {
-    publishDir "${params.outdir}/scores", mode: 'copy', overwrite: true
+    publishDir "${params.outdir}/intermedidates/scores", mode: 'rellink', overwrite: true
     label 'mod_mem'
     
     input:
@@ -33,22 +33,22 @@ process calc_score {
 }
 
 process calc_merged_score {
-    publishDir "${params.outdir}/scores", mode: 'copy', overwrite: true
+    publishDir "${params.outdir}/extra", mode: 'copy', overwrite: true
     label 'mod_mem'
     
     input:
         path(chrscores)
 
     output:
-        path("chrmerged.score")
+        path("raw_score_all")
     
     script:
         """
-        echo "FID	IID	ALLELE_CT	NAMED_ALLELE_DOSAGE_SUM	SCORE1_AVG	SCORE1_SUM	FILE_SUM" > chrmerged.score
+        echo "FID	IID	ALLELE_CT	NAMED_ALLELE_DOSAGE_SUM	SCORE1_AVG	SCORE1_SUM	FILE_SUM" > raw_score_all
         awk -vOFS="	" '
           FNR>1{FILE_SUM[\$1]++; ALLELE_CT[\$1]+=\$3; NAMED_ALLELE_DOSAGE_SUM[\$1]+=\$4; SCORE1_SUM[\$1]+=\$6}
           END{for(k in ALLELE_CT){print k, k, ALLELE_CT[k], NAMED_ALLELE_DOSAGE_SUM[k], SCORE1_SUM[k]/ALLELE_CT[k], SCORE1_SUM[k], FILE_SUM[k]}}
-        ' ${chrscores} >>  "chrmerged.score"
+        ' ${chrscores} >>  "raw_score_all"
 
         """
 }

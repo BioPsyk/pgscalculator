@@ -32,6 +32,10 @@ include {
   add_rsid_to_genotypes 
   concat_genotypes
 } from '../process/pr_format_genotypes.nf'
+include { 
+  extract_maf_from_genotypes
+  concatenate_plink_maf
+} from '../process/pr_extract_from_genotypes.nf'
 
 workflow wf_sbayesr_calc_posteriors {
 
@@ -174,6 +178,10 @@ workflow wf_sbayesr_calc_score {
   .groupTuple()
   .map { chrid, _, files -> [chrid, *files] }
   .set { genotypes }
+
+  extract_maf_from_genotypes(genotypes)
+  extract_maf_from_genotypes.out.map {x,y -> y}.collect().set {ch_collected_maf}
+  concatenate_plink_maf(ch_collected_maf)
 
   // always add rsids based on our dbsnp reference
   if ("${params.gbuild}" == "37") {
