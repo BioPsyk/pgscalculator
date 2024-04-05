@@ -115,6 +115,10 @@ RUN wget https://s3.amazonaws.com/plink2-assets/alpha5/plink2_linux_x86_64_20240
     unzip plink2_linux_x86_64_20240105.zip && \
     mv plink2 /usr/local/bin/
 
+# Move this up to the other basic utilities when generating the image from scratch
+RUN apt-get update --fix-missing && \
+  apt-get install -y parallel
+
 # Final conf
 RUN useradd -rm -s /bin/bash -g users nextflow
 #RUN useradd -rm -s /bin/bash -g users -u 1000 nextflow

@@ -9,13 +9,12 @@ git --version
 
 # ii. clone and enter the cleansumstats github project
 git clone https://github.com/BioPsyk/pgscalculator.git
-cd cleansumstats
+cd pgscalculator
 
 # iii. Download our container image, move it to a folder called tmp within the repo (<1GB)
 mkdir -p tmp
 chmod ug+rwX tmp
-singularity pull tmp/ibp-pgscalculator-base_version-0.5.3.sif docker://biopsyk/ibp-pgscalculator:0.5.3
-#mv ibp-cleansumstats-base_version-1.2.2.sif tmp/
+singularity pull tmp/ibp-pgscalculator-base_version-0.5.4.sif docker://biopsyk/ibp-pgscalculator:0.5.4
 
 ```
 
