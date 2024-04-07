@@ -116,7 +116,7 @@ workflow wf_sbayesr_calc_posteriors {
 
   //Filter sumstat based on map
   filter_bad_values_2.out
-  .join(variant_map_for_sbayesr.out.map_noNA)
+  .join(variant_map_for_sbayesr.out.map)
   .set { to_sumstat_variant_filter }
   filter_sumstat_variants_on_map_file(to_sumstat_variant_filter)
   
@@ -160,16 +160,14 @@ workflow wf_sbayesr_calc_posteriors {
 
   emit:
   ch_calculated_posteriors
-  variant_map_for_sbayesr_map = variant_map_for_sbayesr.out.map
-  variant_map_for_sbayesr_map_noNA = variant_map_for_sbayesr.out.map_noNA
+  variant_maps_for_sbayesr = variant_map_for_sbayesr.out.map
 }
 
 workflow wf_sbayesr_calc_score {
 
   take:
   ch_calculated_posteriors
-  variant_map_for_sbayesr_map
-  variant_map_for_sbayesr_map_noNA
+  variant_maps_for_sbayesr
 
   main:
 
@@ -184,7 +182,7 @@ workflow wf_sbayesr_calc_score {
   .set { genotypes }
 
   genotypes
-  .join(variant_map_for_sbayesr_map)
+  .join(variant_maps_for_sbayesr)
   .set { ch_to_extract_maf }
   
   extract_maf_from_genotypes(ch_to_extract_maf)

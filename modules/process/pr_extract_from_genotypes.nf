@@ -3,7 +3,7 @@ process extract_maf_from_genotypes {
     publishDir "${params.outdir}/intermediates/maf_from_genotypes", mode: 'rellink', overwrite: true  
 
     input:  
-        tuple val(chr), path("geno.bed"), path("geno.bim"), path("geno.fam"), path("map")  
+        tuple val(chr), path("geno.bed"), path("geno.bim"), path("geno.fam"), path("map"), path("map_noNA")
 
     output:                                                                                 
         tuple val(chr), path("${chr}_geno_maf.frq")    

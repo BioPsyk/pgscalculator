@@ -36,8 +36,7 @@ process variant_map_for_sbayesr {
     tuple val(chr), path(ss), path(bim), path(ldbin), path(ldinfo)
 
     output:
-    tuple val(chr), path("${chr}_variants_mapfile"), emit: map
-    tuple val(chr), path("${chr}_variants_mapfile_no_NA"), emit: map_noNA
+    tuple val(chr), path("${chr}_variants_mapfile"), path("${chr}_variants_mapfile_no_NA"), emit: map
 
     script:
         """
@@ -61,7 +60,7 @@ process filter_sumstat_variants_on_map_file {
     label 'low_mem'
 
     input:
-    tuple val(chr), path(ss), path(map)
+    tuple val(chr), path(ss), path("map"), path("map_noNA")
 
     output:
     tuple val(chr), path("${chr}_subset_sumstats")
@@ -69,7 +68,7 @@ process filter_sumstat_variants_on_map_file {
     script:
         """
         # subset on chr:pos:a1:a2
-        subset_sumstat_on_mapfile.sh ${ss} ${map} "${chr}_subset_sumstats"
+        subset_sumstat_on_mapfile.sh ${ss} ${map_noNA} "${chr}_subset_sumstats"
         """
 }
 
