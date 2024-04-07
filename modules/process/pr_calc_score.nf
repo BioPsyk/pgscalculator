@@ -3,12 +3,11 @@
 nextflow.enable.dsl = 2
 
 process calc_score {
-    publishDir "${params.outdir}/intermedidates/scores", mode: 'rellink', overwrite: true
+    publishDir "${params.outdir}/intermediates/scores", mode: 'rellink', overwrite: true
     label 'mod_mem'
     
     input:
         tuple val(chr), path(snp_posteriors), path("geno.pgen"), path("geno.pvar"), path("geno.psam")
-        val(snp_posteriors_cols)
 
     output:
         path("chr${chr}.score")
@@ -23,7 +22,7 @@ process calc_score {
           plink2 --pfile geno \
           --out tmp \
           --threads 1 \
-          --score ${snp_posteriors} ${snp_posteriors_cols} header cols=+scoresums ignore-dup-ids
+          --score ${snp_posteriors} 4 2 3 header cols=+scoresums ignore-dup-ids
 
           awk '{gsub(/^#/, ""); print}' tmp.sscore > chr${chr}.score
         else

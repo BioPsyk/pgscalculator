@@ -144,3 +144,22 @@ process qc_posteriors {
         """
 }
 
+// Prepare a to-score format using variant map to align with the genotype snp ids
+process format_sbayesr_posteriors {
+    publishDir "${params.outdir}/intermediates", mode: 'copy', overwrite: true
+
+    input:
+        tuple val(chr), path(posterior), path(map), path(map_noNA)
+    
+    output:
+        tuple val(chr), path("${chr}_posterior_scoreformat")
+    script:
+        snp_posteriors_cols="2,5,8"
+        // select ss_ID and bim_ID
+        map_from_to="3,6"
+        """
+        format_posteriors.sh ${posterior} ${snp_posteriors_cols} ${map} ${map_from_to} > "${chr}_posterior_scoreformat"
+        """
+}
+
+

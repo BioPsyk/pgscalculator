@@ -23,8 +23,9 @@ include {
  calc_posteriors_sbayesr 
  concatenate_sbayes_posteriors
  qc_posteriors
+ format_sbayesr_posteriors
 } from '../process/pr_calc_posteriors.nf'
-include { 
+include {
   calc_score 
   calc_merged_score
 } from '../process/pr_calc_score.nf'
@@ -136,6 +137,12 @@ workflow wf_sbayesr_calc_posteriors {
   //ch_calc_posteriors
   calc_posteriors_sbayesr(ch_calc_posteriors).set { ch_calculated_posteriors }
 
+  //format and id-mapping for scoring
+  ch_calculated_posteriors
+  .join(variant_map_for_sbayesr.out.map)
+  .set { ch_format_posteriors }  
+  format_sbayesr_posteriors(ch_format_posteriors).set { ch_formatted_posteriors }
+
   // concat all posteriors
   ch_calculated_posteriors.map {x,y -> y}.collect().set {ch_collected_posteriors}
   concatenate_sbayes_posteriors(ch_collected_posteriors)
@@ -159,14 +166,14 @@ workflow wf_sbayesr_calc_posteriors {
   qc_posteriors(ch_posteriors_for_qc)
 
   emit:
-  ch_calculated_posteriors
+  ch_formatted_posteriors
   variant_maps_for_sbayesr = variant_map_for_sbayesr.out.map
 }
 
 workflow wf_sbayesr_calc_score {
 
   take:
-  ch_calculated_posteriors
+  ch_formatted_posteriors
   variant_maps_for_sbayesr
 
   main:
@@ -184,44 +191,45 @@ workflow wf_sbayesr_calc_score {
   genotypes
   .join(variant_maps_for_sbayesr)
   .set { ch_to_extract_maf }
-  
+
   extract_maf_from_genotypes(ch_to_extract_maf)
   extract_maf_from_genotypes.out.map {x,y -> y}.collect().set {ch_collected_maf}
   concatenate_plink_maf(ch_collected_maf)
 
+  // replace with variant map
   // always add rsids based on our dbsnp reference
-  if ("${params.gbuild}" == "37") {
-       Channel.fromPath("${params.rsid_ref_37}/*")
-       .set { ch_rsid_ref }
-  } else if ("${params.gbuild}" == "38") {
-       Channel.fromPath("${params.rsid_ref_38}/*")
-       .set { ch_rsid_ref }
-  } else {
-      error "Genome build has to be 37 or 38, now it is ${params.gbuild}"
-  }
+ // if ("${params.gbuild}" == "37") {
+ //      Channel.fromPath("${params.rsid_ref_37}/*")
+ //      .set { ch_rsid_ref }
+ // } else if ("${params.gbuild}" == "38") {
+ //      Channel.fromPath("${params.rsid_ref_38}/*")
+ //      .set { ch_rsid_ref }
+ // } else {
+ //     error "Genome build has to be 37 or 38, now it is ${params.gbuild}"
+ // }
 
-  ch_rsid_ref.map { file ->
-    def chrWithPrefix = file.getBaseName().split("_")[0]
-    def chr = chrWithPrefix.replaceAll("chr", "")
-    return tuple(chr, file)
-  }.set {ch_rsid_ref2}
+ // ch_rsid_ref.map { file ->
+ //   def chrWithPrefix = file.getBaseName().split("_")[0]
+ //   def chr = chrWithPrefix.replaceAll("chr", "")
+ //   return tuple(chr, file)
+ // }.set {ch_rsid_ref2}
 
 
-  if(params.remap_rsids){
-    genotypes
-    .join(ch_rsid_ref2)
-    .set { ch_add_rsid_to_genotypes }
-    add_rsid_to_genotypes(ch_add_rsid_to_genotypes)
-    .set { ch_genotypes_to_score }
-  }else{
-    genotypes
-    .set { ch_genotypes_to_score }
-  }
+  //  if(params.remap_rsids){
+  //    genotypes
+  //    .join(ch_rsid_ref2)
+  //    .set { ch_add_rsid_to_genotypes }
+  //    add_rsid_to_genotypes(ch_add_rsid_to_genotypes)
+  //    .set { ch_genotypes_to_score }
+  //  }else{
+  //    genotypes
+  //    .set { ch_genotypes_to_score }
+  //  }
 
   if(params.concat_genotypes){
 
     // concat all genotypes
-    ch_genotypes_to_score
+    genotypes
     .map { chr, bed, bim, fam -> 
         def canonicalBed = new File(bed.toString()).canonicalPath
         def canonicalBim = new File(bim.toString()).canonicalPath
@@ -241,17 +249,18 @@ workflow wf_sbayesr_calc_score {
   }
 
   // join posteriors and genotypes per chromosome
-  ch_calculated_posteriors
-  .join(ch_genotypes_to_score)
+  ch_formatted_posteriors
+  .join(genotypes)
   .set{ ch_calc_score_input_per_chr }
 
   // Calc score
   ch_calc_score_input_per_chr
   .mix(ch_calc_score_input_all)
   .set{ ch_calc_score }
-  calc_score(ch_calc_score, "${params.calc_posteriors_sbayesr.score_columns}")
+  calc_score(ch_calc_score)
 
   // Merge and calculate per chromosome scores
   calc_merged_score(calc_score.out.collect())
 }
+
 
