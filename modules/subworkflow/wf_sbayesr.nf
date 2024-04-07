@@ -196,36 +196,6 @@ workflow wf_sbayesr_calc_score {
   extract_maf_from_genotypes.out.map {x,y -> y}.collect().set {ch_collected_maf}
   concatenate_plink_maf(ch_collected_maf)
 
-  // replace with variant map
-  // always add rsids based on our dbsnp reference
- // if ("${params.gbuild}" == "37") {
- //      Channel.fromPath("${params.rsid_ref_37}/*")
- //      .set { ch_rsid_ref }
- // } else if ("${params.gbuild}" == "38") {
- //      Channel.fromPath("${params.rsid_ref_38}/*")
- //      .set { ch_rsid_ref }
- // } else {
- //     error "Genome build has to be 37 or 38, now it is ${params.gbuild}"
- // }
-
- // ch_rsid_ref.map { file ->
- //   def chrWithPrefix = file.getBaseName().split("_")[0]
- //   def chr = chrWithPrefix.replaceAll("chr", "")
- //   return tuple(chr, file)
- // }.set {ch_rsid_ref2}
-
-
-  //  if(params.remap_rsids){
-  //    genotypes
-  //    .join(ch_rsid_ref2)
-  //    .set { ch_add_rsid_to_genotypes }
-  //    add_rsid_to_genotypes(ch_add_rsid_to_genotypes)
-  //    .set { ch_genotypes_to_score }
-  //  }else{
-  //    genotypes
-  //    .set { ch_genotypes_to_score }
-  //  }
-
   if(params.concat_genotypes){
 
     // concat all genotypes
