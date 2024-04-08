@@ -121,11 +121,11 @@ process filter_bad_values_1 {
     tuple val(chr), path(sfile)
 
     output:
-    tuple val(chr), path("${chr}_sfile_filter_bad_values")
+    tuple val(chr), path("${chr}_sfile_filter_bad_values_1")
 
     script:
     """
-    filter_bad_values.sh ${sfile} > ${chr}_sfile_filter_bad_values
+    filter_bad_values.sh ${sfile} > ${chr}_sfile_filter_bad_values_1
     """
 }
 process filter_bad_values_2 {
@@ -134,11 +134,11 @@ process filter_bad_values_2 {
     tuple val(chr), path(sfile)
 
     output:
-    tuple val(chr), path("${chr}_sfile_filter_bad_values")
+    tuple val(chr), path("${chr}_sfile_filter_bad_values_2")
 
     script:
     """
-    filter_bad_values.sh ${sfile} > ${chr}_sfile_filter_bad_values
+    filter_bad_values.sh ${sfile} > ${chr}_sfile_filter_bad_values_2
     """
 }
 
@@ -189,4 +189,21 @@ process concatenate_sumstat_input {
         done
         """
 }
+
+process prepare_sumstat_for_benchmark_scoring {
+    publishDir "${params.outdir}/intermediates", mode: 'rellink', overwrite: true, enabled: params.dev
+    input:
+    tuple val(chr), path("sumstat"),path("map"),path("map_noNA")
+
+    output:
+    tuple val(chr), path("${chr}_sumstat")
+
+    script:
+    """
+    colinx="\$(find_col_indices.sh ${sumstat} "RSID,EffectAllele,B")"
+    echo "\${colinx}" > colinx
+    format_posteriors.sh ${sumstat} "\${colinx}" ${map_noNA} "3,6" "false" > "${chr}_sumstat"
+    """
+}
+
 

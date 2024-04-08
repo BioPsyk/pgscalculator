@@ -7,7 +7,7 @@ include {
  filter_sumstat_variants_on_map_file
 } from '../process/pr_variant_map_calculations.nf'
 
-include {  
+include {
  rmcol_build_sumstats
  add_N_effective
  format_sumstats
@@ -18,6 +18,7 @@ include {
  filter_on_ldref_rsids
  split_on_chromosome
  concatenate_sumstat_input
+ prepare_sumstat_for_benchmark_scoring
 } from '../process/pr_format_sumstats.nf'
 include { 
  calc_posteriors_sbayesr 
@@ -28,6 +29,7 @@ include {
 include {
   calc_score 
   calc_merged_score
+  indep_pairwise_for_benchmark
 } from '../process/pr_calc_score.nf'
 include { 
   add_rsid_to_genotypes 
@@ -122,13 +124,12 @@ workflow wf_sbayesr_calc_posteriors {
   filter_sumstat_variants_on_map_file(to_sumstat_variant_filter)
   
   // Remove b38 as it is not needed and will continue to be present in the mapfile
-  rmcol_build_sumstats(filter_sumstat_variants_on_map_file.out, 2)
+  // Will be removed anyways
+  //rmcol_build_sumstats(filter_sumstat_variants_on_map_file.out, 2)
 
   // Formatting according to sbayesr
-  format_sumstats(rmcol_build_sumstats.out, mapfile, "sbayesr")
+  format_sumstats(filter_sumstat_variants_on_map_file.out, mapfile, "sbayesr")
   format_sumstats.out.set { sumstats }
-
-
 
   sumstats
   .join(ch_ldfiles)
@@ -166,6 +167,7 @@ workflow wf_sbayesr_calc_posteriors {
   qc_posteriors(ch_posteriors_for_qc)
 
   emit:
+  sumstats_filtered=filter_bad_values_2.out
   ch_formatted_posteriors
   variant_maps_for_sbayesr = variant_map_for_sbayesr.out.map
 }
@@ -175,6 +177,7 @@ workflow wf_sbayesr_calc_score {
   take:
   ch_formatted_posteriors
   variant_maps_for_sbayesr
+  sumstat
 
   main:
 
@@ -188,14 +191,26 @@ workflow wf_sbayesr_calc_score {
   .map { chrid, _, files -> [chrid, *files] }
   .set { genotypes }
 
+  // Extract maf from genotypes
   genotypes
   .join(variant_maps_for_sbayesr)
   .set { ch_to_extract_maf }
-
   extract_maf_from_genotypes(ch_to_extract_maf)
   extract_maf_from_genotypes.out.map {x,y -> y}.collect().set {ch_collected_maf}
   concatenate_plink_maf(ch_collected_maf)
 
+  // Make benchmark scoring
+  sumstat
+  .join(variant_maps_for_sbayesr)
+  .set { ch_for_score_benchmark }
+  prepare_sumstat_for_benchmark_scoring(ch_for_score_benchmark)
+  prepare_sumstat_for_benchmark_scoring.out
+  .join(genotypes)
+  .set { ch_for_indep_pairwise }
+  indep_pairwise_for_benchmark(ch_for_indep_pairwise)
+
+  
+  // not certain this geno concatination will be needed as an option
   if(params.concat_genotypes){
 
     // concat all genotypes

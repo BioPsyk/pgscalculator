@@ -32,7 +32,7 @@ function _check_results {
 
 function _run_script {
 
-  "${test_script}.sh" ./posteriors "$1" ./mapfile_noNA "$2" > ./observed-results.tsv
+  "${test_script}.sh" ./posteriors "$1" ./mapfile_noNA "$2" "$3" > ./observed-results.tsv
 
   _check_results ./observed-results.tsv ./expected-result_1.tsv
 
@@ -93,5 +93,34 @@ rs738865	C	-0.002468	rs738865
 rs5757691	A	-0.003114	rs5757691
 EOF
 
-_run_script ${snp_posteriors_cols} ${map_from_to}
+_run_script ${snp_posteriors_cols} ${map_from_to} "true"
+
+#---------------------------------------------------------------------------------
+# benchmark
+_setup "base_case_benchmark"
+
+snp_posteriors_cols="6,7,9"
+map_from_to="3,6"
+
+cat <<EOF > ./posteriors
+CHR	POS	CHR	POS	0	RSID	EffectAllele	OtherAllele	B	SE	Z	P	OR	Neff	CaseN	ControlN	EAF	INFO	N
+22	17309296	22	16828406	7412256	rs175146	A	G	0.006499	0.0185	0.350318	0.7261	1.00652	127206.851988	54675	76017	0.06	0.925	111487
+22	18181984	22	17699218	1576295	rs17207051	T	G	-0.016404	0.0125	-1.307627	0.191	0.98373	150092.970769	64952	88856	0.84	0.809	111487
+22	23609726	22	23267539	7357723	rs78919016	A	G	-0.046599	0.0327	-1.426237	0.1538	0.95447	126819.097462	54385	76025	0.97	0.721	111487
+EOF
+
+cat <<EOF > ./mapfile_noNA
+b37	b38	ss_SNP	ss_A1	ss_A2	bim_SNP	bim_A1	bim_A2	ld_SNP	ld_A1	ld_A2
+22:17309296	22:16828406	rs175146	A	G	rs175146	G	A	rs175146	G	A
+22:18181984	22:17699218	rs17207051	T	G	rs17207051	G	T	rs17207051	G	T
+22:18334573	22:17851807	rs5992124	T	C	rs5992124	C	T	rs5992124	C	T
+EOF
+
+cat <<EOF > ./expected-result_1.tsv
+posteriorID	EA	Effect	genoID
+rs175146	A	0.006499	rs175146
+rs17207051	T	-0.016404	rs17207051
+EOF
+
+_run_script ${snp_posteriors_cols} ${map_from_to} "false"
 

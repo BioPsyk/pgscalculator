@@ -158,7 +158,7 @@ process format_sbayesr_posteriors {
         // select ss_ID and bim_ID
         map_from_to="3,6"
         """
-        format_posteriors.sh ${posterior} ${snp_posteriors_cols} ${map} ${map_from_to} > "${chr}_posterior_scoreformat"
+        format_posteriors.sh ${posterior} ${snp_posteriors_cols} ${map} ${map_from_to} "true" > "${chr}_posterior_scoreformat"
         """
 }
 
