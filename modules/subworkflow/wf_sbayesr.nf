@@ -18,7 +18,6 @@ include {
  filter_on_ldref_rsids
  split_on_chromosome
  concatenate_sumstat_input
- prepare_sumstat_for_benchmark_scoring
 } from '../process/pr_format_sumstats.nf'
 include { 
  calc_posteriors_sbayesr 
@@ -29,7 +28,6 @@ include {
 include {
   calc_score 
   calc_merged_score
-  indep_pairwise_for_benchmark
 } from '../process/pr_calc_score.nf'
 include { 
   add_rsid_to_genotypes 
@@ -39,6 +37,12 @@ include {
   extract_maf_from_genotypes
   concatenate_plink_maf
 } from '../process/pr_extract_from_genotypes.nf'
+include { 
+  prepare_sumstat_for_benchmark_scoring
+  indep_pairwise_for_benchmark
+  sumstat_maf_filter
+} from '../process/pr_prepare_benchmark.nf'
+
 
 workflow wf_sbayesr_calc_posteriors {
 
@@ -199,16 +203,22 @@ workflow wf_sbayesr_calc_score {
   extract_maf_from_genotypes.out.map {x,y -> y}.collect().set {ch_collected_maf}
   concatenate_plink_maf(ch_collected_maf)
 
-  // Make benchmark scoring
+  // prepare benchmark scoring
   sumstat
   .join(variant_maps_for_sbayesr)
-  .set { ch_for_score_benchmark }
-  prepare_sumstat_for_benchmark_scoring(ch_for_score_benchmark)
+  .set { ch_prepare_score_benchmark }
+  prepare_sumstat_for_benchmark_scoring(ch_prepare_score_benchmark)
+
   prepare_sumstat_for_benchmark_scoring.out
+  .join(extract_maf_from_genotypes.out)
+  .set { ch_prepare_score_benchmark_maf }
+  sumstat_maf_filter(ch_prepare_score_benchmark_maf, 0.05)
+
+  sumstat_maf_filter.out
   .join(genotypes)
   .set { ch_for_indep_pairwise }
   indep_pairwise_for_benchmark(ch_for_indep_pairwise)
-
+  indep_pairwise_for_benchmark.out.set { ch_benchmark_ready_to_score }
   
   // not certain this geno concatination will be needed as an option
   if(params.concat_genotypes){
@@ -233,10 +243,10 @@ workflow wf_sbayesr_calc_score {
     Channel.empty().set { ch_calc_score_input_all }
   }
 
-  // join posteriors and genotypes per chromosome
-  ch_formatted_posteriors
-  .join(genotypes)
-  .set{ ch_calc_score_input_per_chr }
+  // Mix main method and benchmark method after adding genotypes
+  ch_formatted_posteriors_main = ch_formatted_posteriors.join(genotypes).map { tuple -> ['main'] + tuple }
+  ch_benchmark_ready_to_score_bench = ch_benchmark_ready_to_score.join(genotypes).map { tuple -> ['bench'] + tuple }
+  ch_calc_score_input_per_chr = ch_formatted_posteriors_main.mix(ch_benchmark_ready_to_score_bench)
 
   // Calc score
   ch_calc_score_input_per_chr
@@ -244,8 +254,23 @@ workflow wf_sbayesr_calc_score {
   .set{ ch_calc_score }
   calc_score(ch_calc_score)
 
-  // Merge and calculate per chromosome scores
-  calc_merged_score(calc_score.out.collect())
+  // Step 1: Branch off and prepare for collection
+  ch_main = calc_score.out.filter { it[0] == 'main' }.map { it - 'main' }
+  ch_bench = calc_score.out.filter { it[0] == 'bench' }.map { it - 'bench' }
+  
+  // Step 2: Collect items
+  ch_main_collected = ch_main.collect()
+  ch_bench_collected = ch_bench.collect()
+  
+  // Step 3: Process collected items, reintroducing the method info
+  ch_main_collected.map { ['main', it] }.set { input_for_main_process }
+  ch_bench_collected.map { ['bench', it] }.set { input_for_bench_process }
+
+  // Again Mix main method and benchmark method 
+  ch_to_merge_collected = input_for_main_process.mix(input_for_bench_process)
+
+  // Merged chromosomes scores
+  calc_merged_score(ch_to_merge_collected)
 }
 
 
