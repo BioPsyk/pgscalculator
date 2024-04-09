@@ -4,6 +4,7 @@ nextflow.enable.dsl=2
 
 include {  
  variant_map_for_sbayesr
+ concatenate_variant_map
  filter_sumstat_variants_on_map_file
 } from '../process/pr_variant_map_calculations.nf'
 
@@ -42,6 +43,10 @@ include {
   indep_pairwise_for_benchmark
   sumstat_maf_filter
 } from '../process/pr_prepare_benchmark.nf'
+include { 
+  make_augmented_gwas
+  concatenate_augmented_sumstat
+} from '../process/pr_organize_output.nf'
 
 
 workflow wf_sbayesr_calc_posteriors {
@@ -120,6 +125,7 @@ workflow wf_sbayesr_calc_posteriors {
 
   // make variant map
   variant_map_for_sbayesr(ch_to_map)
+  concatenate_variant_map(variant_map_for_sbayesr.out.map {x,y,z -> y}.collect())
 
   //Filter sumstat based on map
   filter_bad_values_2.out
@@ -128,11 +134,10 @@ workflow wf_sbayesr_calc_posteriors {
   filter_sumstat_variants_on_map_file(to_sumstat_variant_filter)
   
   // Remove b38 as it is not needed and will continue to be present in the mapfile
-  // Will be removed anyways
-  //rmcol_build_sumstats(filter_sumstat_variants_on_map_file.out, 2)
+  rmcol_build_sumstats(filter_sumstat_variants_on_map_file.out.map_noNA, 2)
 
   // Formatting according to sbayesr
-  format_sumstats(filter_sumstat_variants_on_map_file.out, mapfile, "sbayesr")
+  format_sumstats(rmcol_build_sumstats.out, mapfile, "sbayesr")
   format_sumstats.out.set { sumstats }
 
   sumstats
@@ -171,9 +176,10 @@ workflow wf_sbayesr_calc_posteriors {
   qc_posteriors(ch_posteriors_for_qc)
 
   emit:
-  sumstats_filtered=filter_bad_values_2.out
+  sumstats_filtered_map=rmcol_build_sumstats.out
   ch_formatted_posteriors
   variant_maps_for_sbayesr = variant_map_for_sbayesr.out.map
+ // sumstats_filtered_map_noNA=filter_sumstat_variants_on_map_file.out.map_noNA
 }
 
 workflow wf_sbayesr_calc_score {
@@ -181,7 +187,7 @@ workflow wf_sbayesr_calc_score {
   take:
   ch_formatted_posteriors
   variant_maps_for_sbayesr
-  sumstat
+  sumstat_map
 
   main:
 
@@ -204,7 +210,7 @@ workflow wf_sbayesr_calc_score {
   concatenate_plink_maf(ch_collected_maf)
 
   // prepare benchmark scoring
-  sumstat
+  sumstat_map
   .join(variant_maps_for_sbayesr)
   .set { ch_prepare_score_benchmark }
   prepare_sumstat_for_benchmark_scoring(ch_prepare_score_benchmark)
@@ -271,6 +277,17 @@ workflow wf_sbayesr_calc_score {
 
   // Merged chromosomes scores
   calc_merged_score(ch_to_merge_collected)
+
+  // Make Augmented GWAS
+  sumstat_map
+  .join(extract_maf_from_genotypes.out)
+  .join(ch_formatted_posteriors)
+  .join(ch_benchmark_ready_to_score)
+  .join(variant_maps_for_sbayesr)
+  .set { for_augmented_gwas }
+  make_augmented_gwas(for_augmented_gwas)
+  concatenate_augmented_sumstat(make_augmented_gwas.out.map {x,y -> y}.collect())
+
 }
 
 

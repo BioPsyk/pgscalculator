@@ -1,0 +1,39 @@
+process make_augmented_gwas {
+    publishDir "${params.outdir}/intermediates/augmented_sumstat", mode: 'rellink', overwrite: true, enabled: params.dev
+    input:
+    tuple val(chr), path(sumstat), path(maffile), path(posteriors), path(benchmark), path(map),path(map_noNA)
+
+    output:
+    tuple val(chr), path("${chr}_sumstat_augmented")
+
+    script:
+    """
+ cat ${sumstat} > ss2
+ cat ${map} > map2
+ cat ${maffile} > maf2
+ cat ${posteriors} > post2
+ cat ${benchmark} > bench2
+    make_augmented_output.sh ${sumstat} ${map} ${maffile} ${posteriors} ${benchmark} > "${chr}_sumstat_augmented"
+    """
+}
+
+// Concatenate per chromosome posterior SNP effects for sBayesR
+process concatenate_augmented_sumstat {
+    publishDir "${params.outdir}", mode: 'copy', overwrite: true
+
+    input:
+        path(chrfiles)
+    
+    output:
+        path("augmented_sumstat.gz")
+    script:
+        """
+        echo "RSID	CHR	POS	EffectAllele	B	SE	Z	P	genoID	MAF	postEffect	benchEffect"  > "augmented_sumstat"
+        for chrfile in ${chrfiles}
+        do
+          tail -n+2 \$chrfile >> "augmented_sumstat"
+        done
+
+        gzip "augmented_sumstat"
+        """
+}

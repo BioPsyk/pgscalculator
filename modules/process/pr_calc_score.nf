@@ -32,14 +32,14 @@ process calc_score {
 }
 
 process calc_merged_score {
-    publishDir "${params.outdir}/extra", mode: 'copy', overwrite: true
+    publishDir "${params.outdir}", mode: 'copy', overwrite: true
     label 'mod_mem'
     
     input:
         tuple val(method), path(chrscores)
 
     output:
-        tuple val(method), path("${method}_raw_score_all")
+        tuple val(method), path("${method}_raw_score_all.gz")
     
     script:
         """
@@ -48,6 +48,8 @@ process calc_merged_score {
           FNR>1{FILE_SUM[\$1]++; ALLELE_CT[\$1]+=\$3; NAMED_ALLELE_DOSAGE_SUM[\$1]+=\$4; SCORE1_SUM[\$1]+=\$6}
           END{for(k in ALLELE_CT){print k, k, ALLELE_CT[k], NAMED_ALLELE_DOSAGE_SUM[k], SCORE1_SUM[k]/ALLELE_CT[k], SCORE1_SUM[k], FILE_SUM[k]}}
         ' ${chrscores} >>  "${method}_raw_score_all"
+
+        gzip "${method}_raw_score_all"
 
         """
 }

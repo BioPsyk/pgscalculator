@@ -54,6 +54,26 @@ process variant_map_for_sbayesr {
         """
 }
 
+// Concatenate variant_map
+process concatenate_variant_map {
+    publishDir "${params.outdir}", mode: 'copy', overwrite: true
+
+    input:
+        path(chrfiles)
+    
+    output:
+        tuple val("all"), path("variant_map.gz")
+    script:
+        """
+        echo "b37     b38     ss_SNP  ss_A1   ss_A2   bim_SNP bim_A1  bim_A2  ld_SNP  ld_A1   ld_A2"  > "variant_map"
+        for chrfile in ${chrfiles}
+        do
+          tail -n+2 \$chrfile >> "variant_map"
+        done
+        gzip variant_map
+        """
+}
+
 process filter_sumstat_variants_on_map_file {
     publishDir "${params.outdir}/intermediates/mapgeneration", mode: 'rellink', overwrite: true, enabled: params.dev
      
@@ -63,30 +83,14 @@ process filter_sumstat_variants_on_map_file {
     tuple val(chr), path(ss), path("map"), path("map_noNA")
 
     output:
-    tuple val(chr), path("${chr}_subset_sumstats")
+    tuple val(chr), path("${chr}_subset_sumstats_map"), emit: map
+    tuple val(chr), path("${chr}_subset_sumstats_map_noNA"), emit: map_noNA
 
     script:
         """
         # subset on chr:pos:a1:a2
-        subset_sumstat_on_mapfile.sh ${ss} ${map_noNA} "${chr}_subset_sumstats"
-        """
-}
-
-process prepare_augmentad_sumstat_files {
-    publishDir "${params.outdir}/intermediates/mapgeneration", mode: 'rellink', overwrite: true, enabled: params.dev
-     
-    label 'low_mem'
-
-    input:
-    tuple val(chr), path(ss), path(map)
-
-    output:
-    tuple val(chr), path("${chr}_augmented_ss")
-
-    script:
-        """
-        # subset on chr:pos:a1:a2
-        subset_sumstat_on_mapfile.sh ${ss} ${map} "${chr}_subset_sumstats"
+        subset_sumstat_on_mapfile.sh ${ss} ${map} "${chr}_subset_sumstats_map"
+        subset_sumstat_on_mapfile.sh ${ss} ${map_noNA} "${chr}_subset_sumstats_map_noNA"
         """
 }
 

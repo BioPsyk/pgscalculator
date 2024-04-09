@@ -122,7 +122,8 @@ process concatenate_sbayes_posteriors {
 
 // calculate per chromosome posterior SNP effects for sBayesR
 process qc_posteriors {
-    publishDir "${params.outdir}/qc_posteriors", mode: 'copy', overwrite: true
+    publishDir "${params.outdir}/qc", mode: 'copy', overwrite: true, pattern: '*'
+    publishDir "${params.outdir}/intermediates/qc_posteriors", mode: 'rellink', overwrite: true, enabled: params.dev
 
     label 'big_mem'
     cpus 6
