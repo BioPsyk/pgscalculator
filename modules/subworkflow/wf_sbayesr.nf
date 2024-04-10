@@ -134,7 +134,7 @@ workflow wf_sbayesr_calc_posteriors {
   filter_sumstat_variants_on_map_file(to_sumstat_variant_filter)
   
   // Remove b38 as it is not needed and will continue to be present in the mapfile
-  rmcol_build_sumstats(filter_sumstat_variants_on_map_file.out.map_noNA, 2)
+  rmcol_build_sumstats(filter_sumstat_variants_on_map_file.out, 2)
 
   // Formatting according to sbayesr
   format_sumstats(rmcol_build_sumstats.out, mapfile, "sbayesr")
@@ -176,10 +176,9 @@ workflow wf_sbayesr_calc_posteriors {
   qc_posteriors(ch_posteriors_for_qc)
 
   emit:
-  sumstats_filtered_map=rmcol_build_sumstats.out
+  sumstats_filtered=rmcol_build_sumstats.out
   ch_formatted_posteriors
   variant_maps_for_sbayesr = variant_map_for_sbayesr.out.map
- // sumstats_filtered_map_noNA=filter_sumstat_variants_on_map_file.out.map_noNA
 }
 
 workflow wf_sbayesr_calc_score {
@@ -187,7 +186,7 @@ workflow wf_sbayesr_calc_score {
   take:
   ch_formatted_posteriors
   variant_maps_for_sbayesr
-  sumstat_map
+  sumstat
 
   main:
 
@@ -210,7 +209,7 @@ workflow wf_sbayesr_calc_score {
   concatenate_plink_maf(ch_collected_maf)
 
   // prepare benchmark scoring
-  sumstat_map
+  sumstat
   .join(variant_maps_for_sbayesr)
   .set { ch_prepare_score_benchmark }
   prepare_sumstat_for_benchmark_scoring(ch_prepare_score_benchmark)
@@ -279,7 +278,7 @@ workflow wf_sbayesr_calc_score {
   calc_merged_score(ch_to_merge_collected)
 
   // Make Augmented GWAS
-  sumstat_map
+  sumstat
   .join(extract_maf_from_genotypes.out)
   .join(ch_formatted_posteriors)
   .join(ch_benchmark_ready_to_score)

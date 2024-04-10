@@ -23,16 +23,17 @@ process rmcol_build_sumstats {
     label 'low_mem'
 
     input:
-        tuple val(chr), path(input_file)
+        tuple val(chr), path(file1), path(file2)
         val(torm)
 
     output:
-        tuple val(chr), path("${chr}_rmcol_sumstat_grch37")
+        tuple val(chr), path("${chr}_rmcol_sumstat_grch37_map"), path("${chr}_rmcol_sumstat_grch37_map_noNA")
 
     script:
         """
         # Remove one of two builds 1 (col 1 and 2) or 2 (col 3 and 4)
-        rmcol_build_sumstats.sh ${input_file} ${torm} "${chr}_rmcol_sumstat_grch37"
+        rmcol_build_sumstats.sh ${file1} ${torm} "${chr}_rmcol_sumstat_grch37_map"
+        rmcol_build_sumstats.sh ${file2} ${torm} "${chr}_rmcol_sumstat_grch37_map_noNA"
         """
 }
 
@@ -58,7 +59,7 @@ process format_sumstats {
     publishDir "${params.outdir}/intermediates", mode: 'rellink', overwrite: true, enabled: params.dev
      
     input:
-    tuple val(chr), path(input_file)
+    tuple val(chr), path(input_file), path(input_file_noNA)
     file(mapfile)
     val(method)
 
@@ -67,7 +68,7 @@ process format_sumstats {
 
     script:
         """
-        format_sumstats.sh ${input_file} ${mapfile} ${method} > "${chr}_formatted"
+        format_sumstats.sh ${input_file_noNA} ${mapfile} ${method} > "${chr}_formatted"
         """
 }
 

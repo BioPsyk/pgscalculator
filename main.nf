@@ -59,7 +59,7 @@ workflow {
       wf_sbayesr_calc_posteriors(ch_input)
       wf_sbayesr_calc_posteriors.out.ch_formatted_posteriors.set{ ch_formatted_posteriors }
       wf_sbayesr_calc_posteriors.out.variant_maps_for_sbayesr.set{ ch_variant_maps }
-      wf_sbayesr_calc_posteriors.out.sumstats_filtered_map.set{ ch_sumstat }
+      wf_sbayesr_calc_posteriors.out.sumstats_filtered.set{ ch_sumstat }
     }
 
     if(params.calc_score){

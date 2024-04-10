@@ -83,8 +83,7 @@ process filter_sumstat_variants_on_map_file {
     tuple val(chr), path(ss), path("map"), path("map_noNA")
 
     output:
-    tuple val(chr), path("${chr}_subset_sumstats_map"), emit: map
-    tuple val(chr), path("${chr}_subset_sumstats_map_noNA"), emit: map_noNA
+    tuple val(chr), path("${chr}_subset_sumstats_map"), path("${chr}_subset_sumstats_map_noNA")
 
     script:
         """

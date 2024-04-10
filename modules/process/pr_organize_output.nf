@@ -1,19 +1,19 @@
 process make_augmented_gwas {
     publishDir "${params.outdir}/intermediates/augmented_sumstat", mode: 'rellink', overwrite: true, enabled: params.dev
     input:
-    tuple val(chr), path(sumstat), path(maffile), path(posteriors), path(benchmark), path(map),path(map_noNA)
+    tuple val(chr), path(sumstat_map), path(sumstat_map_noNA), path(maffile), path(posteriors), path(benchmark), path(map),path(map_noNA)
 
     output:
     tuple val(chr), path("${chr}_sumstat_augmented")
 
     script:
     """
- cat ${sumstat} > ss2
- cat ${map} > map2
- cat ${maffile} > maf2
- cat ${posteriors} > post2
- cat ${benchmark} > bench2
-    make_augmented_output.sh ${sumstat} ${map} ${maffile} ${posteriors} ${benchmark} > "${chr}_sumstat_augmented"
+# cat ${sumstat_map} > ss2
+# cat ${map} > map2
+# cat ${maffile} > maf2
+# cat ${posteriors} > post2
+# cat ${benchmark} > bench2
+    make_augmented_output.sh ${sumstat_map} ${map} ${maffile} ${posteriors} ${benchmark} > "${chr}_sumstat_augmented"
     """
 }
 
