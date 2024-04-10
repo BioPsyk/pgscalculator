@@ -17,6 +17,7 @@ function general_usage(){
  echo "-l <dir> 	 LD map dir, absolute paths"
  echo "-g <dir> 	 target genotypes"
  echo "-f <file> 	 target genotypes files in genotype folder"
+ echo "-s <file> 	 target genotypes snp list filtering(default: none)"
  echo "-c <file> 	 run specific config file"
  echo "-o <dir> 	 path to output directory"
  echo "-b <dir> 	 path to system tmp or scratch (default: /tmp)"
@@ -46,12 +47,13 @@ project_dir="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 paramarray=($@)
 
 # starting getops with :, puts the checking in silent mode for errors.
-getoptsstring=":hvi:o:b:w:l:g:f:m:c:db:12"
+getoptsstring=":hvi:o:b:w:l:g:f:s:m:c:db:12"
 
 infold=""
 lddir=""
 genodir=""
 genofile=""
+snpfile=""
 conffile=""
 outdir="out"
 calc_posterior=true
@@ -62,6 +64,7 @@ infold_given=false
 lddir_given=false
 genodir_given=false
 genofile_given=false
+snpfile_given=false
 conffile_given=false
 outdir_given=false
 tmpdir_given=false
@@ -100,6 +103,10 @@ while getopts "${getoptsstring}" opt "${paramarray[@]}"; do
     f )
       genofile="$OPTARG"
       genofile_given=true
+      ;;
+    s )
+      snpfile="$OPTARG"
+      snpfile_given=true
       ;;
     c )
       conffile="$OPTARG"
@@ -206,6 +213,15 @@ fi
     exit 1
   fi
 
+  if ${snpfile_given}; then
+    snpfile_host=$(realpath "${snpfile}")
+    if [ ! -f $snpfile_host ]; then
+      >&2 echo "snpfile doesn't exist"
+      >&2 echo "path tried: $snpfile_host"
+      exit 1
+    fi
+  fi
+
 #else
 #  genodir_host="$(realpath ${project_dir}/tests/example_data/genotypes)"
 #  genofile_host="$(realpath ${project_dir}/tests/example_data/genotypes/genofiles_placehoder.txt)"
@@ -267,6 +283,18 @@ conffile_name=$(basename "${conffile_host}")
 confdir_container="/pgscalculator/confdir"
 conffile_container="${confdir_container}/${conffile_name}"
 
+if ${snpfile_given}; then
+  snpdir_host=$(dirname "${snpfile_host}")
+  snpfile_name=$(basename "${snpfile_host}")
+  snpdir_container="/pgscalculator/snpdir"
+  snpfile_container="${snpdir_container}/${snpfile_name}"
+  snplist_host_container="-B ${snpdir_host}:${snpdir_container}"
+  snplist_container="--snplist ${snpfile_container}"
+else
+  snplist_host_container=""
+  snplist_container=""
+fi
+
 # outdir
 outdir_container="/pgscalculator/outdir"
 
@@ -302,6 +330,7 @@ singularity run \
    -B "${lddir_host}:${lddir_container}" \
    -B "${genodir_host}:${genodir_container}" \
    -B "${genodir2_host}:${genodir2_container}" \
+    ${snplist_host_container} \
    -B "${confdir_host}:${confdir_container}" \
    -B "${tmpdir_host}:${tmpdir_container}" \
    -B "${workdir_host}:${workdir_container}" \
@@ -317,6 +346,7 @@ singularity run \
      --lddir "${lddir_container}" \
      --genodir "${genodir_container}" \
      --genofile "${genofile_container}" \
+     ${snplist_container} \
      --conffile "${conffile_container}" \
      --outdir "${outdir_container}" 
 
