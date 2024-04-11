@@ -8,12 +8,13 @@ process make_augmented_gwas {
 
     script:
     """
-# cat ${sumstat_map} > ss2
-# cat ${map} > map2
-# cat ${maffile} > maf2
-# cat ${posteriors} > post2
-# cat ${benchmark} > bench2
+ cat ${sumstat_map} > ss2
+ cat ${map} > map2
+ cat ${maffile} > maf2
+ cat ${posteriors} > post2
+ cat ${benchmark} > bench2
     make_augmented_output.sh ${sumstat_map} ${map} ${maffile} ${posteriors} ${benchmark} > "${chr}_sumstat_augmented"
+exit 1
     """
 }
 
@@ -28,7 +29,7 @@ process concatenate_augmented_sumstat {
         path("augmented_sumstat.gz")
     script:
         """
-        echo "RSID	CHR	POS	EffectAllele	B	SE	Z	P	genoID	MAF	postEffect	benchEffect"  > "augmented_sumstat"
+        echo "RSID	CHR	POS	EffectAllele	EffectAllele	B	SE	Z	P	genoID	MAF	postEffect	benchEffect"  > "augmented_sumstat"
         for chrfile in ${chrfiles}
         do
           tail -n+2 \$chrfile >> "augmented_sumstat"
