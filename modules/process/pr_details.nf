@@ -7,7 +7,9 @@ process copyConfigFiles {
     """
     mkdir -p ${params.outdir}/details
     cp nextflow.config ${params.outdir}/details/
-    cp /pgscalculator/confdir/* ${params.outdir}/details/
+    cp ${params.conffile} ${params.outdir}/details/
+
     """
 }
+
 
