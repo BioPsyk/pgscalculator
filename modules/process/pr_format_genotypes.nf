@@ -39,31 +39,4 @@ process concat_genotypes {
         """
 
 }
-//        oprefix=1
-//        while read -r c1 c2 c3; do
-//          echo "\$(realpath \$c1)"
-//          echo "\$(realpath \$c2)"
-//          echo "\$(realpath \$c3)"
-//          awk '{seen[\$2]++}; END{for (k in seen){if(seen[k]==1){print k}}}' "\$(realpath \$c2)" > include_file 
-//          plink --bed "\$(realpath \$c1)" --bim "\$(realpath \$c2)" --fam "\$(realpath \$c3)" --extract include_file --make-bed --out "prefix_\${oprefix}"
-//          echo "prefix_\${oprefix}" >> allfiles_converted.txt
-//          ((oprefix++))
-//        done < allfiles.txt
-//        plink --merge-list allfiles_converted.txt --make-bed --out allgeno
-
-        //oprefix=1
-        //while read -r c1 c2 c3; do
-        //  echo "\$(realpath \$c1)"
-        //  echo "\$(realpath \$c2)"
-        //  echo "\$(realpath \$c3)"
-        //  prefix=\${c1%.bed}
-        //  plink --bfile \${prefix} --recode vcf --out "prefix_\${oprefix}"
-        //  echo "prefix_\${oprefix}" >> allfiles_converted.txt
-        //  ((oprefix++))
-        //done < allfiles.txt
-
-        //exit 1
-        //plink2 --pmerge-list allfiles.txt bfile --make-bed --out allgeno
-          //plink2 --bfile \${prefix} --make-pgen --out "prefix_\${oprefix}"
-        //plink --bfile --merge-list allfiles.txt --make-bed --out allgeno
 

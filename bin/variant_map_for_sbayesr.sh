@@ -3,20 +3,24 @@
 # Usage: ./script.sh <build_version> <ss2_file> <bim2_file> <ld2_file> <output_file>
 # <build_version> is either b37 or b38
 
-ss2_file=$1
-bim2_file=$2
-ld2_file=$3
-output_file=$4
-#output_file_2=$5
+ss2_file="${1}"
+bim2_file="${2}"
+snp2_sorted="${3}"
+ld2_file="${4}"
+output_file="${5}"
 
+
+head ${snp2_sorted} > snp2_head
 
 # Create temporary files with sorted content for join
-sort -k1,1 $ss2_file > ss2_sorted.tmp
-sort -k1,1 $bim2_file > bim2_sorted.tmp
-sort -k1,1 $ld2_file > ld2_sorted.tmp
+sort -k1,1 ${ss2_file} > ss2_sorted.tmp
+sort -k4,4 ${bim2_file} > bim2_sorted_1.tmp
+sort -k1,1 ${ld2_file} > ld2_sorted.tmp
 
 # Perform the joins
-join -1 1 -2 1 -o 1.1 1.2 1.5 1.3 1.4 2.4 2.2 2.3 ss2_sorted.tmp bim2_sorted.tmp > join1.tmp
+join -1 1 -2 4 -o 2.1 2.2 2.3 2.4 "${snp2_sorted}" bim2_sorted_1.tmp > join0.tmp
+sort -k1,1 join0.tmp > bim2_sorted_2.tmp
+join -1 1 -2 1 -o 1.1 1.2 1.5 1.3 1.4 2.4 2.2 2.3 ss2_sorted.tmp bim2_sorted_2.tmp > join1.tmp
 join -1 1 -2 1 -a 1 -e 'NA' -o 1.1 1.2 1.3 1.4 1.5 1.6 1.7 1.8 2.4 2.2 2.3 join1.tmp ld2_sorted.tmp > join2.tmp
 
 # Filter rows where neither A1==A1 nor A1==A2 between the files

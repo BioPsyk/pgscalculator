@@ -6,6 +6,7 @@ include {
  variant_map_for_sbayesr
  concatenate_variant_map
  filter_sumstat_variants_on_map_file
+ make_snplist_from_bim
 } from '../process/pr_variant_map_calculations.nf'
 
 include {
@@ -94,6 +95,16 @@ workflow wf_sbayesr_calc_posteriors {
   .map { chrid, _, files -> [chrid, *files] }
   .set { genotypes_bim }
 
+  // SNPlist
+  if (params.snplist) {
+    Channel.fromPath("${params.snplist}", type: 'file').set { ch_input_snplist_0 }
+    sort_user_snplist(ch_input_snplist_0)
+    sort_user_snplist.out.set { ch_input_snplist }
+  } else {
+    make_snplist_from_bim(genotypes_bim.map {x,y -> y}.collect())
+    make_snplist_from_bim.out.set { ch_input_snplist }
+  }
+
 
   // Split sumstat per chromosome
   split_on_chromosome(input)
@@ -120,6 +131,7 @@ workflow wf_sbayesr_calc_posteriors {
   // join for variant map
   filter_bad_values_2.out
   .join(genotypes_bim)
+  .combine(ch_input_snplist)
   .join(ch_ldfiles)
   .set { ch_to_map }  
 

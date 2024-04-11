@@ -1,5 +1,43 @@
 // Nextflow processes to make initial variant map
 
+process sort_user_snplist {
+    publishDir "${params.outdir}/intermediates/mapgeneration", mode: 'rellink', overwrite: true, enabled: params.dev
+     
+    label 'low_mem'
+
+    input:
+    path("snplist")
+
+    output:
+    path("snplist_sorted")
+
+    script:
+        """
+        sort -u -k1,1 "snplist" > "snplist_sorted"
+        """
+}
+
+process make_snplist_from_bim {
+    publishDir "${params.outdir}/intermediates/mapgeneration", mode: 'rellink', overwrite: true, enabled: params.dev
+     
+    label 'low_mem'
+
+    input:
+    path(bims)
+
+    output:
+    path("snplist_sorted")
+
+    script:
+        """
+        for chrfile in ${bims}
+        do
+          awk '{print \$2}' \$chrfile >> "snplist"
+        done
+        sort -u -k1,1 "snplist" > "snplist_sorted"
+        """
+}
+
 process variant_map_for_prscs {
     publishDir "${params.outdir}/intermediates/mapgeneration", mode: 'rellink', overwrite: true, enabled: params.dev
      
@@ -33,7 +71,7 @@ process variant_map_for_sbayesr {
     label 'low_mem'
 
     input:
-    tuple val(chr), path(ss), path(bim), path(ldbin), path(ldinfo)
+    tuple val(chr), path(ss), path(bim), path(snplist), path(ldbin), path(ldinfo)
 
     output:
     tuple val(chr), path("${chr}_variants_mapfile"), path("${chr}_variants_mapfile_no_NA"), emit: map
@@ -48,8 +86,10 @@ process variant_map_for_sbayesr {
         awk -vFS="\t" -vOFS="\t" '{print \$1":"\$4, \$5, \$6, \$2 }' ${bim} > bim2
         # chr pos a1 a2 markername
         awk -vFS=" " -vOFS="\t" 'NR>1{print \$1":"\$4, \$5, \$6, \$2 }' ${ldinfo} > ld2
+        # markername
+        cp ${snplist} snp2
 
-        variant_map_for_sbayesr.sh ss2 bim2 ld2 "${chr}_variants_mapfile"
+        variant_map_for_sbayesr.sh ss2 bim2 snp2 ld2 "${chr}_variants_mapfile"
         awk -vFS="\t" -vOFS="\t" '{if (\$9 != "NA") { print \$0 }}' "${chr}_variants_mapfile" > "${chr}_variants_mapfile_no_NA"
         """
 }

@@ -2,7 +2,7 @@
 
 # Check number of arguments
 if [ "$#" -ne 5 ]; then
-    echo "Usage: $0 sumstat mapfile maffile posterior benchmark"
+    echo "Usage: $0 sumstat mapfile maffile posterior benchmark" > "/dev/stderr"
     exit 1
 fi
 
