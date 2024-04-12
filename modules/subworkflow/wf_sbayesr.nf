@@ -114,6 +114,10 @@ workflow wf_sbayesr_calc_posteriors {
     def parts = file.name.split("_")
     [parts[1].replace(".tsv", ""), file]
   }
+  .filter { item ->
+    int chromNumber = item[0].toInteger()
+    return chromNumber >= 1 && chromNumber <= 22
+  }
   .set { ch_split }
 
   // add metafile

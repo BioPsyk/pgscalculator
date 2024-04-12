@@ -8,13 +8,12 @@ process make_augmented_gwas {
 
     script:
     """
- cat ${sumstat_map} > ss2
- cat ${map} > map2
- cat ${maffile} > maf2
- cat ${posteriors} > post2
- cat ${benchmark} > bench2
+  #  cat ${sumstat_map} > ss2
+  #  cat ${map} > map2
+  #  cat ${maffile} > maf2
+  #  cat ${posteriors} > post2
+  #  cat ${benchmark} > bench2
     make_augmented_output.sh ${sumstat_map} ${map} ${maffile} ${posteriors} ${benchmark} > "${chr}_sumstat_augmented"
-exit 1
     """
 }
 
