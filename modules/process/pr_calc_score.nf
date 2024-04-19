@@ -13,6 +13,11 @@ process calc_score {
         tuple val(method), path("chr${chr}.score")
     
     script:
+        if(params.samplelist){
+          keep="--keep ${params.samplelist}" 
+        }else{
+          keep="" 
+        }
         """
         # Count the number of lines in the file
         num_lines=\$(head -n20 ${snp_posteriors} | wc -l)
@@ -22,6 +27,7 @@ process calc_score {
           plink2 --pfile geno \
           --out tmp \
           --threads 1 \
+          ${keep} \
           --score ${snp_posteriors} 4 2 3 header cols=+scoresums ignore-dup-ids
 
           awk '{gsub(/^#/, ""); print}' tmp.sscore > chr${chr}.score
