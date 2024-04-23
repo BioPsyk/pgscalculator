@@ -13,7 +13,7 @@ process sort_user_snplist {
 
     script:
         """
-        sort -u -k1,1 "snplist" > "snplist_sorted"
+        LC_ALL=C sort -u -k1,1 "snplist" > "snplist_sorted"
         """
 }
 
@@ -34,7 +34,7 @@ process make_snplist_from_bim {
         do
           awk '{print \$2}' \$chrfile >> "snplist"
         done
-        sort -u -k1,1 "snplist" > "snplist_sorted"
+        LC_ALL=C sort -u -k1,1 "snplist" > "snplist_sorted"
         """
 }
 
@@ -51,6 +51,8 @@ process variant_map_for_prscs {
 
     script:
         """
+
+        ### This is outdated, needs to be updated
 
         # b37 b38 a1 a2 markername
         # chr:pos chr:pos a1 a2 markername
@@ -89,8 +91,8 @@ process variant_map_for_sbayesr {
         # markername
         cp ${snplist} snp2
 
-        variant_map_for_sbayesr.sh ss2 bim2 snp2 ld2 "${chr}_variants_mapfile"
-        awk -vFS="\t" -vOFS="\t" '{if (\$9 != "NA") { print \$0 }}' "${chr}_variants_mapfile" > "${chr}_variants_mapfile_no_NA"
+        variant_map_for_sbayesr.sh ss2 bim2 snp2 ld2 "${params.gbuild}" "${params.lbuild}" "${chr}_variants_mapfile"
+        awk -vFS="\t" -vOFS="\t" '{if (\$9 != "NA") { print \$0 }}' "${chr}_variants_mapfile"  > "${chr}_variants_mapfile_no_NA"
         """
 }
 

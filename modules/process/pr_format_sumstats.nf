@@ -17,6 +17,22 @@ process add_build_sumstats {
         add_build_sumstats.sh ${input_file} ${input_map} "added_sumstat_grch37"
         """
 }
+process filter_NA_coordinates {
+    publishDir "${params.outdir}/intermediates", mode: 'rellink', overwrite: true, enabled: params.dev
+     
+    label 'low_mem'
+
+    input:
+        tuple val(chr), path(file1)
+
+    output:
+        tuple val(chr), path("${chr}_filtered_on_NA")
+
+    script:
+        """
+        filter_NA_coordinates.sh ${file1} > "${chr}_filtered_on_NA"
+        """
+}
 process rmcol_build_sumstats {
     publishDir "${params.outdir}/intermediates", mode: 'rellink', overwrite: true, enabled: params.dev
      
