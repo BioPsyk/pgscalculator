@@ -50,15 +50,27 @@ fi
 #    if ( (($4==$7 || $4==$8) && ($4==$10 || $4==$11)) && (($5==$7 || $5==$8) && ($5==$10 || $5==$11)) ) print
 #}' join2.tmp > filtered_join2.tmp
 
-awk -vFS=" " -vOFS="\t" '{
+awk -vFS=" " -vOFS="\t" '
+BEGIN{
+  f["A"]="T"
+  f["T"]="A"
+  f["G"]="C"
+  f["C"]="G"
+}
+{
+    # Conditions for matching ss alleles with ld alleles, or ld alleles are NA
+    # match_ld_na = $10 == "NA" && $11 == "NA"
+    match_ss_ld = ($4 == $10 || $4 == $11) && ($5 == $10 || $5 == $11);
+    match_ss_ld_flip = (f[$4] == $10 || f[$4] == $11) && (f[$5]== $10 || f[$5] == $11);
+    if (!match_ss_ld && !match_ss_ld_flip) {
+      $10 == "NA" 
+      $11 == "NA"
+    }
+
     # Conditions for matching ss alleles with bim alleles
     match_ss_bim = ($4 == $7 || $4 == $8) && ($5 == $7 || $5 == $8);
-
-    # Conditions for matching ss alleles with ld alleles, or ld alleles are NA
-    match_ss_ld_or_ld_na = ($10 == "NA" && $11 == "NA") || (($4 == $10 || $4 == $11) && ($5 == $10 || $5 == $11));
-
-    # Combine conditions: If both ss_bim and ss_ld (or ld is NA) conditions are true, print the line
-    if (match_ss_bim && match_ss_ld_or_ld_na) {
+    match_ss_bim_flip = (f[$4] == $7 || f[$4] == $8) && (f[$5] == $7 || f[$5] == $8);
+    if (match_ss_bim || match_ss_bim_flip) {
         print $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11;
     }
 }' join2.tmp > filtered_join2.tmp
