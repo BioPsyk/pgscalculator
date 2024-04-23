@@ -11,6 +11,7 @@ include {
 
 include {
  rmcol_build_sumstats
+ filter_NA_coordinates
  add_N_effective
  format_sumstats
  force_EAF_to_sumstat
@@ -120,8 +121,12 @@ workflow wf_sbayesr_calc_posteriors {
   }
   .set { ch_split }
 
+
+  // Early filter on NA coordinates for b37
+  filter_NA_coordinates(ch_split)
+
   // add metafile
-  ch_split
+  filter_NA_coordinates.out
   .combine(ch_input_metafile)
   .set { ch_split2 }
 
