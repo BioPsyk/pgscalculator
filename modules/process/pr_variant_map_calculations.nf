@@ -13,7 +13,7 @@ process sort_user_snplist {
 
     script:
         """
-        sort -u -k1,1 "snplist" > "snplist_sorted"
+        LC_ALL=C sort -u -k1,1 "snplist" > "snplist_sorted"
         """
 }
 
@@ -34,7 +34,7 @@ process make_snplist_from_bim {
         do
           awk '{print \$2}' \$chrfile >> "snplist"
         done
-        sort -u -k1,1 "snplist" > "snplist_sorted"
+        LC_ALL=C sort -u -k1,1 "snplist" > "snplist_sorted"
         """
 }
 
