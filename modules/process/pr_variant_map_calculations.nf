@@ -52,6 +52,8 @@ process variant_map_for_prscs {
     script:
         """
 
+        ### This is outdated, needs to be updated
+
         # b37 b38 a1 a2 markername
         # chr:pos chr:pos a1 a2 markername
         awk -vFS="\t" -vOFS="\t" 'NR>1{print \$1":"\$2, \$3":"\$4, \$7, \$8, \$6 }' ${ss} > ss2
@@ -89,8 +91,8 @@ process variant_map_for_sbayesr {
         # markername
         cp ${snplist} snp2
 
-        variant_map_for_sbayesr.sh ss2 bim2 snp2 ld2 "${chr}_variants_mapfile"
-        awk -vFS="\t" -vOFS="\t" '{if (\$9 != "NA") { print \$0 }}' "${chr}_variants_mapfile" > "${chr}_variants_mapfile_no_NA"
+        variant_map_for_sbayesr.sh ss2 bim2 snp2 ld2 "${params.gbuild}" "${params.lbuild}" "${chr}_variants_mapfile"
+        awk -vFS="\t" -vOFS="\t" '{if (\$9 != "NA") { print \$0 }}' "${chr}_variants_mapfile"  > "${chr}_variants_mapfile_no_NA"
         """
 }
 
