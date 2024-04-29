@@ -100,6 +100,8 @@ process variant_map_for_sbayesr {
 process concatenate_variant_map {
     publishDir "${params.outdir}", mode: 'copy', overwrite: true
 
+    label 'low_mem'
+
     input:
         path(chrfiles)
     
