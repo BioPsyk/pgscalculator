@@ -21,6 +21,7 @@ process calc_score {
         if [ "\$num_lines" -gt 1 ]; then
           plink2 --pfile geno \
           --out tmp \
+          --memory 1000 \
           --threads 1 \
           --score ${snp_posteriors} 4 2 3 header cols=+scoresums ignore-dup-ids
 

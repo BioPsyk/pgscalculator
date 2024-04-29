@@ -33,6 +33,8 @@ include {
   calc_merged_score
 } from '../process/pr_calc_score.nf'
 include { 
+  make_geno_bim_snpid_unique_bim
+  make_geno_bim_snpid_unique_bim_fam_bed
   add_rsid_to_genotypes 
   concat_genotypes
 } from '../process/pr_format_genotypes.nf'
@@ -94,7 +96,10 @@ workflow wf_sbayesr_calc_posteriors {
   .filter { type -> type[1] in ['bim'] }
   .groupTuple()
   .map { chrid, _, files -> [chrid, *files] }
-  .set { genotypes_bim }
+  .set { genotypes_bim_0 }
+
+  make_geno_bim_snpid_unique_bim(genotypes_bim_0)
+  make_geno_bim_snpid_unique_bim.out.set { genotypes_bim }
 
   // SNPlist
   if (params.snplist) {
@@ -219,7 +224,10 @@ workflow wf_sbayesr_calc_score {
   .filter { type -> type[1] in ['bed', 'bim', 'fam'] }
   .groupTuple()
   .map { chrid, _, files -> [chrid, *files] }
-  .set { genotypes }
+  .set { genotypes_0 }
+
+  make_geno_bim_snpid_unique_bim_fam_bed(genotypes_0)
+  make_geno_bim_snpid_unique_bim_fam_bed.out.set { genotypes }
 
   // Extract maf from genotypes
   genotypes

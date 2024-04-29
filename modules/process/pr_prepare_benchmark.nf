@@ -45,7 +45,10 @@ process indep_pairwise_for_benchmark {
         awk 'NR>1{print \$4}' ${sumstat} > snps
         plink2 --pfile geno \
          --indep-pairwise 500kb 1 0.2 \
+         --threads 1 \
+         --memory 1000 \
          --extract snps \
+         --rm-dup force-first \
          --out "chr${chr}"
 
         awk 'NR==FNR{a[\$1]; next} FNR==1 || (\$4 in a)' "chr${chr}.prune.in" ${sumstat} > "chr${chr}_sumstat" 

@@ -6,12 +6,12 @@ process extract_maf_from_genotypes {
         tuple val(chr), path("geno.bed"), path("geno.bim"), path("geno.fam"), path("map"), path("map_noNA")
 
     output:                                                                                 
-        tuple val(chr), path("${chr}_geno_maf.frq")    
+        tuple val(chr), path("${chr}_geno_maf.afreq")    
 
     script:                                                                                 
         """
         cut -f 6 $map > bimIDs
-        plink --bfile geno --extract bimIDs --freq --out ${chr}_geno_maf
+        plink2 --bfile geno --extract bimIDs --threads 1 --memory 1000 --freq --out ${chr}_geno_maf
         """                                                                                 
 }
 
@@ -28,7 +28,7 @@ process concatenate_plink_maf {
         echo "CHR SNP A1 A2 MAF NCHROBS"  > "raw_maf_chrall"
         for chrfile in ${chrplinkmaf}
         do
-          awk -vOFS=" " 'NR>1{print \$1, \$2, \$3, \$4, \$5, \$6}' \$chrfile >> "raw_maf_chrall"
+          awk -vOFS=" " 'NR>1{print \$1, \$2, \$3, \$4, \$6, \$7}' \$chrfile >> "raw_maf_chrall"
         done
         """
 }
