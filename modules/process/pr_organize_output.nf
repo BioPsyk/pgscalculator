@@ -1,5 +1,7 @@
 process make_augmented_gwas {
     publishDir "${params.outdir}/intermediates/augmented_sumstat", mode: 'rellink', overwrite: true, enabled: params.dev
+    label 'low_mem'
+
     input:
     tuple val(chr), path(sumstat_map), path(sumstat_map_noNA), path(maffile), path(posteriors), path(benchmark), path(map),path(map_noNA)
 
@@ -20,6 +22,8 @@ process make_augmented_gwas {
 // Concatenate per chromosome posterior SNP effects for sBayesR
 process concatenate_augmented_sumstat {
     publishDir "${params.outdir}", mode: 'copy', overwrite: true
+
+    label 'low_mem'
 
     input:
         path(chrfiles)
