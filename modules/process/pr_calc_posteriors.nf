@@ -107,7 +107,6 @@ process concatenate_sbayes_posteriors {
     publishDir "${params.outdir}/extra", mode: 'copy', overwrite: true
     label 'low_mem'
 
-
     input:
         path(chrposteriors)
     
@@ -128,7 +127,7 @@ process qc_posteriors {
     publishDir "${params.outdir}/qc", mode: 'copy', overwrite: true, pattern: '*'
     publishDir "${params.outdir}/intermediates/qc_posteriors", mode: 'rellink', overwrite: true, enabled: params.dev
 
-    label 'big_mem'
+    label 'med_mem'
     cpus 6
     
     input:

@@ -21,6 +21,8 @@ process make_snplist_from_bim {
     publishDir "${params.outdir}/intermediates/mapgeneration", mode: 'rellink', overwrite: true, enabled: params.dev
      
     label 'low_mem'
+    memory '2 GB'
+
 
     input:
     path(bims)
