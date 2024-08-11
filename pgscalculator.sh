@@ -21,6 +21,7 @@ function general_usage(){
  echo "-o <dir> 	 path to output directory"
  echo "-b <dir> 	 path to system tmp or scratch (default: /tmp)"
  echo "-w <dir> 	 path to workdir/intermediate files (default: work)"
+ echo "-j  	 	 image mode, run docker or singularity (default: singularity)"
  echo "-d  	 	 dev mode, no cleanup of intermediates(default: not active)"
  echo "-v  	 	 get the version number"
  echo "-1  	 	 disable step1, calc posteriors "
@@ -45,8 +46,26 @@ project_dir="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 # whatever the input make it array
 paramarray=($@)
 
+# check for modifiers
+if [ ${paramarray[0]} == "placeholder" ] ; then
+  runtype="placeholder"
+  # remove modifier, 1st element
+  paramarray=("${paramarray[@]:1}")
+elif [ ${paramarray[0]} == "test" ] ; then
+  runtype="test"
+  paramarray=("${paramarray[@]:1}")
+elif [ ${paramarray[0]} == "utest" ] ; then
+  runtype="utest"
+  paramarray=("${paramarray[@]:1}")
+elif [ ${paramarray[0]} == "etest" ] ; then
+  runtype="etest"
+  paramarray=("${paramarray[@]:1}")
+else
+  runtype="default"
+fi
+
 # starting getops with :, puts the checking in silent mode for errors.
-getoptsstring=":hvi:o:b:w:l:g:f:m:c:db:12"
+getoptsstring=":hvi:o:b:w:l:g:f:m:c:db:12j:"
 
 infold=""
 lddir=""
@@ -54,6 +73,7 @@ genodir=""
 genofile=""
 conffile=""
 outdir="out"
+container_image="singularity"
 calc_posterior=true
 calc_score=true
 
@@ -68,6 +88,7 @@ tmpdir_given=false
 devmode_given=false
 calc_posterior_given=false
 calc_score_given=false
+container_image_given=false
 
 # default system tmp
 tmpdir="/tmp"
@@ -109,6 +130,10 @@ while getopts "${getoptsstring}" opt "${paramarray[@]}"; do
       outdir="$OPTARG"
       outdir_given=true
       ;;
+    j )
+      container_image="$OPTARG"
+      container_image_given=true
+      ;;
     b )
       tmpdir="$OPTARG"
       tmpdir_given=true
@@ -139,6 +164,16 @@ while getopts "${getoptsstring}" opt "${paramarray[@]}"; do
       ;;
   esac
 done
+
+
+################################################################################
+# Setup quick-run example options
+################################################################################
+elif [ "${runtype}" == "test" ] || [ "${runtype}" == "utest" ] || [ "${runtype}" == "etest" ]; then
+  # All are placeholders and not used
+  infile="${project_dir}/VERSION"
+  outdir="${outdir}"
+fi
 
 ################################################################################
 # Check if the provided paths exist
@@ -237,10 +272,6 @@ fi
 # All paths we see will start from the project root, even if the command is called from somewhere else
 project_dir="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 
-source "${project_dir}/scripts/init-containerization.sh"
-
-mount_flags=$(format_mount_flags "-B")
-
 # indir
 #indir_host=$(dirname "${infile_host}")
 #infile_name=$(basename "${infile_host}")
@@ -281,44 +312,120 @@ FAKE_HOME="${outdir_container}"
 export SINGULARITY_HOME="${FAKE_HOME}"
 export APPTAINER_HOME="${FAKE_HOME}"
 
-# Debug multiple mount warning
-#cat <<EOF > ./temporaryfile.txt
-#   ${mount_flags} \
-#   -B "${infold_host}:${indir_container}" 
-#   -B "${outdir_host}:${outdir_container}" 
-#   -B "${lddir_host}:${lddir_container}" 
-#   -B "${genodir_host}:${genodir_container}" 
-#   -B "${genodir2_host}:${genodir2_container}" 
-#   -B "${confdir_host}:${confdir_container}" 
-#   -B "${tmpdir_host}:${tmpdir_container}" 
-#EOF
+source "${project_dir}/scripts/init-containerization.sh"
 
-singularity run \
-   --contain \
-   --cleanenv \
-   ${mount_flags} \
-   -B "${infold_host}:${indir_container}" \
-   -B "${outdir_host}:${outdir_container}" \
-   -B "${lddir_host}:${lddir_container}" \
-   -B "${genodir_host}:${genodir_container}" \
-   -B "${genodir2_host}:${genodir2_container}" \
-   -B "${confdir_host}:${confdir_container}" \
-   -B "${tmpdir_host}:${tmpdir_container}" \
-   -B "${workdir_host}:${workdir_container}" \
-   "tmp/${singularity_image_tag}" \
-   nextflow \
-     -log "${outdir_container}/.nextflow.log" \
-     -c ${conffile_container} \
-     run /pgscalculator ${runtype} \
-     ${devmode} \
-     --calc_posterior ${calc_posterior} \
-     --calc_score ${calc_score} \
-     --input "${indir_container}" \
-     --lddir "${lddir_container}" \
-     --genodir "${genodir_container}" \
-     --genofile "${genofile_container}" \
-     --conffile "${conffile_container}" \
-     --outdir "${outdir_container}" 
+# which mount symbol to use
+if [ "${container_image}" == "docker" ]; then
+  mountflag="-v"
+elif [ "${container_image}" == "dockerhub_biopsyk" ]; then
+  mountflag="-v"
+else
+  mountflag="-B"
+fi
+
+# Which runscript to use
+if [ "${runtype}" == "default" ]; then
+  run_script="/pgscalculator/main.nf"
+elif [ "${runtype}" == "test" ]; then
+  run_script="/pgscalculator/tests/run-tests.sh"
+elif [ "${runtype}" == "utest" ]; then
+  run_script="/pgscalculator/tests/run-unit-tests.sh"
+elif [ "${runtype}" == "etest" ]; then
+  mkdir -p tmp
+  run_script="/pgscalculator/tests/run-e2e-tests.sh"
+else
+  echo "option not available"
+  exit 1
+fi
+
+# set image tags and make mount function available
+source "${project_dir}/scripts/init-containerization.sh"
+
+# Which image is to be used
+if [ "${container_image}" == "docker" ]; then
+  runimage="${image_tag}" 
+elif [ "${container_image}" == "dockerhub_biopsyk" ]; then
+  runimage="${deploy_image_tag_docker_hub}" 
+elif [ "${container_image}" == "" ]; then
+  #if not set, assume image is in sif folder
+  runimage="sif/${singularity_image_tag}" 
+else
+  runimage="${singularity_image_tag}" 
+fi
+
+if [ "${runtype}" == "test" ] || [ "${runtype}" == "utest" ] || [ "${runtype}" == "etest" ]; then
+  if [ "${container_image}" == "dockerhub_biopsyk" ]; then
+    echo "container: $container_image"
+    mount_flags=$(format_mount_flags "${mountflag}")
+    #exec docker run --rm "${deploy_image_tag_docker_hub}" "${run_script}"
+    exec docker run --rm ${mount_flags} "${runimage}" ${run_script}
+  elif [ "${container_image}" == "docker" ]; then
+    echo "container: $container_image"
+    mount_flags=$(format_mount_flags "${mountflag}")
+    exec docker run --rm ${mount_flags} "${runimage}" ${run_script}
+  else
+    echo "container: $container_image"
+    mount_flags=$(format_mount_flags "${mountflag}")
+    singularity run --contain --cleanenv ${mount_flags} "${runimage}" ${run_script}
+  fi
+elif [ "${container_image}" == "docker" ] || [ "${container_image}" == "dockerhub_biopsyk" ]; then
+  echo "container: $container_image"
+  mount_flags=$(format_mount_flags "${mountflag}")
+  exec docker run \
+     --rm \
+     ${mount_flags} \
+     ${mountflag} "${infold_host}:${indir_container}" \
+     ${mountflag} "${outdir_host}:${outdir_container}" \
+     ${mountflag} "${lddir_host}:${lddir_container}" \
+     ${mountflag} "${genodir_host}:${genodir_container}" \
+     ${mountflag} "${genodir2_host}:${genodir2_container}" \
+     ${mountflag} "${confdir_host}:${confdir_container}" \
+     ${mountflag} "${tmpdir_host}:${tmpdir_container}" \
+     ${mountflag} "${workdir_host}:${workdir_container}" \
+     "${runimage}" \
+     nextflow \
+       -log "${outdir_container}/.nextflow.log" \
+       -c ${conffile_container} \
+       run ${run_script} \
+       ${devmode} \
+       --calc_posterior ${calc_posterior} \
+       --calc_score ${calc_score} \
+       --input "${indir_container}" \
+       --lddir "${lddir_container}" \
+       --genodir "${genodir_container}" \
+       --genofile "${genofile_container}" \
+       --conffile "${conffile_container}" \
+       --outdir "${outdir_container}" 
+else
+  echo "container: $container_image"
+  mount_flags=$(format_mount_flags "${mountflag}")
+  singularity run \
+     --contain \
+     --cleanenv \
+     ${mount_flags} \
+     ${mountflag} "${infold_host}:${indir_container}" \
+     ${mountflag} "${outdir_host}:${outdir_container}" \
+     ${mountflag} "${lddir_host}:${lddir_container}" \
+     ${mountflag} "${genodir_host}:${genodir_container}" \
+     ${mountflag} "${genodir2_host}:${genodir2_container}" \
+     ${mountflag} "${confdir_host}:${confdir_container}" \
+     ${mountflag} "${tmpdir_host}:${tmpdir_container}" \
+     ${mountflag} "${workdir_host}:${workdir_container}" \
+     "${runimage}" \
+     nextflow \
+       -log "${outdir_container}/.nextflow.log" \
+       -c ${conffile_container} \
+       run ${run_script} \
+       ${devmode} \
+       --calc_posterior ${calc_posterior} \
+       --calc_score ${calc_score} \
+       --input "${indir_container}" \
+       --lddir "${lddir_container}" \
+       --genodir "${genodir_container}" \
+       --genofile "${genofile_container}" \
+       --conffile "${conffile_container}" \
+       --outdir "${outdir_container}" 
+fi       
 
 #Set correct permissions to pipeline_info files
 chmod -R ugo+rwX ${outdir_host}/pipeline_info

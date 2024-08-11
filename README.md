@@ -1,36 +1,38 @@
 # pgscalculator
 
-## Set up
+This workflow aims to run different PGS methods using cleansumstats output so the result is comparable.
 
-```
-# i. Make sure git and singularity are installed, see [singularity installation](docs/singularity-installation.md)
-singularity --version
-git --version
-
-# ii. clone and enter the cleansumstats github project
-git clone https://github.com/BioPsyk/pgscalculator.git
-cd pgscalculator
-
-# iii. Download our container image, move it to a folder called tmp within the repo (<1GB)
-mkdir -p tmp
-chmod ug+rwX tmp
-singularity pull tmp/ibp-pgscalculator-base_version-0.5.4.sif docker://biopsyk/ibp-pgscalculator:0.5.4
-
-```
+_Created by Jesper R. Gådin and Andrew Schork_
 
 ## Quick start
-
-Run using an example file for a random subset of variants on all chromosomes. Just replace the input in -i with a folder cleaned by cleansumstats.
-
+Make sure git and singularity (or docker) are installed. Then clone the code from github.
 ```
+# Are the required software available 
+singularity --version
+docker --version
+git --version
+
+# Clone and enter the pgscalculator github project
+git clone https://github.com/BioPsyk/pgscalculator.git
+cd pgscalculator
+```
+
+### Singularity
+Using singularity (use path to image). Run using an example file for a random subset of variants on all chromosomes. Just replace the input in -i with a folder cleaned by cleansumstats.
+
+```bash
+## pull singularity image returning the image as a file (<1GB)
+mkdir -p sif
+singularity pull sif/ibp-pgscalculator-base_version-0.5.4.sif docker://biopsyk/ibp-pgscalculator:0.5.4
 # Run both calc posterior and score in one run
 ./pgscalculator.sh \
+  -j sif/ibp-pgscalculator-base_version-0.5.4.sif \
   -i tests/example_data/sumstats/sumstat_2 \
   -l references/ld-sbayesr/ukb/band_ukb_10k_hm3 \
   -g references/genotypes_test/plink \
   -f references/genotypes_test/mapfiles/plink_genodir_genofiles.txt \
   -c conf/sbayesr.config \
-  -o out3 \
+  -o out_test_1 \
   -d
 
 ```
@@ -44,7 +46,7 @@ Change config to prscs method
   -g references/genotypes_test/plink \
   -f references/genotypes_test/mapfiles/plink_genodir_genofiles.txt \
   -c conf/prscs.config \
-  -o out3b \
+  -o out_test_2 \
   -d
 
 ```
@@ -58,7 +60,7 @@ Change config to prscs method
   -f references/genotypes_test/mapfiles/plink_genodir_genofiles.txt \
   -l references/ld-sbayesr/ukb/band_ukb_10k_hm3 \
   -c conf/sbayesr.config \
-  -o out4 \
+  -o out_test_3 \
   -2
 
 # Run only calc score (-1) (-l not required)
@@ -68,12 +70,27 @@ Change config to prscs method
   -g references/genotypes_test/plink \
   -f references/genotypes_test/mapfiles/plink_genodir_genofiles.txt \
   -c conf/sbayesr.config \
-  -o out5 \
+  -o out_test_4 \
   -1
 
 ```
 
-## Running on HPC
+### Docker
+using docker image (use the tag: dockerhub_biopsyk)
+```bash
+## pull docker image
+docker pull biopsyk/ibp-pgscalculator:0.5.4
+
+## Run using docker tag
+./pgscalculator.sh \
+  -j dockerhub_biopsyk \
+  -i tests/example_data/sumstats/sumstat_2 \
+  -l references/ld-sbayesr/ukb/band_ukb_10k_hm3 \
+  -g references/genotypes_test/plink \
+  -f references/genotypes_test/mapfiles/plink_genodir_genofiles.txt \
+  -c conf/sbayesr.config \
+  -o out_test_5 
+ 
 ```
 # On GDK start interactive node (minimum 6 cpus 10g)
 srun --mem=10g --ntasks 1 --cpus-per-task 6 --time=1:00:00 --account ibp_pipeline_cleansumstats --pty /bin/bash
