@@ -18,6 +18,8 @@ process extract_maf_from_genotypes {
 
 process concatenate_plink_maf {
     publishDir "${params.outdir}/extra", mode: 'copy', overwrite: true
+
+    cpus 22
     label 'low_mem'
 
     input:
