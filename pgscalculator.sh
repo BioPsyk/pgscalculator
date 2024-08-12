@@ -17,6 +17,7 @@ function general_usage(){
  echo "-l <dir> 	 LD map dir, absolute paths"
  echo "-g <dir> 	 target genotypes"
  echo "-f <file> 	 target genotypes files in genotype folder"
+ echo "-s <file> 	 target genotypes snp list filtering(default: none)"
  echo "-c <file> 	 run specific config file"
  echo "-o <dir> 	 path to output directory"
  echo "-b <dir> 	 path to system tmp or scratch (default: /tmp)"
@@ -65,12 +66,13 @@ else
 fi
 
 # starting getops with :, puts the checking in silent mode for errors.
-getoptsstring=":hvi:o:b:w:l:g:f:m:c:db:12j:"
+getoptsstring=":hvi:o:b:w:l:g:f:s:m:c:db:12j:"
 
 infold=""
 lddir=""
 genodir=""
 genofile=""
+snpfile=""
 conffile=""
 outdir="out"
 container_image=""
@@ -82,6 +84,7 @@ infold_given=false
 lddir_given=false
 genodir_given=false
 genofile_given=false
+snpfile_given=false
 conffile_given=false
 outdir_given=false
 tmpdir_given=false
@@ -121,6 +124,10 @@ while getopts "${getoptsstring}" opt "${paramarray[@]}"; do
     f )
       genofile="$OPTARG"
       genofile_given=true
+      ;;
+    s )
+      snpfile="$OPTARG"
+      snpfile_given=true
       ;;
     c )
       conffile="$OPTARG"
@@ -244,6 +251,15 @@ fi
     exit 1
   fi
 
+  if ${snpfile_given}; then
+    snpfile_host=$(realpath "${snpfile}")
+    if [ ! -f $snpfile_host ]; then
+      >&2 echo "snpfile doesn't exist"
+      >&2 echo "path tried: $snpfile_host"
+      exit 1
+    fi
+  fi
+
 #else
 #  genodir_host="$(realpath ${project_dir}/tests/example_data/genotypes)"
 #  genofile_host="$(realpath ${project_dir}/tests/example_data/genotypes/genofiles_placehoder.txt)"
@@ -300,6 +316,18 @@ confdir_host=$(dirname "${conffile_host}")
 conffile_name=$(basename "${conffile_host}")
 confdir_container="/pgscalculator/confdir"
 conffile_container="${confdir_container}/${conffile_name}"
+
+if ${snpfile_given}; then
+  snpdir_host=$(dirname "${snpfile_host}")
+  snpfile_name=$(basename "${snpfile_host}")
+  snpdir_container="/pgscalculator/snpdir"
+  snpfile_container="${snpdir_container}/${snpfile_name}"
+  snplist_host_container="-B ${snpdir_host}:${snpdir_container}"
+  snplist_container="--snplist ${snpfile_container}"
+else
+  snplist_host_container=""
+  snplist_container=""
+fi
 
 # outdir
 outdir_container="/pgscalculator/outdir"
@@ -397,6 +425,7 @@ elif [ "${container_image}" == "docker" ] || [ "${container_image}" == "dockerhu
        --lddir "${lddir_container}" \
        --genodir "${genodir_container}" \
        --genofile "${genofile_container}" \
+       ${snplist_container} \
        --conffile "${conffile_container}" \
        --outdir "${outdir_container}" 
 else
@@ -426,9 +455,39 @@ else
        --lddir "${lddir_container}" \
        --genodir "${genodir_container}" \
        --genofile "${genofile_container}" \
+       ${snplist_container} \
        --conffile "${conffile_container}" \
        --outdir "${outdir_container}" 
 fi       
+
+singularity run \
+   --contain \
+   --cleanenv \
+   ${mount_flags} \
+   -B "${infold_host}:${indir_container}" \
+   -B "${outdir_host}:${outdir_container}" \
+   -B "${lddir_host}:${lddir_container}" \
+   -B "${genodir_host}:${genodir_container}" \
+   -B "${genodir2_host}:${genodir2_container}" \
+    ${snplist_host_container} \
+   -B "${confdir_host}:${confdir_container}" \
+   -B "${tmpdir_host}:${tmpdir_container}" \
+   -B "${workdir_host}:${workdir_container}" \
+   "tmp/${singularity_image_tag}" \
+   nextflow \
+     -log "${outdir_container}/.nextflow.log" \
+     -c ${conffile_container} \
+     run /pgscalculator ${runtype} \
+     ${devmode} \
+     --calc_posterior ${calc_posterior} \
+     --calc_score ${calc_score} \
+     --input "${indir_container}" \
+     --lddir "${lddir_container}" \
+     --genodir "${genodir_container}" \
+     --genofile "${genofile_container}" \
+     ${snplist_container} \
+     --conffile "${conffile_container}" \
+     --outdir "${outdir_container}" 
 
 #Set correct permissions to pipeline_info files
 chmod -R ugo+rwX ${outdir_host}/pipeline_info

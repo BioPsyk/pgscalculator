@@ -37,6 +37,7 @@ singularity pull sif/ibp-pgscalculator-base_version-0.5.4.sif docker://biopsyk/i
 
 ```
 
+
 Change config to prscs method
 ```
 # Run both calc posterior and score in one run
@@ -90,7 +91,7 @@ docker pull biopsyk/ibp-pgscalculator:0.5.4
   -f references/genotypes_test/mapfiles/plink_genodir_genofiles.txt \
   -c conf/sbayesr.config \
   -o out_test_5 
- 
+
 ```
 # On GDK start interactive node (minimum 6 cpus 10g)
 srun --mem=10g --ntasks 1 --cpus-per-task 6 --time=1:00:00 --account ibp_pipeline_cleansumstats --pty /bin/bash

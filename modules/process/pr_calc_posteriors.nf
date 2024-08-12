@@ -1,7 +1,7 @@
 // calculate per chromosome posterior SNP effects for prscs
 process calc_posteriors_prscs {
     publishDir "${params.outdir}/intermediates/calc_posteriors", mode: 'rellink', overwrite: true
-    label 'big_mem'
+    label 'med_mem'
 
     input:
         tuple val(chr), path(gwas), path(lddir), path("geno.bim"), val(N)
@@ -43,7 +43,7 @@ process calc_posteriors_prscs {
 process calc_posteriors_sbayesr {
     publishDir "${params.outdir}/intermediates/calc_posteriors", mode: 'rellink', overwrite: true
 
-    label 'big_mem'
+    label 'med_mem'
     cpus 6
     
     input:
@@ -85,6 +85,7 @@ process calc_posteriors_sbayesr {
 // Concatenate per chromosome posterior SNP effects for PRSCS
 process concatenate_sbayes_PRSCS {
     publishDir "${params.outdir}/calc_posteriors", mode: 'copy', overwrite: true
+    label 'med_mem'
 
     input:
         path(chrposteriors)
@@ -104,6 +105,7 @@ process concatenate_sbayes_PRSCS {
 // Concatenate per chromosome posterior SNP effects for sBayesR
 process concatenate_sbayes_posteriors {
     publishDir "${params.outdir}/extra", mode: 'copy', overwrite: true
+    label 'low_mem'
 
     input:
         path(chrposteriors)
@@ -122,9 +124,10 @@ process concatenate_sbayes_posteriors {
 
 // calculate per chromosome posterior SNP effects for sBayesR
 process qc_posteriors {
-    publishDir "${params.outdir}/qc_posteriors", mode: 'copy', overwrite: true
+    publishDir "${params.outdir}/qc", mode: 'copy', overwrite: true, pattern: '*'
+    publishDir "${params.outdir}/intermediates/qc_posteriors", mode: 'rellink', overwrite: true, enabled: params.dev
 
-    label 'big_mem'
+    label 'med_mem'
     cpus 6
     
     input:
@@ -143,4 +146,24 @@ process qc_posteriors {
         fi
         """
 }
+
+// Prepare a to-score format using variant map to align with the genotype snp ids
+process format_sbayesr_posteriors {
+    publishDir "${params.outdir}/intermediates", mode: 'copy', overwrite: true
+    label 'low_mem'
+
+    input:
+        tuple val(chr), path(posterior), path(map), path(map_noNA)
+    
+    output:
+        tuple val(chr), path("${chr}_posterior_scoreformat")
+    script:
+        snp_posteriors_cols="2,5,8"
+        // select ss_ID and bim_ID
+        map_from_to="3,6"
+        """
+        format_posteriors.sh ${posterior} ${snp_posteriors_cols} ${map} ${map_from_to} "true" > "${chr}_posterior_scoreformat"
+        """
+}
+
 

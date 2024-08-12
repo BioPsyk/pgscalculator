@@ -1,4 +1,5 @@
 process copyConfigFiles {
+    label 'low_mem'
     
     input:
     path("nextflow.config")
@@ -7,7 +8,9 @@ process copyConfigFiles {
     """
     mkdir -p ${params.outdir}/details
     cp nextflow.config ${params.outdir}/details/
-    cp /pgscalculator/confdir/* ${params.outdir}/details/
+    cp ${params.conffile} ${params.outdir}/details/
+
     """
 }
+
 
