@@ -460,45 +460,19 @@ else
        --outdir "${outdir_container}" 
 fi       
 
-singularity run \
-   --contain \
-   --cleanenv \
-   ${mount_flags} \
-   -B "${infold_host}:${indir_container}" \
-   -B "${outdir_host}:${outdir_container}" \
-   -B "${lddir_host}:${lddir_container}" \
-   -B "${genodir_host}:${genodir_container}" \
-   -B "${genodir2_host}:${genodir2_container}" \
-    ${snplist_host_container} \
-   -B "${confdir_host}:${confdir_container}" \
-   -B "${tmpdir_host}:${tmpdir_container}" \
-   -B "${workdir_host}:${workdir_container}" \
-   "tmp/${singularity_image_tag}" \
-   nextflow \
-     -log "${outdir_container}/.nextflow.log" \
-     -c ${conffile_container} \
-     run /pgscalculator ${runtype} \
-     ${devmode} \
-     --calc_posterior ${calc_posterior} \
-     --calc_score ${calc_score} \
-     --input "${indir_container}" \
-     --lddir "${lddir_container}" \
-     --genodir "${genodir_container}" \
-     --genofile "${genofile_container}" \
-     ${snplist_container} \
-     --conffile "${conffile_container}" \
-     --outdir "${outdir_container}" 
 
-#Set correct permissions to pipeline_info files
-chmod -R ugo+rwX ${outdir_host}/pipeline_info
 
 #remove .nextflow directory by default
 if ${devmode_given} ;
 then
-  :
+  #Set correct permissions to pipeline_info files
+  chmod -R ugo+rwX ${outdir_host}/pipeline_info
 elif [ "${runtype}" == "test" ] || [ "${runtype}" == "utest" ] || [ "${runtype}" == "etest" ]; then
   :
 else
+  #Set correct permissions to pipeline_info files
+  chmod -R ugo+rwX ${outdir_host}/pipeline_info
+
   function cleanup {
     echo ">> Cleaning up (disable with -d) "
     echo ">> Removing ${outdir_host}/.nextflow"
