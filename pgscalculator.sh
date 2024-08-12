@@ -73,7 +73,7 @@ genodir=""
 genofile=""
 conffile=""
 outdir="out"
-container_image="singularity"
+container_image=""
 calc_posterior=true
 calc_score=true
 
@@ -169,10 +169,13 @@ done
 ################################################################################
 # Setup quick-run example options
 ################################################################################
-elif [ "${runtype}" == "test" ] || [ "${runtype}" == "utest" ] || [ "${runtype}" == "etest" ]; then
+if [ "${runtype}" == "test" ] || [ "${runtype}" == "utest" ] || [ "${runtype}" == "etest" ]; then
   # All are placeholders and not used
-  infile="${project_dir}/VERSION"
-  outdir="${outdir}"
+  infold="${project_dir}/tests"
+  genodir="${project_dir}/tests"
+  genofile="${project_dir}/VERSION"
+  conffile="${project_dir}/VERSION"
+  lddir="${project_dir}/tests"
 fi
 
 ################################################################################
@@ -350,26 +353,26 @@ elif [ "${container_image}" == "" ]; then
   #if not set, assume image is in sif folder
   runimage="sif/${singularity_image_tag}" 
 else
-  runimage="${singularity_image_tag}" 
+  runimage="${container_image}" 
 fi
 
 if [ "${runtype}" == "test" ] || [ "${runtype}" == "utest" ] || [ "${runtype}" == "etest" ]; then
   if [ "${container_image}" == "dockerhub_biopsyk" ]; then
-    echo "container: $container_image"
+    echo "container: $runimage"
     mount_flags=$(format_mount_flags "${mountflag}")
     #exec docker run --rm "${deploy_image_tag_docker_hub}" "${run_script}"
     exec docker run --rm ${mount_flags} "${runimage}" ${run_script}
   elif [ "${container_image}" == "docker" ]; then
-    echo "container: $container_image"
+    echo "container: $runimage"
     mount_flags=$(format_mount_flags "${mountflag}")
     exec docker run --rm ${mount_flags} "${runimage}" ${run_script}
   else
-    echo "container: $container_image"
+    echo "container: $runimage"
     mount_flags=$(format_mount_flags "${mountflag}")
     singularity run --contain --cleanenv ${mount_flags} "${runimage}" ${run_script}
   fi
 elif [ "${container_image}" == "docker" ] || [ "${container_image}" == "dockerhub_biopsyk" ]; then
-  echo "container: $container_image"
+  echo "container: $runimage"
   mount_flags=$(format_mount_flags "${mountflag}")
   exec docker run \
      --rm \
@@ -397,7 +400,7 @@ elif [ "${container_image}" == "docker" ] || [ "${container_image}" == "dockerhu
        --conffile "${conffile_container}" \
        --outdir "${outdir_container}" 
 else
-  echo "container: $container_image"
+  echo "container: $runimage"
   mount_flags=$(format_mount_flags "${mountflag}")
   singularity run \
      --contain \
@@ -433,6 +436,8 @@ chmod -R ugo+rwX ${outdir_host}/pipeline_info
 #remove .nextflow directory by default
 if ${devmode_given} ;
 then
+  :
+elif [ "${runtype}" == "test" ] || [ "${runtype}" == "utest" ] || [ "${runtype}" == "etest" ]; then
   :
 else
   function cleanup {
