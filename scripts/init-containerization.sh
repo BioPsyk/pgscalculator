@@ -17,7 +17,7 @@ cd "${project_dir}"
 mounts=(
   "docs" "assets" "bin" "conf" "modules"
   "main.nf" "nextflow.config" "tests" "tmp" "lib"
-  "VERSION" "references"
+  "VERSION"
 )
 
 image_tag="ibp-pgscalculator-base:"$(cat "docker/VERSION")
