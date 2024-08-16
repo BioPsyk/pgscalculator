@@ -32,70 +32,34 @@ singularity pull sif/ibp-pgscalculator-base_version-0.5.4.sif docker://biopsyk/i
   -g references/genotypes_test/plink \
   -f references/genotypes_test/mapfiles/plink_genodir_genofiles.txt \
   -c conf/sbayesr.config \
-  -o out_test_1 \
-  -d
+  -o out_test_1
 
 ```
-
 
 Change config to prscs method
 ```
 # Run both calc posterior and score in one run
 ./pgscalculator.sh \
+  -j sif/ibp-pgscalculator-base_version-0.5.4.sif \
   -i tests/example_data/sumstats/sumstat_2 \
   -l references/ld-prscs/ldblk_1kg_eur \
   -g references/genotypes_test/plink \
   -f references/genotypes_test/mapfiles/plink_genodir_genofiles.txt \
   -c conf/prscs.config \
-  -o out_test_2 \
-  -d
-
-```
-## Divide into two 
-
-```
-# Run only calc posterior (-2)
-./pgscalculator.sh \
-  -i tests/example_data/sumstats/sumstat_2 \
-  -g references/genotypes_test/plink \
-  -f references/genotypes_test/mapfiles/plink_genodir_genofiles.txt \
-  -l references/ld-sbayesr/ukb/band_ukb_10k_hm3 \
-  -c conf/sbayesr.config \
-  -o out_test_3 \
-  -2
-
-# Run only calc score (-1) (-l not required)
-# -i is not pointing to the output folder of run only calc posterior
-./pgscalculator.sh \
-  -i out4 \
-  -g references/genotypes_test/plink \
-  -f references/genotypes_test/mapfiles/plink_genodir_genofiles.txt \
-  -c conf/sbayesr.config \
-  -o out_test_4 \
-  -1
+  -o out_test_2
 
 ```
 
-### Docker
-using docker image (use the tag: dockerhub_biopsyk)
-```bash
-## pull docker image
-docker pull biopsyk/ibp-pgscalculator:0.5.4
-
-## Run using docker tag
-./pgscalculator.sh \
-  -j dockerhub_biopsyk \
-  -i tests/example_data/sumstats/sumstat_2 \
-  -l references/ld-sbayesr/ukb/band_ukb_10k_hm3 \
-  -g references/genotypes_test/plink \
-  -f references/genotypes_test/mapfiles/plink_genodir_genofiles.txt \
-  -c conf/sbayesr.config \
-  -o out_test_5 
-
+### Specifying Resources
+It is possible to run both interactive and batch jobs. Below is an example on GDK(HPC) starting an interactive node. Jobs require at minimum 6 cpus and 10g, but prefereably 22 cpus and 20g
 ```
-# On GDK start interactive node (minimum 6 cpus 10g)
 srun --mem=10g --ntasks 1 --cpus-per-task 6 --time=1:00:00 --account ibp_pipeline_cleansumstats --pty /bin/bash
 srun --mem=20g --ntasks 1 --cpus-per-task 22 --time=1:00:00 --account ibp_pipeline_cleansumstats --pty /bin/bash
-
 ```
+
+## More documentation
+- See [SNP inclusion list](docs/snp-inclusion-list.md)
+- See [Two step analysis](docs/two-step-analysis.md)
+- See [Use Docker](docs/using-docker.md)
+
 

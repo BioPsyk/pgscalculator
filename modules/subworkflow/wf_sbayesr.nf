@@ -7,6 +7,7 @@ include {
  concatenate_variant_map
  filter_sumstat_variants_on_map_file
  make_snplist_from_bim
+ sort_user_snplist
 } from '../process/pr_variant_map_calculations.nf'
 
 include {
