@@ -291,6 +291,17 @@ fi
 # All paths we see will start from the project root, even if the command is called from somewhere else
 project_dir="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 
+source "${project_dir}/scripts/init-containerization.sh"
+
+# which mount symbol to use
+if [ "${container_image}" == "docker" ]; then
+  mountflag="-v"
+elif [ "${container_image}" == "dockerhub_biopsyk" ]; then
+  mountflag="-v"
+else
+  mountflag="-B"
+fi
+
 # indir
 #indir_host=$(dirname "${infile_host}")
 #infile_name=$(basename "${infile_host}")
@@ -322,7 +333,7 @@ if ${snpfile_given}; then
   snpfile_name=$(basename "${snpfile_host}")
   snpdir_container="/pgscalculator/snpdir"
   snpfile_container="${snpdir_container}/${snpfile_name}"
-  snplist_host_container="-B ${snpdir_host}:${snpdir_container}"
+  snplist_host_container="${mountflag} ${snpdir_host}:${snpdir_container}"
   snplist_container="--snplist ${snpfile_container}"
 else
   snplist_host_container=""
@@ -343,16 +354,6 @@ FAKE_HOME="${outdir_container}"
 export SINGULARITY_HOME="${FAKE_HOME}"
 export APPTAINER_HOME="${FAKE_HOME}"
 
-source "${project_dir}/scripts/init-containerization.sh"
-
-# which mount symbol to use
-if [ "${container_image}" == "docker" ]; then
-  mountflag="-v"
-elif [ "${container_image}" == "dockerhub_biopsyk" ]; then
-  mountflag="-v"
-else
-  mountflag="-B"
-fi
 
 # Which runscript to use
 if [ "${runtype}" == "default" ]; then
@@ -413,6 +414,7 @@ elif [ "${container_image}" == "docker" ] || [ "${container_image}" == "dockerhu
      ${mountflag} "${confdir_host}:${confdir_container}" \
      ${mountflag} "${tmpdir_host}:${tmpdir_container}" \
      ${mountflag} "${workdir_host}:${workdir_container}" \
+     ${snplist_host_container} \
      "${runimage}" \
      nextflow \
        -log "${outdir_container}/.nextflow.log" \
@@ -443,6 +445,7 @@ else
      ${mountflag} "${confdir_host}:${confdir_container}" \
      ${mountflag} "${tmpdir_host}:${tmpdir_container}" \
      ${mountflag} "${workdir_host}:${workdir_container}" \
+     ${snplist_host_container} \
      "${runimage}" \
      nextflow \
        -log "${outdir_container}/.nextflow.log" \
