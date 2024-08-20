@@ -16,7 +16,7 @@ cd "${project_dir}"
 
 mounts=(
   "docs" "assets" "bin" "conf" "modules"
-  "main.nf" "nextflow.config" "tests" "tmp" "lib"
+  "main.nf" "nextflow.config" "tests" "lib"
   "VERSION"
 )
 
@@ -26,4 +26,3 @@ deploy_image_tag="ibp-pgscalculator:"$(cat "docker/VERSION")
 #singularity build
 singularity_image_tag="ibp-pgscalculator-base_version-$(cat "docker/VERSION").sif"
 
-mkdir -p tmp
