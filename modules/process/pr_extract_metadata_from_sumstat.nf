@@ -1,6 +1,5 @@
 
 process extract_metadata_from_sumstat {
-    label 'low_mem'
 
     input:
     path(metafile)

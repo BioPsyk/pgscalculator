@@ -4,7 +4,6 @@ nextflow.enable.dsl = 2
 
 process calc_score {
     publishDir "${params.outdir}/intermediates/scores", mode: 'rellink', overwrite: true
-    label 'low_mem'
     
     input:
         tuple val(method), val(chr), path(snp_posteriors), path("geno.pgen"), path("geno.pvar"), path("geno.psam")
@@ -34,7 +33,6 @@ process calc_score {
 
 process calc_merged_score {
     publishDir "${params.outdir}", mode: 'copy', overwrite: true
-    label 'low_mem'
     
     input:
         tuple val(method), path(chrscores)

@@ -1,7 +1,6 @@
 // Extract data from genotypes, such as maf, etc.
 process extract_maf_from_genotypes {  
     publishDir "${params.outdir}/intermediates/maf_from_genotypes", mode: 'rellink', overwrite: true  
-    label 'low_mem'
 
     input:  
         tuple val(chr), path("geno.bed"), path("geno.bim"), path("geno.fam"), path("map"), path("map_noNA")
@@ -20,7 +19,6 @@ process concatenate_plink_maf {
     publishDir "${params.outdir}/extra", mode: 'copy', overwrite: true
 
     cpus 6
-    label 'low_mem'
 
     input:
         path(chrplinkmaf)

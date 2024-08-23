@@ -4,7 +4,6 @@ nextflow.enable.dsl = 2
 
 process make_geno_bim_snpid_unique_bim {
     publishDir "${params.outdir}/intermediates/make_geno_bim_snpid_unique_bim", mode: 'rellink', overwrite: true, enabled: params.dev
-    label 'mod_mem'
     
     input:
         tuple val(chr), path(bim)
@@ -20,7 +19,6 @@ process make_geno_bim_snpid_unique_bim {
 
 process make_geno_bim_snpid_unique_bim_fam_bed {
     publishDir "${params.outdir}/intermediates/make_geno_bim_snpid_unique_bim_fam_bed", mode: 'rellink', overwrite: true, enabled: params.dev
-    label 'mod_mem'
     
     input:
         tuple val(chr), path(bed), path(bim), path(fam)
@@ -36,7 +34,6 @@ process make_geno_bim_snpid_unique_bim_fam_bed {
 
 process add_rsid_to_genotypes {
     //publishDir "${params.outdir}/intermediates/add_rsid_to_genotypes", mode: 'rellink', overwrite: true, enabled: params.dev
-    label 'mod_mem'
     
     input:
         tuple val(chr), path("geno.bed"), path("genoX.bim"), path("geno.fam"), path(rsid_ref)
@@ -57,7 +54,6 @@ process add_rsid_to_genotypes {
 
 process concat_genotypes {
     publishDir "${params.outdir}/intermediates/add_rsid_to_genotypes", mode: 'rellink', overwrite: true, enabled: params.dev
-    label 'mod_mem'
     
     input:
        path("allfiles.txt")

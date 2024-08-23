@@ -2,7 +2,6 @@
 process add_build_sumstats {
     publishDir "${params.outdir}/intermediates", mode: 'rellink', overwrite: true, enabled: params.dev
      
-    label 'low_mem'
 
     input:
         path(input_file)
@@ -20,7 +19,6 @@ process add_build_sumstats {
 process filter_NA_coordinates {
     publishDir "${params.outdir}/intermediates", mode: 'rellink', overwrite: true, enabled: params.dev
      
-    label 'low_mem'
 
     input:
         tuple val(chr), path(file1)
@@ -36,7 +34,6 @@ process filter_NA_coordinates {
 process rmcol_build_sumstats {
     publishDir "${params.outdir}/intermediates", mode: 'rellink', overwrite: true, enabled: params.dev
      
-    label 'low_mem'
 
     input:
         tuple val(chr), path(file1), path(file2)
@@ -56,7 +53,6 @@ process rmcol_build_sumstats {
 process change_build_sumstats {
     publishDir "${params.outdir}/intermediates", mode: 'rellink', overwrite: true, enabled: params.dev
      
-    label 'low_mem'
 
     input:
         path(input_file)
@@ -73,7 +69,6 @@ process change_build_sumstats {
 
 process format_sumstats {
     publishDir "${params.outdir}/intermediates", mode: 'rellink', overwrite: true, enabled: params.dev
-    label 'low_mem'
      
     input:
     tuple val(chr), path(input_file), path(input_file_noNA)
@@ -91,7 +86,6 @@ process format_sumstats {
 
 process add_N_effective {
     publishDir "${params.outdir}/intermediates", mode: 'rellink', overwrite: true, enabled: params.dev
-    label 'low_mem'
     input:
     
     tuple val(chr), path(sfile), path(metafile)
@@ -108,7 +102,6 @@ process add_N_effective {
 
 process force_EAF_to_sumstat {
     publishDir "${params.outdir}/intermediates", mode: 'rellink', overwrite: true, enabled: params.dev
-    label 'low_mem'
     input:
     tuple val(chr), path(sfile), path(metafile)
 
@@ -123,7 +116,6 @@ process force_EAF_to_sumstat {
 
 process add_B_and_SE {
     publishDir "${params.outdir}/intermediates", mode: 'rellink', overwrite: true, enabled: params.dev
-    label 'low_mem'
     input:
     tuple val(chr), path(sfile)
 
@@ -138,7 +130,6 @@ process add_B_and_SE {
 
 process filter_bad_values_1 {
     publishDir "${params.outdir}/intermediates", mode: 'rellink', overwrite: true, enabled: params.dev
-    label 'low_mem'
     input:
     tuple val(chr), path(sfile)
 
@@ -152,7 +143,6 @@ process filter_bad_values_1 {
 }
 process filter_bad_values_2 {
     publishDir "${params.outdir}/intermediates", mode: 'rellink', overwrite: true, enabled: params.dev
-    label 'low_mem'
     input:
     tuple val(chr), path(sfile)
 
@@ -167,7 +157,6 @@ process filter_bad_values_2 {
 
 process filter_on_ldref_rsids {
     publishDir "${params.outdir}/intermediates", mode: 'rellink', overwrite: true, enabled: params.dev
-    label 'low_mem'
     input:
     path(sfile)
     path(rsids)
@@ -183,7 +172,6 @@ process filter_on_ldref_rsids {
 
 process split_on_chromosome {
     publishDir "${params.outdir}/intermediates", mode: 'rellink', overwrite: true, enabled: params.dev
-    label 'low_mem'
     input:
     path(sfile)
 
@@ -198,7 +186,6 @@ process split_on_chromosome {
 
 process concatenate_sumstat_input {
     publishDir "${params.outdir}/intermediates", mode: 'copy', overwrite: true
-    label 'low_mem'
 
     input:
         path(chrinput)
