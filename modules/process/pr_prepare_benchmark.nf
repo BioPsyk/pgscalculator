@@ -1,6 +1,5 @@
 process prepare_sumstat_for_benchmark_scoring {
     publishDir "${params.outdir}/intermediates", mode: 'rellink', overwrite: true, enabled: params.dev
-    label 'low_mem'
 
     input:
     tuple val(chr), path(sumstat_map),path(sumstat_map_noNA),path(map),path(map_noNA)
@@ -18,7 +17,6 @@ process prepare_sumstat_for_benchmark_scoring {
 
 process sumstat_maf_filter {
     publishDir "${params.outdir}/intermediates", mode: 'rellink', overwrite: true, enabled: params.dev
-    label 'low_mem'
     input:
     tuple val(chr), path("sumstat"),path("maffile")
     val(maf)
@@ -36,7 +34,6 @@ process sumstat_maf_filter {
 // rename to indep_pairwise_filter_for_benchmark
 process indep_pairwise_for_benchmark {
     publishDir "${params.outdir}/intermediates/indep_pairwise_for_benchmark", mode: 'rellink', overwrite: true
-    label 'low_mem'
     
     input:
         tuple val(chr), path(sumstat), path("geno.pgen"), path("geno.pvar"), path("geno.psam")

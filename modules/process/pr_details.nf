@@ -1,5 +1,4 @@
 process copyConfigFiles {
-    label 'low_mem'
     
     input:
     path("nextflow.config")

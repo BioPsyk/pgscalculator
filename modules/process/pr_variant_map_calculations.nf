@@ -3,7 +3,6 @@
 process sort_user_snplist {
     publishDir "${params.outdir}/intermediates/mapgeneration", mode: 'rellink', overwrite: true, enabled: params.dev
      
-    label 'low_mem'
 
     input:
     path("snplist")
@@ -20,7 +19,6 @@ process sort_user_snplist {
 process make_snplist_from_bim {
     publishDir "${params.outdir}/intermediates/mapgeneration", mode: 'rellink', overwrite: true, enabled: params.dev
      
-    label 'low_mem'
     memory '2 GB'
 
 
@@ -43,7 +41,6 @@ process make_snplist_from_bim {
 process variant_map_for_prscs {
     publishDir "${params.outdir}/intermediates/mapgeneration", mode: 'rellink', overwrite: true, enabled: params.dev
      
-    label 'low_mem'
 
     input:
     tuple val(chr), path(ss), path(bim), path(ldmeta)
@@ -72,7 +69,6 @@ process variant_map_for_prscs {
 process variant_map_for_sbayesr {
     publishDir "${params.outdir}/intermediates/mapgeneration", mode: 'rellink', overwrite: true, enabled: params.dev
      
-    label 'low_mem'
 
     input:
     tuple val(chr), path(ss), path(bim), path(snplist), path(ldbin), path(ldinfo)
@@ -102,7 +98,6 @@ process variant_map_for_sbayesr {
 process concatenate_variant_map {
     publishDir "${params.outdir}", mode: 'copy', overwrite: true
 
-    label 'low_mem'
 
     input:
         path(chrfiles)
@@ -123,7 +118,6 @@ process concatenate_variant_map {
 process filter_sumstat_variants_on_map_file {
     publishDir "${params.outdir}/intermediates/mapgeneration", mode: 'rellink', overwrite: true, enabled: params.dev
      
-    label 'low_mem'
 
     input:
     tuple val(chr), path(ss), path("map"), path("map_noNA")
