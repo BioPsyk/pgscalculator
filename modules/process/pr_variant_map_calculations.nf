@@ -19,7 +19,7 @@ process sort_user_snplist {
 process make_snplist_from_bim {
     publishDir "${params.outdir}/intermediates/mapgeneration", mode: 'rellink', overwrite: true, enabled: params.dev
      
-    memory '2 GB'
+    memory "${params.memory.sort.make_snplist_from_bim}"
 
 
     input:

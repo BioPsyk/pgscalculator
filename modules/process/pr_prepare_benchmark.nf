@@ -47,7 +47,7 @@ process indep_pairwise_for_benchmark {
         plink2 --pfile geno \
          --indep-pairwise 500kb 1 0.2 \
          --threads 1 \
-         --memory 1000 \
+         --memory ${params.memory.plink.indep_pairwise_for_benchmark} \
          --extract snps \
          --rm-dup force-first \
          --out "chr${chr}"

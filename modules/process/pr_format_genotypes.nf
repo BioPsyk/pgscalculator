@@ -48,7 +48,7 @@ process add_rsid_to_genotypes {
         add_rsid_to_genotypes.sh "genoX.bim" ${rsid_ref} > "geno.bim"
 
         # only keep variants with rsid, remove dups and indels
-        plink2 --bfile geno --make-pgen --memory 1000 --threads 1 --extract tokeep --out geno2
+        plink2 --bfile geno --make-pgen --memory ${params.memory.plink.add_rsid_to_genotypes} --threads 1 --extract tokeep --out geno2
         """
 }
 
@@ -63,7 +63,7 @@ process concat_genotypes {
     
     script:
         """
-        plink2 --pmerge-list allfiles.txt --make-pgen --memory 1000 --threads 1 --multiallelics-already-joined --out allgeno
+        plink2 --pmerge-list allfiles.txt --make-pgen --memory ${params.memory.plink.concat_genotypes} --threads 1 --multiallelics-already-joined --out allgeno
         """
 
 }
