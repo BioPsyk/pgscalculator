@@ -44,7 +44,7 @@ awk -v FS="\t" -v OFS="\t" \
           colIdx[cols[i]] = -1;
           printf "%s%s", cols[i], OFS ;
         }
-        print "genoID" OFS "MAF" OFS "postEffect" OFS "benchEffect"
+        print "genoID" OFS "MAF" OFS "postEffect" OFS "OtherEffect"
         for (i=1; i<=NF; i++) {
           if ($i in colIdx){
             colIdx[$i] = i;
