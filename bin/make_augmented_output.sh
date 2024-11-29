@@ -25,36 +25,36 @@ awk -v FS="\t" -v OFS="\t" \
  -v benchmark="$benchmark" \
 '
     BEGIN {
-
         # Read mapfile into map array (ss_SNP to bim_SNP)
         while ((getline < mapfile) > 0) map[$3] = $6;
-
+    
         # Read maffile
         FS=" ";
         while ((getline < maffile) > 0) mafHash[$2] = $5;
         FS="\t";
-
+    
         # Read posterior and benchmark files into their respective arrays
         while ((getline < posterior) > 0) posteriorHash[$4] = $3;
         while ((getline < benchmark) > 0) benchmarkHash[$4] = $3;
         
-        # Determine the index of each target column
+        # Split column names and initialize indices
         n = split(colnames, cols, " ");
         for (i=1; i<=n; i++){
-          colIdx[cols[i]] = -1;
-          printf "%s%s", cols[i], OFS ;
+            colIdx[cols[i]] = -1;
         }
-        print "genoID" OFS "MAF" OFS "postEffect" OFS "OtherEffect"
-        for (i=1; i<=NF; i++) {
-          if ($i in colIdx){
-            colIdx[$i] = i;
-          }
+    
+        # Print headers once
+        for (i=1; i<=n; i++){
+            printf "%s%s", cols[i], (i<n ? OFS : "");
         }
+        print OFS "genoID" OFS "MAF" OFS "postEffect" OFS "benchEffect"
+    
+        # Process input file header once
         getline
         for (i=1; i<=NF; i++) {
-          if ($i in colIdx){
-            colIdx[$i] = i;
-          }
+            if ($i in colIdx){
+                colIdx[$i] = i;
+            }
         }
     }
     FNR > 1 { 
@@ -66,7 +66,7 @@ awk -v FS="\t" -v OFS="\t" \
             print "ssID not in map: " rsid > "/dev/stderr";
             exit 1;
         }
-
+  
         postEffect = (genoID in posteriorHash) ? posteriorHash[genoID] : "NA";
         benchEffect = (genoID in benchmarkHash) ? benchmarkHash[genoID] : "NA";
         mafVal = (genoID in mafHash) ? mafHash[genoID] : "NA";

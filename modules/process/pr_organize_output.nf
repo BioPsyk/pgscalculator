@@ -30,7 +30,7 @@ process concatenate_augmented_sumstat {
         path("augmented_sumstat.gz")
     script:
         """
-        echo "RSID	CHR	POS	EffectAllele	EffectAllele	B	SE	Z	P	genoID	MAF	postEffect	benchEffect"  > "augmented_sumstat"
+        echo "RSID	CHR	POS	EffectAllele	OtherAllele	B	SE	Z	P	genoID	MAF	postEffect	benchEffect"  > "augmented_sumstat"
         for chrfile in ${chrfiles}
         do
           tail -n+2 \$chrfile >> "augmented_sumstat"
