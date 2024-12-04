@@ -1,5 +1,5 @@
 # Represents docker.io/library/gradle:jdk11-openj9 at 2021-01-14
-FROM gradle@sha256:7e07e513b83e6a7790f0cb30820f4142b96ab7ceaac67865965b2127734c2c3d AS java_builder
+FROM gradle:jdk11-openj9 AS java_builder
 
 RUN apt-get update --fix-missing
 
@@ -25,9 +25,12 @@ WORKDIR /pgscalculator
 
 #---------------------------------------------------------------------------------
 # Creating runtime image with software built in builder image
+#
 
 #ubuntu:23.04
-FROM ubuntu@sha256:04714a1bfbb2d8b5390b5cc0c055e48ebfabd4aa395821b860730ff3277ed74a
+FROM ubuntu:24.04
+# because of multiarch, we cannot use the sha256 hash
+#FROM ubuntu@sha256:04714a1bfbb2d8b5390b5cc0c055e48ebfabd4aa395821b860730ff3277ed74a
 
 COPY --from=java_builder /pgscalculator /pgscalculator
 
@@ -68,17 +71,18 @@ RUN apt-get update && apt-get install -y git
 RUN git clone https://github.com/getian107/PRScs.git PRScs
 WORKDIR /pgscalculator
 
-## python 2 micromamba env for PRSCS
-# Set the environment variable for micromamba
-ENV MAMBA_ROOT_PREFIX=/micromamba
-# Ensure the MAMBA_ROOT_PREFIX directory exists
-RUN mkdir -p $MAMBA_ROOT_PREFIX
-# Copy micromamba from the official image
-COPY --from=mambaorg/micromamba:latest /usr/bin/micromamba /usr/local/bin/micromamba
-# Initialize micromamba for the nextflow user
-RUN micromamba create -n py27 python=2.7 -c conda-forge --yes && \
-    micromamba install -n py27 scipy -c conda-forge --yes && \
-    micromamba install -n py27 h5py -c conda-forge --yes
+# Not possible to get scipy and h5py for py2.7 anymore.
+### python 2 micromamba env for PRSCS
+## Set the environment variable for micromamba
+#ENV MAMBA_ROOT_PREFIX=/micromamba
+## Ensure the MAMBA_ROOT_PREFIX directory exists
+#RUN mkdir -p $MAMBA_ROOT_PREFIX
+## Copy micromamba from the official image
+#COPY --from=mambaorg/micromamba:latest /usr/bin/micromamba /usr/local/bin/micromamba
+## Initialize micromamba for the nextflow user
+#RUN micromamba create -n py27 python=2.7 -c conda-forge --yes && \
+#    micromamba install -n py27 scipy==1.2.2 -c conda-forge --yes && \
+#    micromamba install -n py27 h5py -c conda-forge --yes
 
 
 ## Install python in the right order (ensure python 3.11)
@@ -123,7 +127,7 @@ RUN apt-get update --fix-missing && \
 RUN useradd -rm -s /bin/bash -g users nextflow
 #RUN useradd -rm -s /bin/bash -g users -u 1000 nextflow
 RUN rm -rf /pgscalculator/* && chown nextflow:users /pgscalculator && chmod g+s /pgscalculator
-RUN chmod -R 777 /micromamba
+#RUN chmod -R 777 /micromamba
 
 USER nextflow
 
