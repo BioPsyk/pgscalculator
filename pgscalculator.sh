@@ -385,6 +385,9 @@ else
   runimage="${container_image}" 
 fi
 
+# Source Docker configuration from the conf folder
+source "${project_dir}/conf/init-docker-config.sh"
+
 if [ "${runtype}" == "test" ] || [ "${runtype}" == "utest" ] || [ "${runtype}" == "etest" ]; then
   if [ "${container_image}" == "dockerhub_biopsyk" ]; then
     echo "container: $runimage"
@@ -405,6 +408,7 @@ elif [ "${container_image}" == "docker" ] || [ "${container_image}" == "dockerhu
   mount_flags=$(format_mount_flags "${mountflag}")
   exec docker run \
      --rm \
+     ${docker_run_args} \
      ${mount_flags} \
      ${mountflag} "${infold_host}:${indir_container}" \
      ${mountflag} "${outdir_host}:${outdir_container}" \
@@ -429,7 +433,7 @@ elif [ "${container_image}" == "docker" ] || [ "${container_image}" == "dockerhu
        --genofile "${genofile_container}" \
        ${snplist_container} \
        --conffile "${conffile_container}" \
-       --outdir "${outdir_container}" 
+       --outdir "${outdir_container}"
 else
   echo "container: $runimage"
   mount_flags=$(format_mount_flags "${mountflag}")
