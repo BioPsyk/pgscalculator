@@ -61,5 +61,6 @@ srun --mem=20g --ntasks 1 --cpus-per-task 22 --time=1:00:00 --account ibp_pipeli
 - See [SNP inclusion list](docs/snp-inclusion-list.md)
 - See [Two step analysis](docs/two-step-analysis.md)
 - See [Use Docker](docs/using-docker.md)
+- See [FAQ](docs/FAQ.md)
 
 
