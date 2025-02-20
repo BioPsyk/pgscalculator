@@ -4,6 +4,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.0] - 2025-02-20
+### Added
+- Multi-architecture support for Docker images (amd64 and arm64)
+- Docker manifest support for seamless cross-platform deployment
+
+### Changed
+- Updated Docker build and push scripts to handle multi-arch builds
+- Improved Docker image distribution with platform-specific tags
+
+### Fixed
+
+- fill in here
+
 ## [1.2.5] - 2024-11-29
 ### Fixed
 
