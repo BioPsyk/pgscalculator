@@ -6,7 +6,7 @@ include {
  variant_map_for_sbayesr
  concatenate_variant_map
  filter_sumstat_variants_on_map_file
- make_snplist_from_bim
+ make_snplist_from_pvar
  sort_user_snplist
 } from '../process/pr_variant_map_calculations.nf'
 
@@ -34,8 +34,8 @@ include {
   calc_merged_score
 } from '../process/pr_calc_score.nf'
 include { 
-  make_geno_bim_snpid_unique_bim
-  make_geno_bim_snpid_unique_bim_fam_bed
+  make_geno_pvar_snpid_unique_pvar
+  make_geno_pvar_snpid_unique_pvar_psam_pgen
   add_rsid_to_genotypes 
   concat_genotypes
 } from '../process/pr_format_genotypes.nf'
@@ -89,18 +89,18 @@ workflow wf_sbayesr_calc_posteriors {
   // Support files, default from assets/
   if (params.mapfile) { mapfile = file(params.mapfile, checkIfExists: true) }
 
-  // channel of genotype bim files
+  // channel of genotype pvar files
   Channel.fromPath("${params.genofile}")
   .splitCsv(sep: '\t', header: false)
   .map { row -> row.collect { it.trim() } } // Trim whitespace from each field
   .map { row -> tuple(row[0], row[1], file("${params.genodir}/${row[2]}")) }
-  .filter { type -> type[1] in ['bim'] }
+  .filter { type -> type[1] in ['pvar'] }
   .groupTuple()
   .map { chrid, _, files -> [chrid, *files] }
-  .set { genotypes_bim_0 }
+  .set { genotypes_pvar_0 }
 
-  make_geno_bim_snpid_unique_bim(genotypes_bim_0)
-  make_geno_bim_snpid_unique_bim.out.set { genotypes_bim }
+  make_geno_pvar_snpid_unique_pvar(genotypes_pvar_0)
+  make_geno_pvar_snpid_unique_pvar.out.set { genotypes_pvar }
 
   // SNPlist
   if (params.snplist) {
@@ -108,8 +108,8 @@ workflow wf_sbayesr_calc_posteriors {
     sort_user_snplist(ch_input_snplist_0)
     sort_user_snplist.out.set { ch_input_snplist }
   } else {
-    make_snplist_from_bim(genotypes_bim.map {x,y -> y}.collect())
-    make_snplist_from_bim.out.set { ch_input_snplist }
+    make_snplist_from_pvar(genotypes_pvar.map {x,y -> y}.collect())
+    make_snplist_from_pvar.out.set { ch_input_snplist }
   }
 
 
@@ -145,7 +145,7 @@ workflow wf_sbayesr_calc_posteriors {
 
   // join for variant map
   filter_bad_values_2.out
-  .join(genotypes_bim)
+  .join(genotypes_pvar)
   .combine(ch_input_snplist)
   .join(ch_ldfiles)
   .set { ch_to_map }  
@@ -222,13 +222,13 @@ workflow wf_sbayesr_calc_score {
   .splitCsv(sep: '\t', header: false)
   .map { row -> row.collect { it.trim() } } // Trim whitespace from each field
   .map { row -> tuple(row[0], row[1], file("${params.genodir}/${row[2]}")) }
-  .filter { type -> type[1] in ['bed', 'bim', 'fam'] }
+  .filter { type -> type[1] in ['pgen', 'pvar', 'psam'] }
   .groupTuple()
   .map { chrid, _, files -> [chrid, *files] }
   .set { genotypes_0 }
 
-  make_geno_bim_snpid_unique_bim_fam_bed(genotypes_0)
-  make_geno_bim_snpid_unique_bim_fam_bed.out.set { genotypes }
+  make_geno_pvar_snpid_unique_pvar_psam_pegn(genotypes_0)
+  make_geno_pvar_snpid_unique_pvar_psam_pgen.out.set { genotypes }
 
   // Extract maf from genotypes
   genotypes
@@ -256,40 +256,29 @@ workflow wf_sbayesr_calc_score {
   indep_pairwise_for_benchmark.out.set { ch_benchmark_ready_to_score }
   
   // not certain this geno concatination will be needed as an option
-  if(params.concat_genotypes){
+ // if(params.concat_genotypes){
 
-    // concat all genotypes
-    genotypes
-    .map { chr, bed, bim, fam -> 
-        def canonicalBed = new File(bed.toString()).canonicalPath
-        def canonicalBim = new File(bim.toString()).canonicalPath
-        def canonicalFam = new File(fam.toString()).canonicalPath
-        return "$canonicalBed $canonicalBim $canonicalFam"
-    }
-    .collectFile(){ content -> [ "allgenotypes.txt", content + '\n' ] }
-    .set { ch_all_genofile }
-    concat_genotypes(ch_all_genofile)
+ //   // concat all genotypes
+ //   genotypes
+ //   .map { chr, bed, bim, fam -> 
+ //       def canonicalBed = new File(bed.toString()).canonicalPath
+ //       def canonicalBim = new File(bim.toString()).canonicalPath
+ //       def canonicalFam = new File(fam.toString()).canonicalPath
+ //       return "$canonicalBed $canonicalBim $canonicalFam"
+ //   }
+ //   .collectFile(){ content -> [ "allgenotypes.txt", content + '\n' ] }
+ //   .set { ch_all_genofile }
+ //   concat_genotypes(ch_all_genofile)
 
-    // join posteriors and genotypes all chromosomes
-    ch_concatenated_posteriors
-    .join(concat_genotypes.out)
-    .set{ ch_calc_score_input_all }
-  }else{
-    Channel.empty().set { ch_calc_score_input_all }
-  }
+ //   // join posteriors and genotypes all chromosomes
+ //   ch_concatenated_posteriors
+ //   .join(concat_genotypes.out)
+ //   .set{ ch_calc_score_input_all }
+ // }else{
+ //   Channel.empty().set { ch_calc_score_input_all }
+ // }
 
   // Mix main method and benchmark method after adding genotypes
-  ch_formatted_posteriors_main = ch_formatted_posteriors.join(genotypes).map { tuple -> ['main'] + tuple }
-  ch_benchmark_ready_to_score_bench = ch_benchmark_ready_to_score.join(genotypes).map { tuple -> ['bench'] + tuple }
-  ch_calc_score_input_per_chr = ch_formatted_posteriors_main.mix(ch_benchmark_ready_to_score_bench)
-
-  // Calc score
-  ch_calc_score_input_per_chr
-  .mix(ch_calc_score_input_all)
-  .set{ ch_calc_score }
-  calc_score(ch_calc_score)
-
-  // Step 1: Branch off and prepare for collection
   ch_main = calc_score.out.filter { it[0] == 'main' }.map { it - 'main' }
   ch_bench = calc_score.out.filter { it[0] == 'bench' }.map { it - 'bench' }
   

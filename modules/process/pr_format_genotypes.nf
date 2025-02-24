@@ -2,23 +2,23 @@
 
 nextflow.enable.dsl = 2
 
-process make_geno_bim_snpid_unique_bim {
-    publishDir "${params.outdir}/intermediates/make_geno_bim_snpid_unique_bim", mode: 'rellink', overwrite: true, enabled: params.dev
+process make_geno_pvar_snpid_unique_bim {
+    publishDir "${params.outdir}/intermediates/make_geno_pvar_snpid_unique_pvar", mode: 'rellink', overwrite: true, enabled: params.dev
     
     input:
-        tuple val(chr), path(bim)
+        tuple val(chr), path(pvar)
 
     output:
-        tuple val(chr), path("${chr}_geno.bim")
+        tuple val(chr), path("${chr}_geno.pvar")
     
     script:
         """
-        make_geno_bim_snpid_unique.sh ${bim} "${chr}_geno.bim"
+        make_geno_pvar_snpid_unique.sh ${pvar} "${chr}_geno.pvar"
         """
 }
 
-process make_geno_bim_snpid_unique_bim_fam_bed {
-    publishDir "${params.outdir}/intermediates/make_geno_bim_snpid_unique_bim_fam_bed", mode: 'rellink', overwrite: true, enabled: params.dev
+process make_geno_pvar_snpid_unique_pvar_psam_pgen {
+    publishDir "${params.outdir}/intermediates/make_geno_pvar_snpid_unique_pvar_psam_pgen", mode: 'rellink', overwrite: true, enabled: params.dev
     
     input:
         tuple val(chr), path(bed), path(bim), path(fam)
@@ -36,19 +36,19 @@ process add_rsid_to_genotypes {
     //publishDir "${params.outdir}/intermediates/add_rsid_to_genotypes", mode: 'rellink', overwrite: true, enabled: params.dev
     
     input:
-        tuple val(chr), path("geno.bed"), path("genoX.bim"), path("geno.fam"), path(rsid_ref)
+        tuple val(chr), path("geno.pgen"), path("geno.pvar"), path("geno.psam"), path(rsid_ref)
 
     output:
         tuple val(chr), path("geno2.pgen"), path("geno2.pvar"), path("geno2.psam")
     
     script:
         """
-        
         # add rsid and make list of tokeep
-        add_rsid_to_genotypes.sh "genoX.bim" ${rsid_ref} > "geno.bim"
+        add_rsid_to_genotypes.sh "geno.pvar" ${rsid_ref} > "geno_with_rsid.pvar"
+        mv geno_with_rsid.pvar geno.pvar
 
         # only keep variants with rsid, remove dups and indels
-        plink2 --bfile geno --make-pgen --memory ${params.memory.plink.add_rsid_to_genotypes} --threads 1 --extract tokeep --out geno2
+        plink2 --pfile geno --make-pgen --memory ${params.memory.plink.add_rsid_to_genotypes} --threads 1 --extract tokeep --out geno2
         """
 }
 

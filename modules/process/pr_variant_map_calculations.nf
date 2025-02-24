@@ -16,23 +16,23 @@ process sort_user_snplist {
         """
 }
 
-process make_snplist_from_bim {
+process make_snplist_from_pvar {
     publishDir "${params.outdir}/intermediates/mapgeneration", mode: 'rellink', overwrite: true, enabled: params.dev
      
-    memory "${params.memory.sort.make_snplist_from_bim}"
+    memory "${params.memory.sort.make_snplist_from_pvar}"
 
 
     input:
-    path(bims)
+    path(pvars)
 
     output:
     path("snplist_sorted")
 
     script:
         """
-        for chrfile in ${bims}
+        for chrfile in ${pvars}
         do
-          awk '{print \$2}' \$chrfile >> "snplist"
+          awk '!/^#/ {print \$3}' \$chrfile >> "snplist"
         done
         LC_ALL=C sort -u -k1,1 "snplist" > "snplist_sorted"
         """
