@@ -1,37 +1,27 @@
 inbim=$1
 outbim=$2
 
-awk '{print $2}' $inbim | sort | uniq -d > duplicates.txt
+# Create a temporary file for duplicates
+awk '{print $3}' $inbim | grep -v '^#' | sort | uniq -d > duplicates.txt
 
-if [ "$(head -n1 duplicates.txt | wc -l)" == "1" ]
+if [ -s duplicates.txt ]  # Check if duplicates file has content
 then
-  awk 'BEGIN {
-      FS=OFS="\t";
-      # Load potential duplicates to identify them quickly
-      while (getline < "duplicates.txt" > 0)
-          dups[$1] = 1;
-  }
-  {
-      if ($2 in dups) {
-          id = $1 ":" $4 ":" $5 ":" $6;  # Construct the ID based on chr:pos:a1:a2
-          count[id]++;  # Increment the counter for this ID
-          if (count[id] > 1) {  # If this ID has appeared before, append a counter
-              $2 = id ":" count[id];
-          } else {
-              $2 = id;  # First occurrence of this ID, use without appending a number
-          }
+  awk -v OFS="\t" '
+    FNR==NR {  # First pass: read duplicates file
+      dup[$1]=1;
+      next;
+    }
+    {
+      if ($1 ~ /^#/) {
+        print;
+        next;
       }
-      print;  # Print the current line with possibly modified ID
-  }' $inbim > $outbim
-
-  awk '{print $2}' $outbim | sort | uniq -d > duplicates2.txt
-  if [ "$(head -n1 duplicates2.txt | wc -l)" == "1" ]
-  then
-    echo "there are still duplicated genotypes in the bim file"
-    exit 1
-  else
-    :
-  fi
+      if ($3 in dup) {
+        count[$3]++;
+        $3 = $3 "_" count[$3];
+      }
+      print;
+    }' duplicates.txt $inbim > $outbim
 else
-  ln -s  $inbim $outbim
+  cp $inbim $outbim
 fi
