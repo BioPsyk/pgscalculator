@@ -71,7 +71,7 @@ process variant_map_for_sbayesr {
      
 
     input:
-    tuple val(chr), path(ss), path(bim), path(snplist), path(ldbin), path(ldinfo)
+    tuple val(chr), path(ss), path(pvar), path(snplist), path(ldbin), path(ldinfo)
 
     output:
     tuple val(chr), path("${chr}_variants_mapfile"), path("${chr}_variants_mapfile_no_NA"), emit: map
@@ -83,13 +83,13 @@ process variant_map_for_sbayesr {
         # chr:pos chr:pos a1 a2 markername
         awk -vFS="\t" -vOFS="\t" 'NR>1{print \$1":"\$2, \$3":"\$4, \$7, \$8, \$6 }' ${ss} > ss2
         # chr pos a1 a2 markername
-        awk -vFS="\t" -vOFS="\t" '{print \$1":"\$4, \$5, \$6, \$2 }' ${bim} > bim2
+        awk -vFS="\t" -vOFS="\t" '{print \$1":"\$4, \$5, \$6, \$2 }' ${pvar} > pvar2
         # chr pos a1 a2 markername
         awk -vFS=" " -vOFS="\t" 'NR>1{print \$1":"\$4, \$5, \$6, \$2 }' ${ldinfo} > ld2
         # markername
         cp ${snplist} snp2
 
-        variant_map_for_sbayesr.sh ss2 bim2 snp2 ld2 "${params.gbuild}" "${params.lbuild}" "${chr}_variants_mapfile"
+        variant_map_for_sbayesr.sh ss2 pvar2 snp2 ld2 "${params.gbuild}" "${params.lbuild}" "${chr}_variants_mapfile"
         awk -vFS="\t" -vOFS="\t" '{if (\$9 != "NA") { print \$0 }}' "${chr}_variants_mapfile"  > "${chr}_variants_mapfile_no_NA"
         """
 }
