@@ -227,7 +227,7 @@ workflow wf_sbayesr_calc_score {
   .map { chrid, _, files -> [chrid, *files] }
   .set { genotypes_0 }
 
-  make_geno_pvar_snpid_unique_pvar_psam_pegn(genotypes_0)
+  make_geno_pvar_snpid_unique_pvar_psam_pgen(genotypes_0)
   make_geno_pvar_snpid_unique_pvar_psam_pgen.out.set { genotypes }
 
   // Extract maf from genotypes
@@ -278,7 +278,20 @@ workflow wf_sbayesr_calc_score {
  //   Channel.empty().set { ch_calc_score_input_all }
  // }
 
+  Channel.empty().set { ch_calc_score_input_all }
+
   // Mix main method and benchmark method after adding genotypes
+  ch_formatted_posteriors_main = ch_formatted_posteriors.join(genotypes).map { tuple -> ['main'] + tuple }
+  ch_benchmark_ready_to_score_bench = ch_benchmark_ready_to_score.join(genotypes).map { tuple -> ['bench'] + tuple }
+  ch_calc_score_input_per_chr = ch_formatted_posteriors_main.mix(ch_benchmark_ready_to_score_bench)
+
+  // Calc score
+  ch_calc_score_input_per_chr
+  .mix(ch_calc_score_input_all)
+  .set{ ch_calc_score }
+  calc_score(ch_calc_score)
+
+  // Step 1: Branch off and prepare for collection
   ch_main = calc_score.out.filter { it[0] == 'main' }.map { it - 'main' }
   ch_bench = calc_score.out.filter { it[0] == 'bench' }.map { it - 'bench' }
   
@@ -307,5 +320,4 @@ workflow wf_sbayesr_calc_score {
   concatenate_augmented_sumstat(make_augmented_gwas.out.map {x,y -> y}.collect())
 
 }
-
 

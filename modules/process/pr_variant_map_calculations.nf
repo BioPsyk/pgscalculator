@@ -19,7 +19,7 @@ process sort_user_snplist {
 process make_snplist_from_pvar {
     publishDir "${params.outdir}/intermediates/mapgeneration", mode: 'rellink', overwrite: true, enabled: params.dev
      
-    memory "${params.memory.sort.make_snplist_from_pvar}"
+    //memory "${params.memory.sort.make_snplist_from_pvar}"
 
 
     input:

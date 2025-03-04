@@ -2,7 +2,7 @@
 
 nextflow.enable.dsl = 2
 
-process make_geno_pvar_snpid_unique_bim {
+process make_geno_pvar_snpid_unique_pvar {
     publishDir "${params.outdir}/intermediates/make_geno_pvar_snpid_unique_pvar", mode: 'rellink', overwrite: true, enabled: params.dev
     
     input:
@@ -21,14 +21,14 @@ process make_geno_pvar_snpid_unique_pvar_psam_pgen {
     publishDir "${params.outdir}/intermediates/make_geno_pvar_snpid_unique_pvar_psam_pgen", mode: 'rellink', overwrite: true, enabled: params.dev
     
     input:
-        tuple val(chr), path(bed), path(bim), path(fam)
+        tuple val(chr), path(pgen), path(pvar), path(psam)
 
     output:
-        tuple val(chr), path(bed), path("${chr}_geno.bim"), path(fam)
+        tuple val(chr), path(pgen), path("${chr}_geno.pvar"), path(psam)
     
     script:
         """
-        make_geno_bim_snpid_unique.sh ${bim} "${chr}_geno.bim"
+        make_geno_pvar_snpid_unique.sh ${pvar} "${chr}_geno.pvar"
         """
 }
 
