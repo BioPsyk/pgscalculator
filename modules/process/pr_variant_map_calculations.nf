@@ -82,9 +82,9 @@ process variant_map_for_sbayesr {
         # b37 b38 a1 a2 markername
         # chr:pos chr:pos a1 a2 markername
         awk -vFS="\t" -vOFS="\t" 'NR>1{print \$1":"\$2, \$3":"\$4, \$7, \$8, \$6 }' ${ss} > ss2
-        # chr pos a1 a2 markername
-        awk -vFS="\t" -vOFS="\t" '{print \$1":"\$4, \$5, \$6, \$2 }' ${pvar} > pvar2
-        # chr pos a1 a2 markername
+        # chr:pos a1 a2 markername
+        awk -vFS="\t" -vOFS="\t" '/^#/ {next} {print \$1":"\$2, \$4, \$5, \$3}' ${pvar} > pvar2
+        # chr:pos a1 a2 markername
         awk -vFS=" " -vOFS="\t" 'NR>1{print \$1":"\$4, \$5, \$6, \$2 }' ${ldinfo} > ld2
         # markername
         cp ${snplist} snp2
