@@ -16,7 +16,7 @@ include {
 
 // include processes
 include { add_build_sumstats } from './modules/process/pr_format_sumstats.nf'
-include { copyConfigFiles } from './modules/process/pr_details.nf'
+include { copyConfigFiles, copyVersionFile } from './modules/process/pr_details.nf'
 
 workflow {
 
@@ -73,6 +73,7 @@ workflow {
 
   // Add run details to output
   copyConfigFiles(file("/pgscalculator/nextflow.config"))
+  copyVersionFile(file("/pgscalculator/VERSION"))
 
 } 
 

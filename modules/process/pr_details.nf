@@ -12,4 +12,16 @@ process copyConfigFiles {
     """
 }
 
+process copyVersionFile {
+
+    input:
+    path("VERSION")
+
+    script:
+    """
+    mkdir -p ${params.outdir}/details
+    cp VERSION ${params.outdir}/details/
+    """
+}
+
 
