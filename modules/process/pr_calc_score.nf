@@ -3,13 +3,13 @@
 nextflow.enable.dsl = 2
 
 process calc_score {
-    publishDir "${params.outdir}/intermediates/scores", mode: 'rellink', overwrite: true
+    publishDir "${params.outdir}/intermediates/scores/${method}", mode: 'rellink', overwrite: true
     
     input:
         tuple val(method), val(chr), path(snp_posteriors), path("geno.pgen"), path("geno.pvar"), path("geno.psam")
 
     output:
-        tuple val(method), path("chr${chr}.score")
+        tuple val(method), path("${method}_chr${chr}.score")
     
     script:
         """
@@ -24,9 +24,9 @@ process calc_score {
           --threads 1 \
           --score ${snp_posteriors} 4 2 3 header cols=+scoresums ignore-dup-ids
 
-          awk '{gsub(/^#/, ""); print}' tmp.sscore > chr${chr}.score
+          awk '{gsub(/^#/, ""); print}' tmp.sscore > "${method}_chr${chr}.score"
         else
-          touch chr${chr}.score
+          touch "${method}_chr${chr}.score"
         fi
         """
 }
