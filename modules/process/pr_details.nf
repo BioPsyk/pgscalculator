@@ -11,7 +11,12 @@ process copyConfigFiles {
     script:
     """
     # Copy input config file and user config to output
-    cp ${config_file} nextflow.config
+    if [ "${config_file}" != "nextflow.config" ]; then
+        cp ${config_file} nextflow.config
+    else
+        # File is already named correctly, just touch to ensure it exists
+        touch nextflow.config
+    fi
     cp ${params.conffile} user.config
     """
 }
