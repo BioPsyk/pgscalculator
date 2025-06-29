@@ -23,12 +23,12 @@ process copyVersionFile {
     path(version_file)
 
     output:
-    path("VERSION")
+    path("pipeline_VERSION")
 
     script:
     """
-    # Copy version file to output
-    cp ${version_file} VERSION
+    # Copy version file to output with different name
+    cp ${version_file} pipeline_VERSION
     """
 }
 
