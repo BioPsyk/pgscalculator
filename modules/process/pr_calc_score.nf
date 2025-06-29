@@ -3,13 +3,13 @@
 nextflow.enable.dsl = 2
 
 process calc_score {
-    publishDir "${params.outdir}/intermediates/scores", mode: 'rellink', overwrite: true
+    publishDir "${params.outdir}/intermediates/scores/${method}", mode: 'rellink', overwrite: true
     
     input:
         tuple val(method), val(chr), path(snp_posteriors), path("geno.pgen"), path("geno.pvar"), path("geno.psam")
 
     output:
-        tuple val(method), path("chr${chr}.score")
+        tuple val(method), path("${method}_chr${chr}.score")
     
     script:
         """
@@ -24,9 +24,9 @@ process calc_score {
           --threads 1 \
           --score ${snp_posteriors} 4 2 3 header cols=+scoresums ignore-dup-ids
 
-          awk '{gsub(/^#/, ""); print}' tmp.sscore > chr${chr}.score
+          awk '{gsub(/^#/, ""); print}' tmp.sscore > "${method}_chr${chr}.score"
         else
-          touch chr${chr}.score
+          touch "${method}_chr${chr}.score"
         fi
         """
 }
@@ -44,7 +44,7 @@ process calc_merged_score {
         """
         echo "FID	IID	ALLELE_CT	NAMED_ALLELE_DOSAGE_SUM	SCORE1_AVG	SCORE1_SUM	FILE_SUM" > "${method}_raw_score_all"
         awk -vOFS="	" '
-          FNR>1{FILE_SUM[\$1]++; ALLELE_CT[\$1]+=\$3; NAMED_ALLELE_DOSAGE_SUM[\$1]+=\$4; SCORE1_SUM[\$1]+=\$6}
+          FNR>1{FILE_SUM[\$2]++; ALLELE_CT[\$2]+=\$3; NAMED_ALLELE_DOSAGE_SUM[\$2]+=\$4; SCORE1_SUM[\$2]+=\$6}
           END{for(k in ALLELE_CT){print k, k, ALLELE_CT[k], NAMED_ALLELE_DOSAGE_SUM[k], SCORE1_SUM[k]/ALLELE_CT[k], SCORE1_SUM[k], FILE_SUM[k]}}
         ' ${chrscores} >>  "${method}_raw_score_all"
 
