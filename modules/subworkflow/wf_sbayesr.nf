@@ -64,23 +64,31 @@ workflow wf_sbayesr_calc_posteriors {
   // Read ld from reference
   Channel
   .fromPath("${params.lddir}/*.bin")
+  .view { params.dev ? "DEBUG: ld_bin_files_found: $it" : null }
   .map { file ->
       // Split the file name by underscores and select the third element
       def chrNumber = file.baseName.split("_")[1].replaceAll(/[^0-9]/, '')
       return tuple(chrNumber, file)
   }
+  .view { params.dev ? "DEBUG: ld_bin_mapped: $it" : null }
   .set { ldfiles1 }
   Channel
   .fromPath("${params.lddir}/*.info")
+  .view { params.dev ? "DEBUG: ld_info_files_found: $it" : null }
   .map { file ->
       // Split the file name by underscores and select the third element
       def chrNumber = file.baseName.split("_")[1].replaceAll(/[^0-9]/, '')
       return tuple(chrNumber, file)
   }
+  .view { params.dev ? "DEBUG: ld_info_mapped: $it" : null }
   .set { ldfiles2 }
 
   ldfiles1
   .join(ldfiles2)
+  .view { params.dev ? "DEBUG: ch_ldfiles_joined: $it" : null }
+  .collectFile(storeDir: params.dev ? "${params.outdir}/channel-trace" : null, skip: !params.dev) { 
+    chr, binfile, infofile -> ["ch_ldfiles_${chr}.txt", "CHR: ${chr}\nBIN: ${binfile}\nINFO: ${infofile}\n"] 
+  }
   .set {ch_ldfiles }
 
   // Metafile for sumstat
@@ -93,23 +101,55 @@ workflow wf_sbayesr_calc_posteriors {
   Channel.fromPath("${params.genofile}")
   .splitCsv(sep: '\t', header: false)
   .map { row -> row.collect { it.trim() } } // Trim whitespace from each field
+  .view { params.dev ? "DEBUG: genofile_csv_row: $it" : null }
   .map { row -> tuple(row[0], row[1], file("${params.genodir}/${row[2]}")) }
+  .view { params.dev ? "DEBUG: genofile_mapped: $it" : null }
   .filter { type -> type[1] in ['pvar'] }
+  .view { params.dev ? "DEBUG: genofile_filtered_pvar: $it" : null }
   .groupTuple()
   .map { chrid, _, files -> [chrid, *files] }
+  .view { params.dev ? "DEBUG: genotypes_pvar_0: $it" : null }
+  .collectFile(storeDir: params.dev ? "${params.outdir}/channel-trace" : null, skip: !params.dev) { 
+    chr, files -> ["genotypes_pvar_0_${chr}.txt", "CHR: ${chr}\nFILES: ${files.join('\n')}\n"] 
+  }
   .set { genotypes_pvar_0 }
 
   make_geno_pvar_snpid_unique_pvar(genotypes_pvar_0)
-  make_geno_pvar_snpid_unique_pvar.out.set { genotypes_pvar }
+  make_geno_pvar_snpid_unique_pvar.out
+  .view { params.dev ? "DEBUG: genotypes_pvar_after_unique: $it" : null }
+  .collectFile(storeDir: params.dev ? "${params.outdir}/channel-trace" : null, skip: !params.dev) { 
+    chr, file -> ["genotypes_pvar_${chr}.txt", "CHR: ${chr}\nFILE: ${file}\n"] 
+  }
+  .set { genotypes_pvar }
 
   // SNPlist
   if (params.snplist) {
-    Channel.fromPath("${params.snplist}", type: 'file').set { ch_input_snplist_0 }
+    if (params.dev) { println("DEBUG: Using user-provided SNPlist: ${params.snplist}") }
+    Channel.fromPath("${params.snplist}", type: 'file')
+    .view { params.dev ? "DEBUG: user_snplist_input: $it" : null }
+    .set { ch_input_snplist_0 }
     sort_user_snplist(ch_input_snplist_0)
-    sort_user_snplist.out.set { ch_input_snplist }
+    sort_user_snplist.out
+    .view { params.dev ? "DEBUG: sorted_user_snplist: $it" : null }
+    .collectFile(storeDir: params.dev ? "${params.outdir}/channel-trace" : null, skip: !params.dev) { 
+      file -> ["user_snplist.txt", "SNPLIST_FILE: ${file}\n"] 
+    }
+    .set { ch_input_snplist }
   } else {
-    make_snplist_from_pvar(genotypes_pvar.map {x,y -> y}.collect())
-    make_snplist_from_pvar.out.set { ch_input_snplist }
+    if (params.dev) { println("DEBUG: Creating SNPlist from pvar files") }
+    genotypes_pvar.map {x,y -> y}.collect()
+    .view { params.dev ? "DEBUG: pvar_files_for_snplist: $it" : null }
+    .collectFile(storeDir: params.dev ? "${params.outdir}/channel-trace" : null, skip: !params.dev) { 
+      files -> ["pvar_files_for_snplist.txt", "PVAR_FILES: ${files.join('\n')}\n"] 
+    }
+    .set { pvar_files_collected }
+    make_snplist_from_pvar(pvar_files_collected)
+    make_snplist_from_pvar.out
+    .view { params.dev ? "DEBUG: generated_snplist: $it" : null }
+    .collectFile(storeDir: params.dev ? "${params.outdir}/channel-trace" : null, skip: !params.dev) { 
+      file -> ["generated_snplist.txt", "GENERATED_SNPLIST: ${file}\n"] 
+    }
+    .set { ch_input_snplist }
   }
 
 
@@ -145,9 +185,19 @@ workflow wf_sbayesr_calc_posteriors {
 
   // join for variant map
   filter_bad_values_2.out
+  .view { params.dev ? "DEBUG: filter_bad_values_2_output: $it" : null }
+  .collectFile(storeDir: params.dev ? "${params.outdir}/channel-trace" : null, skip: !params.dev) { 
+    chr, file -> ["filter_bad_values_2_${chr}.txt", "CHR: ${chr}\nFILE: ${file}\n"] 
+  }
   .join(genotypes_pvar)
+  .view { params.dev ? "DEBUG: after_join_genotypes_pvar: $it" : null }
   .combine(ch_input_snplist)
+  .view { params.dev ? "DEBUG: after_combine_snplist: $it" : null }
   .join(ch_ldfiles)
+  .view { params.dev ? "DEBUG: ch_to_map_final: $it" : null }
+  .collectFile(storeDir: params.dev ? "${params.outdir}/channel-trace" : null, skip: !params.dev) { 
+    chr, file1, file2, snplist, ldfile1, ldfile2 -> ["ch_to_map_${chr}.txt", "CHR: ${chr}\nSUMSTAT: ${file1}\nPVAR: ${file2}\nSNPLIST: ${snplist}\nLD_BIN: ${ldfile1}\nLD_INFO: ${ldfile2}\n"] 
+  }
   .set { ch_to_map }  
 
   // make variant map
