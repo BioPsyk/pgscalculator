@@ -2,20 +2,17 @@ process copyConfigFiles {
     publishDir "${params.outdir}/details", mode: 'copy', overwrite: true
     
     input:
-    path("nextflow.config")
+    path(config_file)
 
     output:
     path("nextflow.config")
-    path("*.config")
+    path("user.config")
 
     script:
     """
-    mkdir -p ${params.outdir}/details
-    cp nextflow.config ${params.outdir}/details/
-    cp ${params.conffile} ${params.outdir}/details/
-    # Also copy files to output for Nextflow
-    cp nextflow.config .
-    cp ${params.conffile} .
+    # Copy input config file and user config to output
+    cp ${config_file} nextflow.config
+    cp ${params.conffile} user.config
     """
 }
 
@@ -23,17 +20,15 @@ process copyVersionFile {
     publishDir "${params.outdir}/details", mode: 'copy', overwrite: true
 
     input:
-    path("VERSION")
+    path(version_file)
 
     output:
     path("VERSION")
 
     script:
     """
-    mkdir -p ${params.outdir}/details
-    cp VERSION ${params.outdir}/details/
-    # Also copy to output for Nextflow
-    cp VERSION .
+    # Copy version file to output
+    cp ${version_file} VERSION
     """
 }
 
