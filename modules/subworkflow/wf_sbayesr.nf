@@ -34,6 +34,7 @@ include {
   calc_merged_score
 } from '../process/pr_calc_score.nf'
 include { 
+  convert_plink1_to_plink2
   make_geno_pvar_snpid_unique_pvar
   make_geno_pvar_snpid_unique_pvar_psam_pgen
   add_rsid_to_genotypes 
@@ -105,25 +106,86 @@ workflow wf_sbayesr_calc_posteriors {
   // Support files, default from assets/
   if (params.mapfile) { mapfile = file(params.mapfile, checkIfExists: true) }
 
-  // channel of genotype pvar files
+  // Read all genotype files and detect format
   Channel.fromPath("${params.genofile}")
   .splitCsv(sep: '\t', header: false)
   .map { row -> row.collect { it.trim() } } // Trim whitespace from each field
   .view { params.dev ? "DEBUG: genofile_csv_row: $it" : null }
   .map { row -> tuple(row[0], row[1], file("${params.genodir}/${row[2]}")) }
   .view { params.dev ? "DEBUG: genofile_mapped: $it" : null }
-  .filter { type -> type[1] in ['pvar'] }
-  .view { params.dev ? "DEBUG: genofile_filtered_pvar: $it" : null }
   .groupTuple()
-  .map { chrid, _, files -> [chrid, *files] }
+  .view { params.dev ? "DEBUG: genofile_grouped: $it" : null }
+  .map { chrid, types, files ->
+    // Detect format for this chromosome
+    def hasPlink2 = types.any { it in ['pgen', 'pvar', 'psam'] }
+    def hasPlink1 = types.any { it in ['bed', 'bim', 'fam'] }
+    def format = hasPlink2 ? 'plink2' : (hasPlink1 ? 'plink1' : 'unknown')
+    
+    if (params.dev) { 
+      println("DEBUG: CHR ${chrid} - Format: ${format}, Types: ${types}, Has PLINK2: ${hasPlink2}, Has PLINK1: ${hasPlink1}")
+    }
+    
+    return tuple(chrid, format, types, files)
+  }
+  .view { params.dev ? "DEBUG: format_detected: $it" : null }
+  .branch {
+    plink1: it[1] == 'plink1'
+    plink2: it[1] == 'plink2'
+    unknown: true
+  }
+  .set { genotype_formats }
+
+  // Handle PLINK1 format - convert to PLINK2
+  genotype_formats.plink1
+  .map { chrid, format, types, files ->
+    // Extract bed, bim, fam files
+    def fileMap = [types, files].transpose().collectEntries()
+    return tuple(chrid, fileMap['bed'], fileMap['bim'], fileMap['fam'])
+  }
+  .view { params.dev ? "DEBUG: plink1_to_convert: $it" : null }
+  .set { plink1_files }
+
+  convert_plink1_to_plink2(plink1_files)
+  
+  // Handle native PLINK2 format
+  genotype_formats.plink2
+  .map { chrid, format, types, files ->
+    // Extract pgen, pvar, psam files 
+    def fileMap = [types, files].transpose().collectEntries()
+    return tuple(chrid, fileMap['pgen'], fileMap['pvar'], fileMap['psam'])
+  }
+  .view { params.dev ? "DEBUG: native_plink2: $it" : null }
+  .set { native_plink2_files }
+
+  // Combine converted and native PLINK2 files
+  convert_plink1_to_plink2.out
+  .mix(native_plink2_files)
+  .view { params.dev ? "DEBUG: unified_plink2_files: $it" : null }
+  .map { 
+    if (params.dev) {
+      file("${params.outdir}/channel-trace").mkdirs()
+      def chr = it[0]
+      def pgen = it[1]
+      def pvar = it[2] 
+      def psam = it[3]
+      def traceFile = file("${params.outdir}/channel-trace/unified_plink2_${chr}.txt")
+      traceFile.text = "CHR: ${chr}\nPGEN: ${pgen}\nPVAR: ${pvar}\nPSAM: ${psam}\n"
+    }
+    return it
+  }
+  .set { unified_plink2_files }
+
+  // Extract pvar files for the existing pipeline
+  unified_plink2_files
+  .map { chrid, pgen, pvar, psam -> tuple(chrid, pvar) }
   .view { params.dev ? "DEBUG: genotypes_pvar_0: $it" : null }
   .map { 
     if (params.dev) {
       file("${params.outdir}/channel-trace").mkdirs()
       def chr = it[0]
-      def files = it[1..-1]
+      def pvar = it[1]
       def traceFile = file("${params.outdir}/channel-trace/genotypes_pvar_0_${chr}.txt")
-      traceFile.text = "CHR: ${chr}\nFILES: ${files.join('\n')}\n"
+      traceFile.text = "CHR: ${chr}\nPVAR: ${pvar}\n"
     }
     return it
   }
@@ -311,6 +373,7 @@ workflow wf_sbayesr_calc_posteriors {
   sumstats_filtered=rmcol_build_sumstats.out
   ch_formatted_posteriors
   variant_maps_for_sbayesr = variant_map_for_sbayesr.out.map
+  unified_plink2_files
 }
 
 workflow wf_sbayesr_calc_score {
@@ -319,17 +382,13 @@ workflow wf_sbayesr_calc_score {
   ch_formatted_posteriors
   variant_maps_for_sbayesr
   sumstat
+  unified_plink2_files
 
   main:
 
-  // channel of genotypes
-  Channel.fromPath("${params.genofile}")
-  .splitCsv(sep: '\t', header: false)
-  .map { row -> row.collect { it.trim() } } // Trim whitespace from each field
-  .map { row -> tuple(row[0], row[1], file("${params.genodir}/${row[2]}")) }
-  .filter { type -> type[1] in ['pgen', 'pvar', 'psam'] }
-  .groupTuple()
-  .map { chrid, _, files -> [chrid, *files] }
+  // Use the unified PLINK2 files for scoring
+  unified_plink2_files
+  .view { params.dev ? "DEBUG: genotypes_for_scoring: $it" : null }
   .set { genotypes_0 }
 
   make_geno_pvar_snpid_unique_pvar_psam_pgen(genotypes_0)

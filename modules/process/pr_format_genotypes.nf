@@ -2,6 +2,26 @@
 
 nextflow.enable.dsl = 2
 
+process convert_plink1_to_plink2 {
+    publishDir "${params.outdir}/intermediates/convert_plink1_to_plink2", mode: 'rellink', overwrite: true, enabled: params.dev
+    
+    input:
+        tuple val(chr), path(bed), path(bim), path(fam)
+
+    output:
+        tuple val(chr), path("${chr}_converted.pgen"), path("${chr}_converted.pvar"), path("${chr}_converted.psam")
+    
+    script:
+        """
+        # Convert PLINK1 format to PLINK2 format
+        plink2 --bed ${bed} --bim ${bim} --fam ${fam} \\
+               --make-pgen \\
+               --memory ${params.memory.plink.extract_maf_from_genotypes} \\
+               --threads 1 \\
+               --out ${chr}_converted
+        """
+}
+
 process make_geno_pvar_snpid_unique_pvar {
     publishDir "${params.outdir}/intermediates/make_geno_pvar_snpid_unique_pvar", mode: 'rellink', overwrite: true, enabled: params.dev
     
