@@ -5,19 +5,14 @@ process copyConfigFiles {
     path(config_file)
 
     output:
-    path("nextflow.config")
-    path("user.config")
+    path("pipeline_nextflow.config")
+    path("user_pipeline.config")
 
     script:
     """
-    # Copy input config file and user config to output
-    if [ "${config_file}" != "nextflow.config" ]; then
-        cp ${config_file} nextflow.config
-    else
-        # File is already named correctly, just touch to ensure it exists
-        touch nextflow.config
-    fi
-    cp ${params.conffile} user.config
+    # Copy input config file and user config to output with different names
+    cp ${config_file} pipeline_nextflow.config
+    cp ${params.conffile} user_pipeline.config
     """
 }
 
