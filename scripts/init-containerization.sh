@@ -22,6 +22,8 @@ mounts=(
 
 image_tag="ibp-pgscalculator-base:"$(cat "docker/VERSION")
 deploy_image_tag="ibp-pgscalculator:"$(cat "docker/VERSION")
+deploy_image_tag_docker_hub="biopsyk/ibp-pgscalculator:"$(cat "docker/VERSION")
+
 
 #singularity build
 singularity_image_tag="ibp-pgscalculator-base_version-$(cat "docker/VERSION").sif"

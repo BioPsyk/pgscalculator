@@ -6,7 +6,7 @@ include {
  variant_map_for_sbayesr
  concatenate_variant_map
  filter_sumstat_variants_on_map_file
- make_snplist_from_bim
+ make_snplist_from_pvar
  sort_user_snplist
 } from '../process/pr_variant_map_calculations.nf'
 
@@ -34,8 +34,9 @@ include {
   calc_merged_score
 } from '../process/pr_calc_score.nf'
 include { 
-  make_geno_bim_snpid_unique_bim
-  make_geno_bim_snpid_unique_bim_fam_bed
+  convert_plink1_to_plink2
+  make_geno_pvar_snpid_unique_pvar
+  make_geno_pvar_snpid_unique_pvar_psam_pgen
   add_rsid_to_genotypes 
   concat_genotypes
 } from '../process/pr_format_genotypes.nf'
@@ -64,23 +65,63 @@ workflow wf_sbayesr_calc_posteriors {
   // Read ld from reference
   Channel
   .fromPath("${params.lddir}/*.bin")
+  .map { 
+    if (params.dev) {
+           file("${params.outdir}/channel-trace").mkdirs()
+     def traceFile = file("${params.outdir}/channel-trace/ld_bin_files_found.txt")
+     traceFile.append("LD_BIN_FILE: ${it}\n")
+    }
+    return it
+  }
   .map { file ->
       // Split the file name by underscores and select the third element
       def chrNumber = file.baseName.split("_")[1].replaceAll(/[^0-9]/, '')
       return tuple(chrNumber, file)
   }
+  .map { 
+    if (params.dev) {
+           file("${params.outdir}/channel-trace").mkdirs()
+     def traceFile = file("${params.outdir}/channel-trace/ld_bin_mapped.txt")
+     traceFile.append("CHR: ${it[0]}, BIN_FILE: ${it[1]}\n")
+    }
+    return it
+  }
   .set { ldfiles1 }
   Channel
   .fromPath("${params.lddir}/*.info")
+  .map { 
+    if (params.dev) {
+           file("${params.outdir}/channel-trace").mkdirs()
+     def traceFile = file("${params.outdir}/channel-trace/ld_info_files_found.txt")
+     traceFile.append("LD_INFO_FILE: ${it}\n")
+    }
+    return it
+  }
   .map { file ->
       // Split the file name by underscores and select the third element
       def chrNumber = file.baseName.split("_")[1].replaceAll(/[^0-9]/, '')
       return tuple(chrNumber, file)
+  }
+  .map { 
+    if (params.dev) {
+           file("${params.outdir}/channel-trace").mkdirs()
+     def traceFile = file("${params.outdir}/channel-trace/ld_info_mapped.txt")
+     traceFile.append("CHR: ${it[0]}, INFO_FILE: ${it[1]}\n")
+    }
+    return it
   }
   .set { ldfiles2 }
 
   ldfiles1
   .join(ldfiles2)
+  .map { 
+    if (params.dev) {
+      file("${params.outdir}/channel-trace").mkdirs()
+      def traceFile = file("${params.outdir}/channel-trace/ld_files_joined.txt")
+      traceFile.append("CHR: ${it[0]}, BIN: ${it[1]}, INFO: ${it[2]}\n")
+    }
+    return it
+  }
   .set {ch_ldfiles }
 
   // Metafile for sumstat
@@ -89,27 +130,186 @@ workflow wf_sbayesr_calc_posteriors {
   // Support files, default from assets/
   if (params.mapfile) { mapfile = file(params.mapfile, checkIfExists: true) }
 
-  // channel of genotype bim files
+  // Read all genotype files and detect format
   Channel.fromPath("${params.genofile}")
   .splitCsv(sep: '\t', header: false)
   .map { row -> row.collect { it.trim() } } // Trim whitespace from each field
+  .map { 
+    if (params.dev) {
+      file("${params.outdir}/channel-trace").mkdirs()
+      def traceFile = file("${params.outdir}/channel-trace/genofile_csv_parsing.txt")
+      traceFile.append("ROW: ${it}\n")
+    }
+    return it
+  }
   .map { row -> tuple(row[0], row[1], file("${params.genodir}/${row[2]}")) }
-  .filter { type -> type[1] in ['bim'] }
+  .map { 
+    if (params.dev) {
+      file("${params.outdir}/channel-trace").mkdirs()
+      def traceFile = file("${params.outdir}/channel-trace/genofile_mapped.txt")
+      traceFile.append("CHR: ${it[0]}, TYPE: ${it[1]}, FILE: ${it[2]}\n")
+    }
+    return it
+  }
   .groupTuple()
-  .map { chrid, _, files -> [chrid, *files] }
-  .set { genotypes_bim_0 }
+  .map { 
+    if (params.dev) {
+      file("${params.outdir}/channel-trace").mkdirs()
+      def traceFile = file("${params.outdir}/channel-trace/genofile_grouped.txt")
+      traceFile.append("CHR: ${it[0]}, TYPES: ${it[1]}, FILES: ${it[2]}\n")
+    }
+    return it
+  }
+     .map { chrid, types, files ->
+     // Detect format for this chromosome
+     def hasPlink2 = types.any { it in ['pgen', 'pvar', 'psam'] }
+     def hasPlink1 = types.any { it in ['bed', 'bim', 'fam'] }
+     def format = hasPlink2 ? 'plink2' : (hasPlink1 ? 'plink1' : 'unknown')
+     
+     if (params.dev) { 
+       file("${params.outdir}/channel-trace").mkdirs()
+       def traceFile = file("${params.outdir}/channel-trace/format_detection.txt")
+       traceFile.append("CHR: ${chrid}, FORMAT: ${format}, TYPES: ${types}, HAS_PLINK2: ${hasPlink2}, HAS_PLINK1: ${hasPlink1}, FILES: ${files}\n")
+     }
+     
+     return tuple(chrid, format, types, files)
+   }
+  .branch {
+    plink1: it[1] == 'plink1'
+    plink2: it[1] == 'plink2'
+    unknown: true
+  }
+  .set { genotype_formats }
 
-  make_geno_bim_snpid_unique_bim(genotypes_bim_0)
-  make_geno_bim_snpid_unique_bim.out.set { genotypes_bim }
+  // Handle PLINK1 format - convert to PLINK2
+  genotype_formats.plink1
+  .map { chrid, format, types, files ->
+    // Extract bed, bim, fam files
+    def fileMap = [types, files].transpose().collectEntries()
+    return tuple(chrid, fileMap['bed'], fileMap['bim'], fileMap['fam'])
+  }
+  .map { 
+    if (params.dev) {
+      file("${params.outdir}/channel-trace").mkdirs()
+      def traceFile = file("${params.outdir}/channel-trace/plink1_to_convert.txt")
+      traceFile.append("CHR: ${it[0]}, BED: ${it[1]}, BIM: ${it[2]}, FAM: ${it[3]}\n")
+    }
+    return it
+  }
+  .set { plink1_files }
+
+  convert_plink1_to_plink2(plink1_files)
+  
+  // Handle native PLINK2 format
+  genotype_formats.plink2
+  .map { chrid, format, types, files ->
+    // Extract pgen, pvar, psam files 
+    def fileMap = [types, files].transpose().collectEntries()
+    return tuple(chrid, fileMap['pgen'], fileMap['pvar'], fileMap['psam'])
+  }
+  .map { 
+    if (params.dev) {
+      file("${params.outdir}/channel-trace").mkdirs()
+      def traceFile = file("${params.outdir}/channel-trace/native_plink2.txt")
+      traceFile.append("CHR: ${it[0]}, PGEN: ${it[1]}, PVAR: ${it[2]}, PSAM: ${it[3]}\n")
+    }
+    return it
+  }
+  .set { native_plink2_files }
+
+  // Combine converted and native PLINK2 files
+  convert_plink1_to_plink2.out
+  .mix(native_plink2_files)
+  .map { 
+    if (params.dev) {
+      file("${params.outdir}/channel-trace").mkdirs()
+      def traceFile = file("${params.outdir}/channel-trace/unified_plink2_files.txt")
+      traceFile.append("CHR: ${it[0]}, PGEN: ${it[1]}, PVAR: ${it[2]}, PSAM: ${it[3]}\n")
+    }
+    return it
+  }
+  .set { unified_plink2_files }
+
+  // Extract pvar files for the existing pipeline
+  unified_plink2_files
+  .map { chrid, pgen, pvar, psam -> tuple(chrid, pvar) }
+  .map { 
+    if (params.dev) {
+      file("${params.outdir}/channel-trace").mkdirs()
+      def traceFile = file("${params.outdir}/channel-trace/genotypes_pvar_extracted.txt")
+      traceFile.append("CHR: ${it[0]}, PVAR: ${it[1]}\n")
+    }
+    return it
+  }
+  .set { genotypes_pvar_0 }
+
+  make_geno_pvar_snpid_unique_pvar(genotypes_pvar_0)
+  make_geno_pvar_snpid_unique_pvar.out
+  .map { 
+    if (params.dev) {
+      file("${params.outdir}/channel-trace").mkdirs()
+      def traceFile = file("${params.outdir}/channel-trace/genotypes_pvar_after_unique.txt")
+      traceFile.append("CHR: ${it[0]}, PVAR_FILE: ${it[1]}\n")
+    }
+    return it
+  }
+  .set { genotypes_pvar }
 
   // SNPlist
   if (params.snplist) {
-    Channel.fromPath("${params.snplist}", type: 'file').set { ch_input_snplist_0 }
+    if (params.dev) { 
+           file("${params.outdir}/channel-trace").mkdirs()
+     def traceFile = file("${params.outdir}/channel-trace/snplist_method.txt")
+     traceFile.text = "METHOD: user-provided\nSNPLIST_PATH: ${params.snplist}\n"
+    }
+    Channel.fromPath("${params.snplist}", type: 'file')
+    .map { 
+      if (params.dev) {
+               file("${params.outdir}/channel-trace").mkdirs()
+       def traceFile = file("${params.outdir}/channel-trace/user_snplist_input.txt")
+       traceFile.append("SNPLIST_INPUT: ${it}\n")
+      }
+      return it
+    }
+    .set { ch_input_snplist_0 }
     sort_user_snplist(ch_input_snplist_0)
-    sort_user_snplist.out.set { ch_input_snplist }
+    sort_user_snplist.out
+    .map { 
+      if (params.dev) {
+               file("${params.outdir}/channel-trace").mkdirs()
+       def traceFile = file("${params.outdir}/channel-trace/sorted_user_snplist.txt")
+       traceFile.append("SORTED_SNPLIST: ${it}\n")
+      }
+      return it
+    }
+    .set { ch_input_snplist }
   } else {
-    make_snplist_from_bim(genotypes_bim.map {x,y -> y}.collect())
-    make_snplist_from_bim.out.set { ch_input_snplist }
+    if (params.dev) { 
+           file("${params.outdir}/channel-trace").mkdirs()
+     def traceFile = file("${params.outdir}/channel-trace/snplist_method.txt")
+     traceFile.text = "METHOD: generated-from-pvar\n"
+    }
+    genotypes_pvar.map {x,y -> y}.collect()
+    .map { 
+      if (params.dev) {
+               file("${params.outdir}/channel-trace").mkdirs()
+       def traceFile = file("${params.outdir}/channel-trace/pvar_files_for_snplist.txt")
+       traceFile.text = "PVAR_FILES_COUNT: ${it.size()}\nPVAR_FILES:\n${it.join('\n')}\n"
+      }
+      return it
+    }
+    .set { pvar_files_collected }
+    make_snplist_from_pvar(pvar_files_collected)
+    make_snplist_from_pvar.out
+    .map { 
+      if (params.dev) {
+               file("${params.outdir}/channel-trace").mkdirs()
+       def traceFile = file("${params.outdir}/channel-trace/generated_snplist.txt")
+       traceFile.text = "GENERATED_SNPLIST: ${it}\n"
+      }
+      return it
+    }
+    .set { ch_input_snplist }
   }
 
 
@@ -145,9 +345,41 @@ workflow wf_sbayesr_calc_posteriors {
 
   // join for variant map
   filter_bad_values_2.out
-  .join(genotypes_bim)
+  .map { 
+    if (params.dev) {
+      file("${params.outdir}/channel-trace").mkdirs()
+      def traceFile = file("${params.outdir}/channel-trace/filter_bad_values_2_output.txt")
+      traceFile.append("CHR: ${it[0]}, SUMSTAT_FILE: ${it[1]}\n")
+    }
+    return it
+  }
+  .join(genotypes_pvar)
+  .map { 
+    if (params.dev) {
+           file("${params.outdir}/channel-trace").mkdirs()
+     def traceFile = file("${params.outdir}/channel-trace/after_join_genotypes_pvar.txt")
+     traceFile.append("CHR: ${it[0]}, SUMSTAT: ${it[1]}, PVAR: ${it[2]}\n")
+    }
+    return it
+  }
   .combine(ch_input_snplist)
+  .map { 
+    if (params.dev) {
+           file("${params.outdir}/channel-trace").mkdirs()
+     def traceFile = file("${params.outdir}/channel-trace/after_combine_snplist.txt")
+     traceFile.append("CHR: ${it[0]}, SUMSTAT: ${it[1]}, PVAR: ${it[2]}, SNPLIST: ${it[3]}\n")
+    }
+    return it
+  }
   .join(ch_ldfiles)
+  .map { 
+    if (params.dev) {
+      file("${params.outdir}/channel-trace").mkdirs()
+      def traceFile = file("${params.outdir}/channel-trace/ch_to_map_final.txt")
+      traceFile.append("CHR: ${it[0]}, SUMSTAT: ${it[1]}, PVAR: ${it[2]}, SNPLIST: ${it[3]}, LD_BIN: ${it[4]}, LD_INFO: ${it[5]}\n")
+    }
+    return it
+  }
   .set { ch_to_map }  
 
   // make variant map
@@ -206,6 +438,7 @@ workflow wf_sbayesr_calc_posteriors {
   sumstats_filtered=rmcol_build_sumstats.out
   ch_formatted_posteriors
   variant_maps_for_sbayesr = variant_map_for_sbayesr.out.map
+  unified_plink2_files
 }
 
 workflow wf_sbayesr_calc_score {
@@ -214,21 +447,24 @@ workflow wf_sbayesr_calc_score {
   ch_formatted_posteriors
   variant_maps_for_sbayesr
   sumstat
+  unified_plink2_files
 
   main:
 
-  // channel of genotypes
-  Channel.fromPath("${params.genofile}")
-  .splitCsv(sep: '\t', header: false)
-  .map { row -> row.collect { it.trim() } } // Trim whitespace from each field
-  .map { row -> tuple(row[0], row[1], file("${params.genodir}/${row[2]}")) }
-  .filter { type -> type[1] in ['bed', 'bim', 'fam'] }
-  .groupTuple()
-  .map { chrid, _, files -> [chrid, *files] }
+  // Use the unified PLINK2 files for scoring
+  unified_plink2_files
+  .map { 
+    if (params.dev) {
+      file("${params.outdir}/channel-trace").mkdirs()
+      def traceFile = file("${params.outdir}/channel-trace/genotypes_for_scoring.txt")
+      traceFile.append("CHR: ${it[0]}, PGEN: ${it[1]}, PVAR: ${it[2]}, PSAM: ${it[3]}\n")
+    }
+    return it
+  }
   .set { genotypes_0 }
 
-  make_geno_bim_snpid_unique_bim_fam_bed(genotypes_0)
-  make_geno_bim_snpid_unique_bim_fam_bed.out.set { genotypes }
+  make_geno_pvar_snpid_unique_pvar_psam_pgen(genotypes_0)
+  make_geno_pvar_snpid_unique_pvar_psam_pgen.out.set { genotypes }
 
   // Extract maf from genotypes
   genotypes
@@ -256,27 +492,29 @@ workflow wf_sbayesr_calc_score {
   indep_pairwise_for_benchmark.out.set { ch_benchmark_ready_to_score }
   
   // not certain this geno concatination will be needed as an option
-  if(params.concat_genotypes){
+ // if(params.concat_genotypes){
 
-    // concat all genotypes
-    genotypes
-    .map { chr, bed, bim, fam -> 
-        def canonicalBed = new File(bed.toString()).canonicalPath
-        def canonicalBim = new File(bim.toString()).canonicalPath
-        def canonicalFam = new File(fam.toString()).canonicalPath
-        return "$canonicalBed $canonicalBim $canonicalFam"
-    }
-    .collectFile(){ content -> [ "allgenotypes.txt", content + '\n' ] }
-    .set { ch_all_genofile }
-    concat_genotypes(ch_all_genofile)
+ //   // concat all genotypes
+ //   genotypes
+ //   .map { chr, bed, bim, fam -> 
+ //       def canonicalBed = new File(bed.toString()).canonicalPath
+ //       def canonicalBim = new File(bim.toString()).canonicalPath
+ //       def canonicalFam = new File(fam.toString()).canonicalPath
+ //       return "$canonicalBed $canonicalBim $canonicalFam"
+ //   }
+ //   .collectFile(){ content -> [ "allgenotypes.txt", content + '\n' ] }
+ //   .set { ch_all_genofile }
+ //   concat_genotypes(ch_all_genofile)
 
-    // join posteriors and genotypes all chromosomes
-    ch_concatenated_posteriors
-    .join(concat_genotypes.out)
-    .set{ ch_calc_score_input_all }
-  }else{
-    Channel.empty().set { ch_calc_score_input_all }
-  }
+ //   // join posteriors and genotypes all chromosomes
+ //   ch_concatenated_posteriors
+ //   .join(concat_genotypes.out)
+ //   .set{ ch_calc_score_input_all }
+ // }else{
+ //   Channel.empty().set { ch_calc_score_input_all }
+ // }
+
+  Channel.empty().set { ch_calc_score_input_all }
 
   // Mix main method and benchmark method after adding genotypes
   ch_formatted_posteriors_main = ch_formatted_posteriors.join(genotypes).map { tuple -> ['main'] + tuple }
@@ -318,5 +556,4 @@ workflow wf_sbayesr_calc_score {
   concatenate_augmented_sumstat(make_augmented_gwas.out.map {x,y -> y}.collect())
 
 }
-
 

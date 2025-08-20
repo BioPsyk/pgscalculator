@@ -77,7 +77,7 @@ BEGIN{
 
 
 # Add a header
-echo -e "b37\tb38\tss_SNP\tss_A1\tss_A2\tbim_SNP\tbim_A1\tbim_A2\tld_SNP\tld_A1\tld_A2" > $output_file
+echo -e "b37\tb38\tss_SNP\tss_A1\tss_A2\tpvar_SNP\tpvar_A1\tpvar_A2\tld_SNP\tld_A1\tld_A2" > $output_file
 
 if [ ${gbuild} == "38" ]; then
   # if build 38, switch b37 and b38 columns, and then switch back as last step

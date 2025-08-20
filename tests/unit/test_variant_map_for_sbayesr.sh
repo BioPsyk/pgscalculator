@@ -254,7 +254,7 @@ cat <<EOF > ./ld2
 EOF
 
 cat <<EOF > ./expected-result_1.tsv
-b37	b38	ss_SNP	ss_A1	ss_A2	bim_SNP	bim_A1	bim_A2	ld_SNP	ld_A1	ld_A2
+b37	b38	ss_SNP	ss_A1	ss_A2	pvar_SNP	pvar_A1	pvar_A2	ld_SNP	ld_A1	ld_A2
 22:16828406	22:17309296	rs175146	A	G	rs175146	G	A	rs175146	G	A
 22:17204758	22:17685648	rs71328205	T	C	rs71328205	C	T	NA	NA	NA
 22:17217054	22:17697944	rs78872431	C	T	rs78872431	A	G	NA	NA	NA

@@ -23,7 +23,10 @@ Using singularity (use path to image). Run using an example file for a random su
 ```bash
 ## pull singularity image returning the image as a file (<1GB)
 mkdir -p sif
-singularity pull sif/ibp-pgscalculator-base_version-0.5.4.sif docker://biopsyk/ibp-pgscalculator:0.5.4
+singularity pull sif/ibp-pgscalculator-base_version-0.6.0.sif docker://biopsyk/ibp-pgscalculator:0.6.0-amd64
+
+> **Note**: For ARM64 systems (e.g., Apple Silicon Macs), append `-arm64` to the version tag instead of `-amd64`. For example: `1.3.0-arm64`.
+
 # Run both calc posterior and score in one run
 ./pgscalculator.sh \
   -j sif/ibp-pgscalculator-base_version-0.5.4.sif \

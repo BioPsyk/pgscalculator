@@ -385,6 +385,9 @@ else
   runimage="${container_image}" 
 fi
 
+# Source Docker configuration from the conf folder
+source "${project_dir}/conf/init-docker-config.sh"
+
 if [ "${runtype}" == "test" ] || [ "${runtype}" == "utest" ] || [ "${runtype}" == "etest" ]; then
   if [ "${container_image}" == "dockerhub_biopsyk" ]; then
     echo "container: $runimage"
@@ -405,6 +408,7 @@ elif [ "${container_image}" == "docker" ] || [ "${container_image}" == "dockerhu
   mount_flags=$(format_mount_flags "${mountflag}")
   exec docker run \
      --rm \
+     ${docker_run_args} \
      ${mount_flags} \
      ${mountflag} "${infold_host}:${indir_container}" \
      ${mountflag} "${outdir_host}:${outdir_container}" \
@@ -429,8 +433,44 @@ elif [ "${container_image}" == "docker" ] || [ "${container_image}" == "dockerhu
        --genofile "${genofile_container}" \
        ${snplist_container} \
        --conffile "${conffile_container}" \
-       --outdir "${outdir_container}" 
+       --outdir "${outdir_container}"
 else
+
+#  echo "container: $runimage"
+#  mount_flags=$(format_mount_flags "${mountflag}")
+#
+#     echo " \
+#     nextflow \
+#       -log "${outdir_container}/.nextflow.log" \
+#       -c ${conffile_container} \
+#       run ${run_script} \
+#       ${devmode} \
+#       --calc_posterior ${calc_posterior} \
+#       --calc_score ${calc_score} \
+#       --input "${indir_container}" \
+#       --lddir "${lddir_container}" \
+#       --genodir "${genodir_container}" \
+#       --genofile "${genofile_container}" \
+#       ${snplist_container} \
+#       --conffile "${conffile_container}" \
+#       --outdir "${outdir_container}" \
+#     "
+#
+#  singularity shell \
+#     --contain \
+#     --cleanenv \
+#     ${mount_flags} \
+#     ${mountflag} "${infold_host}:${indir_container}" \
+#     ${mountflag} "${outdir_host}:${outdir_container}" \
+#     ${mountflag} "${lddir_host}:${lddir_container}" \
+#     ${mountflag} "${genodir_host}:${genodir_container}" \
+#     ${mountflag} "${genodir2_host}:${genodir2_container}" \
+#     ${mountflag} "${confdir_host}:${confdir_container}" \
+#     ${mountflag} "${tmpdir_host}:${tmpdir_container}" \
+#     ${mountflag} "${workdir_host}:${workdir_container}" \
+#     ${snplist_host_container} \
+#     "${runimage}" 
+
   echo "container: $runimage"
   mount_flags=$(format_mount_flags "${mountflag}")
   singularity run \

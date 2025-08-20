@@ -6,6 +6,16 @@ source "${script_dir}/init-containerization.sh"
 
 cd "${project_dir}"
 
-echo ">> Building base docker image"
+echo ">> Setting up docker buildx for multi-arch support"
+docker buildx create --name multiarch --driver docker-container --use || true
+docker buildx inspect --bootstrap
 
-docker build ./docker --progress=plain -t "${image_tag}" "$@"
+echo ">> Building multi-arch docker image"
+
+docker buildx build \
+  --platform linux/amd64,linux/arm64 \
+  --progress=plain \
+  --tag "${image_tag}" \
+  --load \
+  ./docker \
+  "$@"

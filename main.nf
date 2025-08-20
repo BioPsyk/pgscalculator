@@ -17,6 +17,7 @@ include {
 // include processes
 include { add_build_sumstats } from './modules/process/pr_format_sumstats.nf'
 include { copyConfigFiles } from './modules/process/pr_details.nf'
+include { copyVersionFile } from './modules/process/pr_details.nf'
 
 workflow {
 
@@ -60,10 +61,11 @@ workflow {
       wf_sbayesr_calc_posteriors.out.ch_formatted_posteriors.set{ ch_formatted_posteriors }
       wf_sbayesr_calc_posteriors.out.variant_maps_for_sbayesr.set{ ch_variant_maps }
       wf_sbayesr_calc_posteriors.out.sumstats_filtered.set{ ch_sumstat }
+      wf_sbayesr_calc_posteriors.out.unified_plink2_files.set{ ch_unified_plink2 }
     }
 
     if(params.calc_score){
-      wf_sbayesr_calc_score(ch_formatted_posteriors, ch_variant_maps, ch_sumstat)
+      wf_sbayesr_calc_score(ch_formatted_posteriors, ch_variant_maps, ch_sumstat, ch_unified_plink2)
     }
 
   }else{
@@ -73,6 +75,7 @@ workflow {
 
   // Add run details to output
   copyConfigFiles(file("/pgscalculator/nextflow.config"))
+  copyVersionFile(file("/pgscalculator/VERSION"))
 
 } 
 
