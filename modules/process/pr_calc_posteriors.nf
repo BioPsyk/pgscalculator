@@ -80,6 +80,49 @@ process calc_posteriors_sbayesr {
         """
 }
 
+// calculate per chromosome posterior SNP effects for sBayesRC
+process calc_posteriors_sbayesrc {
+    publishDir "${params.outdir}/intermediates/calc_posteriors", mode: 'rellink', overwrite: true
+
+    cpus 6
+    
+    input:
+        tuple val(chr), path(gwas_chr), path(ldbin), path(ldinfo), path(annot)
+    
+    output:
+        tuple val(chr), path("chr${chr}.posteriors")
+
+    script:
+        ld_prefix="band_chr${chr}.ldm.sparse"
+
+        def options = params.calc_posteriors_sbayesrc.options.collect { key, value ->
+            "--${key.replace('_', '-')} ${value}"
+        }.join(' ')
+        
+        def flags = params.calc_posteriors_sbayesrc.flags.findAll { it.value }
+                      .collect { key, _ -> "--${key.replace('_', '-')}" }
+                      .join(' ')
+
+        """
+        # Count the number of lines in the file
+        num_lines=\$(head -n20 "$gwas_chr" | wc -l)
+        
+        # Check if the file has more than one line (more than just the header)
+        if [ "\$num_lines" -gt 1 ]; then
+          gctb --sbayes RC \
+            --gwas-summary ${gwas_chr} \
+            --ldm ${ld_prefix} \
+            --annot ${annot} \
+            $options \
+            $flags \
+            --out chr${chr}
+          mv "chr${chr}.snpRes" "chr${chr}.posteriors"
+        else
+          touch "chr${chr}.posteriors"
+        fi
+        """
+}
+
 // Concatenate per chromosome posterior SNP effects for PRSCS
 process concatenate_sbayes_PRSCS {
     publishDir "${params.outdir}/calc_posteriors", mode: 'copy', overwrite: true
@@ -144,6 +187,24 @@ process qc_posteriors {
 
 // Prepare a to-score format using variant map to align with the genotype snp ids
 process format_sbayesr_posteriors {
+    publishDir "${params.outdir}/intermediates", mode: 'copy', overwrite: true
+
+    input:
+        tuple val(chr), path(posterior), path(map), path(map_noNA)
+    
+    output:
+        tuple val(chr), path("${chr}_posterior_scoreformat")
+    script:
+        snp_posteriors_cols="2,5,8"
+        // select ss_ID and bim_ID
+        map_from_to="3,6"
+        """
+        format_posteriors.sh ${posterior} ${snp_posteriors_cols} ${map} ${map_from_to} "true" > "${chr}_posterior_scoreformat"
+        """
+}
+
+// format sBayesRC posteriors for scorefile
+process format_sbayesrc_posteriors {
     publishDir "${params.outdir}/intermediates", mode: 'copy', overwrite: true
 
     input:

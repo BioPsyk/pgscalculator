@@ -13,6 +13,10 @@ include {
   wf_sbayesr_calc_posteriors
   wf_sbayesr_calc_score
  } from './modules/subworkflow/wf_sbayesr.nf'
+include { 
+  wf_sbayesrc_calc_posteriors
+  wf_sbayesrc_calc_score
+ } from './modules/subworkflow/wf_sbayesrc.nf'
 
 // include processes
 include { add_build_sumstats } from './modules/process/pr_format_sumstats.nf'
@@ -66,6 +70,28 @@ workflow {
 
     if(params.calc_score){
       wf_sbayesr_calc_score(ch_formatted_posteriors, ch_variant_maps, ch_sumstat, ch_unified_plink2)
+    }
+
+  }else if(params.method=="sbayesrc"){
+
+    if(!params.calc_posterior){
+      Channel.fromPath("${params.input}/calc_posteriors/*", type: 'file').set { ch_input }
+      input
+      .map { file ->
+        def chrWithPrefix = file.getBaseName().split("_")[0]
+        def chr = chrWithPrefix.replaceAll("chr", "")
+        return tuple(chr, file)
+      }.set { ch_calculated_posteriors }
+    }else{
+      wf_sbayesrc_calc_posteriors(ch_input)
+      wf_sbayesrc_calc_posteriors.out.ch_formatted_posteriors.set{ ch_formatted_posteriors }
+      wf_sbayesrc_calc_posteriors.out.variant_maps_for_sbayesr.set{ ch_variant_maps }
+      wf_sbayesrc_calc_posteriors.out.sumstats_filtered.set{ ch_sumstat }
+      wf_sbayesrc_calc_posteriors.out.unified_plink2_files.set{ ch_unified_plink2 }
+    }
+
+    if(params.calc_score){
+      wf_sbayesrc_calc_score(ch_formatted_posteriors, ch_variant_maps, ch_sumstat, ch_unified_plink2)
     }
 
   }else{
