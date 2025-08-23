@@ -11,7 +11,8 @@ SBayesRC is a method that incorporates functional genomic annotations with high-
 ## Annotation Data Options
 
 ### 1. Baseline Model 2.2 (Recommended)
-- **SNPs**: ~8 million SNPs
+- **SNPs**: 8,140,663 variants (8.14 million SNPs)
+- **Annotations**: 97 functional annotations per variant
 - **File size**: ~293MB compressed, ~2GB uncompressed
 - **Description**: Functional annotation information from baseline model 2.2
 - **Reference**: Márquez-Luna 2021, DOI: 10.1038/s41467-021-25171-9
@@ -24,6 +25,39 @@ SBayesRC is a method that incorporates functional genomic annotations with high-
 - Must match the SNP set used in LD reference
 - Format requirements detailed in SBayesRC documentation
 - **Pipeline path**: User-specified path to custom annotation file
+
+## Annotation Categories (Baseline 2.2)
+
+The 97 functional annotations in baseline 2.2 include:
+
+### **Regulatory Elements**
+- Coding regions (UCSC)
+- Enhancers (Andersson, Hoffman)
+- Promoters (UCSC, Hoffman)
+- CTCF binding sites
+- DNase hypersensitivity sites (DHS)
+- Transcription factor binding sites (TFBS)
+
+### **Histone Modifications**
+- H3K27ac (active enhancers)
+- H3K4me1 (enhancer marks)
+- H3K4me3 (promoter marks)
+- H3K9ac (active chromatin)
+
+### **Conservation Scores**
+- GERP scores
+- PhastCons (vertebrate, mammal, primate)
+- Conserved elements
+
+### **Population Genetics**
+- MAF bins (10 bins)
+- Recombination rates
+- Nucleotide diversity
+- Background selection
+
+### **QTL Data**
+- GTEx eQTLs
+- BLUEPRINT QTLs (H3K27ac, H3K4me1, DNA methylation)
 
 ## LD Reference Options
 
@@ -72,10 +106,12 @@ Based on successful runs in this pipeline:
 
 ## Performance Comparison
 
-| LD Reference | SNPs | Typical Runtime* | Memory Usage | Accuracy |
-|--------------|------|------------------|--------------|----------|
-| HapMap3      | ~1M  | 30min - 2h      | 10-20GB     | Good     |
-| Imputed      | ~7M  | 2-8h            | 20-40GB     | Best     |
+| LD Reference | SNPs | Annotation Coverage | Typical Runtime* | Memory Usage | Accuracy |
+|--------------|------|-------------------|------------------|--------------|----------|
+| HapMap3      | ~1M  | Full (subset of 8.14M) | 30min - 2h      | 10-20GB     | Good     |
+| Imputed      | ~7M  | Full (subset of 8.14M) | 2-8h            | 20-40GB     | Best     |
+
+**Annotation Details**: 97 functional annotations across 8,140,663 variants
 
 *Runtime varies significantly based on:
 - Number of CPU cores
