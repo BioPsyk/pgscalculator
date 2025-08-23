@@ -16,11 +16,14 @@ SBayesRC is a method that incorporates functional genomic annotations with high-
 - **Description**: Functional annotation information from baseline model 2.2
 - **Reference**: Márquez-Luna 2021, DOI: 10.1038/s41467-021-25171-9
 - **Download**: Available from SBayesRC resources
+- **Reference file**: `annot_baseline2.2.zip` → extracted to `annot_baseline2.2.txt`
+- **Pipeline path**: `references/sbayesrc/annotations/annot_baseline2.2.txt`
 
 ### 2. Custom Annotations
 - Users can provide custom functional annotations
 - Must match the SNP set used in LD reference
 - Format requirements detailed in SBayesRC documentation
+- **Pipeline path**: User-specified path to custom annotation file
 
 ## LD Reference Options
 
@@ -30,6 +33,8 @@ SBayesRC is a method that incorporates functional genomic annotations with high-
 - **Computational time**: Significantly faster
 - **Memory requirements**: Lower
 - **Use case**: Quick testing, proof of concept, resource-constrained environments
+- **Reference file**: `ukbEUR_HM3.zip` → extracted to `ukbEUR_HM3/`
+- **Pipeline path**: `references/sbayesrc/ld-hapmap3/ukbEUR_HM3`
 
 ### Imputed SNPs (Full Resolution)
 - **SNPs**: ~7 million SNPs  
@@ -37,6 +42,8 @@ SBayesRC is a method that incorporates functional genomic annotations with high-
 - **Computational time**: Much longer
 - **Memory requirements**: Higher
 - **Use case**: Production runs, maximum accuracy
+- **Reference file**: `ukbEUR_Imputed.zip` → extracted to `ukbEUR_Imputed/`
+- **Pipeline path**: `references/sbayesrc/ld-imputed/ukbEUR_Imputed`
 
 ## Computational Requirements
 
@@ -116,6 +123,38 @@ Based on successful runs in this pipeline:
 4. **Scale up to Imputed** only for final production runs
 5. **Monitor memory usage** - increase if jobs fail with OOM errors
 6. **Use parallel processing** where supported (eigen decomposition)
+
+## Reference File Paths Summary
+
+### Directory Structure
+```
+references/sbayesrc/
+├── annotations/
+│   ├── annot_baseline2.2.zip          # Downloaded file
+│   └── annot_baseline2.2.txt          # Extracted annotation data
+├── ld-hapmap3/
+│   ├── ukbEUR_HM3.zip                 # Downloaded file
+│   └── ukbEUR_HM3/                    # Extracted LD matrices (~1M SNPs)
+└── ld-imputed/
+    ├── ukbEUR_Imputed.zip             # Downloaded file
+    └── ukbEUR_Imputed/                # Extracted LD matrices (~7M SNPs)
+```
+
+### Pipeline Configuration Paths
+When configuring sbayesRC runs, use these paths:
+
+**For HapMap3 (Testing/Development):**
+- LD Reference: `-l references/sbayesrc/ld-hapmap3/ukbEUR_HM3`
+- Annotations: `references/sbayesrc/annotations/annot_baseline2.2.txt`
+
+**For Imputed (Production):**
+- LD Reference: `-l references/sbayesrc/ld-imputed/ukbEUR_Imputed`
+- Annotations: `references/sbayesrc/annotations/annot_baseline2.2.txt`
+
+### Download URLs
+- Annotations: `https://gctbhub.cloud.edu.au/data/SBayesRC/resources/v2.0/Annotation/annot_baseline2.2.zip`
+- HapMap3 LD: `https://gctbhub.cloud.edu.au/data/SBayesRC/resources/v2.0/LD/HapMap3/ukbEUR_HM3.zip`
+- Imputed LD: `https://gctbhub.cloud.edu.au/data/SBayesRC/resources/v2.0/LD/Imputed/ukbEUR_Imputed.zip`
 
 ## Container Performance
 
