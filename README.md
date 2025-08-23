@@ -53,17 +53,46 @@ Change config to prscs method
 
 ```
 
-### Specifying Resources
-It is possible to run both interactive and batch jobs. Below is an example on GDK(HPC) starting an interactive node. Jobs require at minimum 6 cpus and 10g, but prefereably 22 cpus and 20g
+Change config to sbayesRC method (requires functional annotations)
+```bash
+# Run both calc posterior and score in one run with sbayesRC
+./pgscalculator.sh \
+  -j sif/ibp-pgscalculator-base_version-0.6.0.sif \
+  -i tests/example_data/sumstats/sumstat_2 \
+  -l references/sbayesrc/ld-hapmap3/ukbEUR_HM3 \
+  -g references/genotypes_test/plink2 \
+  -f references/genotypes_test/mapfiles/plink2_genodir_genofiles.txt \
+  -c conf/sbayesrc.config \
+  -o out_test_3
+
 ```
+
+### Specifying Resources
+It is possible to run both interactive and batch jobs. Below is an example on GDK(HPC) starting an interactive node. 
+
+**Resource Requirements by Method:**
+- **PRS-CS/SBayesR**: Minimum 6 CPUs, 10GB RAM; Recommended 22 CPUs, 20GB RAM
+- **SBayesRC**: Minimum 6 CPUs, 20GB RAM; Recommended 22 CPUs, 40GB RAM (higher due to functional annotations)
+
+```bash
+# For PRS-CS and SBayesR
 srun --mem=10g --ntasks 1 --cpus-per-task 6 --time=1:00:00 --account ibp_pipeline_cleansumstats --pty /bin/bash
 srun --mem=20g --ntasks 1 --cpus-per-task 22 --time=1:00:00 --account ibp_pipeline_cleansumstats --pty /bin/bash
+
+# For SBayesRC (requires more memory for annotations)
+srun --mem=40g --ntasks 1 --cpus-per-task 22 --time=2:00:00 --account ibp_pipeline_cleansumstats --pty /bin/bash
 ```
+
+**Note**: SBayesRC runtime varies significantly based on annotation data:
+- HapMap3 LD (~1M SNPs): 30 minutes - 2 hours
+- Imputed LD (~7M SNPs): 2-8 hours
+See [SBayesRC Performance](docs/sbayesrc-performance.md) for detailed benchmarks.
 
 ## More documentation
 - See [SNP inclusion list](docs/snp-inclusion-list.md)
 - See [Two step analysis](docs/two-step-analysis.md)
 - See [Use Docker](docs/using-docker.md)
+- See [SBayesRC Performance](docs/sbayesrc-performance.md)
 - See [FAQ](docs/FAQ.md)
 
 
