@@ -4,14 +4,37 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [1.3.0] - 2025-06-29
+## [1.3.1] - 2025-09-13
 ### Added
-- Multi-architecture support for Docker images (amd64 and arm64)
-- Docker manifest support for seamless cross-platform deployment
+- Robust column-name-based MAF extraction script for better maintainability
+- PSAM file standardization to IID-only format to ensure consistent score calculations
+- Comprehensive unit tests for MAF extraction functionality
+
+### Fixed
+- Zero scores in combined output due to FID/IID format inconsistencies between genotype files
+- Incorrect MAF values and missing NCHROBS in raw_maf_chrall output
+- Pipeline sensitivity to varying plink2 .afreq output column formats
+- Variant ID mangling when using genotype files with missing rsIDs
 
 ### Changed
+- MAF extraction now uses column names instead of positional indices for robustness
+- Score calculation simplified after implementing consistent PSAM standardization
+
+## [1.3.0] - 2025-06-29
+### Added
+- **PLINK2 dosage format support as default genotype input format**
+- **Automatic PLINK1 to PLINK2 conversion with format detection**
+- Multi-architecture support for Docker images (amd64 and arm64)
+- Docker manifest support for seamless cross-platform deployment
+- Enhanced genotype file processing with improved variant ID handling
+- Comprehensive unit tests for genotype format conversion and processing
+
+### Changed
+- **Default genotype format changed from PLINK1 to PLINK2 dosage format**
 - Updated Docker build and push scripts to handle multi-arch builds
 - Improved Docker image distribution with platform-specific tags
+- Enhanced variant mapping and benchmark scoring for PLINK2 format
+- Improved debugging and channel tracing capabilities
 
 ## [1.2.7] - 2025-05-19
 ### Fixed
