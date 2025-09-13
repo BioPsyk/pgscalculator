@@ -12,6 +12,10 @@ process extract_maf_from_genotypes {
         """
         cut -f 6 $map > bimIDs
         plink2 --bfile geno --extract bimIDs --threads 1 --memory ${params.memory.plink.extract_maf_from_genotypes} --freq --out ${chr}_geno_maf
+        
+        # Process the .afreq file using robust column extraction script
+        process_plink_maf_single.sh ${chr}_geno_maf.afreq ${chr}_geno_maf.afreq.processed
+        mv ${chr}_geno_maf.afreq.processed ${chr}_geno_maf.afreq
         """                                                                                 
 }
 
@@ -27,10 +31,13 @@ process concatenate_plink_maf {
         tuple val("all"), path("raw_maf_chrall")
     script:
         """
-        echo "CHR SNP A1 A2 MAF NCHROBS"  > "raw_maf_chrall"
+        # Create header
+        echo "CHR SNP A1 A2 MAF NCHROBS" > "raw_maf_chrall"
+        
+        # Simply concatenate the already-processed files
         for chrfile in ${chrplinkmaf}
         do
-          awk -vOFS=" " 'NR>1{print \$1, \$2, \$3, \$4, \$6, \$7}' \$chrfile >> "raw_maf_chrall"
+          cat \$chrfile >> "raw_maf_chrall"
         done
         """
 }

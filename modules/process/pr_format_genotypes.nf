@@ -37,6 +37,28 @@ process make_geno_pvar_snpid_unique_pvar {
         """
 }
 
+process standardize_psam_to_iid_only {
+    publishDir "${params.outdir}/intermediates/standardize_psam", mode: 'rellink', overwrite: true, enabled: params.dev
+    
+    input:
+        tuple val(chr), path(pgen), path(pvar), path(psam)
+
+    output:
+        tuple val(chr), path(pgen), path(pvar), path("${chr}_standardized.psam")
+    
+    script:
+        """
+        # Standardize .psam to IID-only format
+        if head -1 ${psam} | grep -q "^#FID"; then
+            # Has FID column - remove it, keep IID and other columns
+            awk 'NR==1{gsub(/^#FID[[:space:]]+/, "#"); print} NR>1{\$1=""; gsub(/^[[:space:]]+/, ""); print}' ${psam} > "${chr}_standardized.psam"
+        else
+            # Already IID-only format - just copy
+            cp ${psam} "${chr}_standardized.psam"
+        fi
+        """
+}
+
 process make_geno_pvar_snpid_unique_pvar_psam_pgen {
     publishDir "${params.outdir}/intermediates/make_geno_pvar_snpid_unique_pvar_psam_pgen", mode: 'rellink', overwrite: true, enabled: params.dev
     

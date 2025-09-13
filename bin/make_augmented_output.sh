@@ -28,9 +28,12 @@ awk -v FS="\t" -v OFS="\t" \
         # Read mapfile into map array (ss_SNP to bim_SNP)
         while ((getline < mapfile) > 0) map[$3] = $6;
     
-        # Read maffile
+        # Read maffile (processed format: CHR SNP A1 A2 MAF NCHROBS)
         FS=" ";
-        while ((getline < maffile) > 0) mafHash[$2] = $5;
+        while ((getline < maffile) > 0) {
+            # No header in individual processed files, SNP is column 2, MAF is column 5
+            mafHash[$2] = $5;
+        }
         FS="\t";
     
         # Read posterior and benchmark files into their respective arrays
