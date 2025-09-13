@@ -27,11 +27,7 @@ process concatenate_plink_maf {
         tuple val("all"), path("raw_maf_chrall")
     script:
         """
-        echo "CHR SNP A1 A2 MAF NCHROBS"  > "raw_maf_chrall"
-        for chrfile in ${chrplinkmaf}
-        do
-          awk -vOFS=" " 'NR>1{print \$1, \$2, \$3, \$4, \$6, \$7}' \$chrfile >> "raw_maf_chrall"
-        done
+        concatenate_plink_maf.sh "raw_maf_chrall" ${chrplinkmaf}
         """
 }
 

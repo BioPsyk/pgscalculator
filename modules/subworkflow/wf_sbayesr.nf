@@ -35,6 +35,7 @@ include {
 } from '../process/pr_calc_score.nf'
 include { 
   convert_plink1_to_plink2
+  standardize_psam_to_iid_only
   make_geno_pvar_snpid_unique_pvar
   make_geno_pvar_snpid_unique_pvar_psam_pgen
   add_rsid_to_genotypes 
@@ -228,6 +229,10 @@ workflow wf_sbayesr_calc_posteriors {
     }
     return it
   }
+  .set { raw_unified_plink2_files }
+
+  // Standardize .psam files to IID-only format
+  standardize_psam_to_iid_only(raw_unified_plink2_files)
   .set { unified_plink2_files }
 
   // Extract pvar files for the existing pipeline
