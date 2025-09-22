@@ -11,6 +11,7 @@ process extract_maf_from_genotypes {
     script:                                                                                 
         """
         cut -f 6 $map > bimIDs
+        
         plink2 --bfile geno --extract bimIDs --threads 1 --memory ${params.memory.plink.extract_maf_from_genotypes} --freq --out ${chr}_geno_maf
         
         # Process the .afreq file using robust column extraction script

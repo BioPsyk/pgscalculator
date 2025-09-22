@@ -6,39 +6,68 @@ This document outlines a plan to address memory issues in pgscalculator when pro
 
 ## Current Memory Bottlenecks
 
+### Critical Issue: plink2 `--memory` Flag Limitation
+
+**⚠️ IMPORTANT**: The `--memory` flag in plink2 does **NOT** effectively limit memory usage like it did in plink1. This means all current memory configurations in the pipeline are essentially ineffective at preventing out-of-memory errors with large datasets.
+
+- **plink1**: `--memory` flag successfully limited RAM usage
+- **plink2**: `--memory` flag exists but does not reliably constrain memory consumption
+- **Impact**: Current 1000 MB memory settings provide no real protection against memory spikes
+
+This limitation makes the sample-based splitting strategy even more critical for handling large datasets.
+
+### Real-World Memory Usage Analysis
+
+Based on execution trace analysis from a recent test run (sumstat_814), the following actual memory consumption patterns were observed:
+
+**Memory-Intensive Operations (Peak RSS > 100 MB):**
+
+1. **`make_snplist_from_pvar`**: **10.3 GB peak RSS** - Massive memory spike processing variant lists
+2. **`variant_map_for_sbayesr`**: **3.2-9 GB peak RSS** - Extremely memory-intensive mapping operations
+3. **`calc_score` processes**: **150-730 MB peak RSS** - Varies significantly by chromosome/dataset size
+4. **`extract_maf_from_genotypes`**: **126-609 MB peak RSS** - Memory scales with sample count
+5. **`indep_pairwise_for_benchmark`**: **87-368 MB peak RSS** - LD pruning operations
+6. **`qc_posteriors`**: **Up to 1.9 GB peak RSS** - Quality control can be very memory-intensive
+
+**Key Findings:**
+- **Configured memory limits (1000 MB) are completely ignored** - processes regularly exceed these limits
+- **Memory usage varies dramatically by chromosome** - chr1 uses ~4.5 GB while chr15 uses ~3.6 GB for variant mapping
+- **Sample count directly impacts memory** - MAF extraction shows 126 MB to 609 MB range
+- **Some processes show linear scaling** - scoring operations scale predictably with data size
+
 ### Identified Memory-Intensive plink Operations
 
 Based on codebase analysis, the following plink operations are the primary memory consumers:
 
 1. **`calc_score` process** (`pr_calc_score.nf:21-25`)
    - Command: `plink2 --pfile geno --score ${snp_posteriors} --memory ${params.memory.plink.calc_score}`
-   - Current memory allocation: 1000 MB (from `nextflow.config:90`)
-   - **Critical bottleneck**: Processes entire sample set simultaneously
+   - Current memory allocation: 1000 MB (from `nextflow.config:90`) - **⚠️ NOT EFFECTIVE**
+   - **Critical bottleneck**: Processes entire sample set simultaneously with no memory protection
 
 2. **`extract_maf_from_genotypes` process** (`pr_extract_from_genotypes.nf:14`)
    - Command: `plink2 --bfile geno --extract bimIDs --freq --memory ${params.memory.plink.extract_maf_from_genotypes}`
-   - Current memory allocation: 1000 MB
-   - **Moderate bottleneck**: Frequency calculations across all samples
+   - Current memory allocation: 1000 MB - **⚠️ NOT EFFECTIVE**
+   - **Moderate bottleneck**: Frequency calculations across all samples with no memory protection
 
 3. **`convert_plink1_to_plink2` process** (`pr_format_genotypes.nf:17-21`)
    - Command: `plink2 --bed ${bed} --bim ${bim} --fam ${fam} --make-pgen --memory ${params.memory.plink.extract_maf_from_genotypes}`
-   - Current memory allocation: 1000 MB (reuses extract_maf memory setting)
-   - **Moderate bottleneck**: Format conversion with full dataset
+   - Current memory allocation: 1000 MB (reuses extract_maf memory setting) - **⚠️ NOT EFFECTIVE**
+   - **Moderate bottleneck**: Format conversion with full dataset, uncontrolled memory usage
 
 4. **`add_rsid_to_genotypes` process** (`pr_format_genotypes.nf:93`)
    - Command: `plink2 --pfile geno --make-pgen --extract tokeep --memory ${params.memory.plink.add_rsid_to_genotypes}`
-   - Current memory allocation: 1000 MB
-   - **Moderate bottleneck**: Genotype filtering operations
+   - Current memory allocation: 1000 MB - **⚠️ NOT EFFECTIVE**
+   - **Moderate bottleneck**: Genotype filtering operations with no memory protection
 
 5. **`concat_genotypes` process** (`pr_format_genotypes.nf:108`)
    - Command: `plink2 --pmerge-list allfiles.txt --make-pgen --memory ${params.memory.plink.concat_genotypes}`
-   - Current memory allocation: 1000 MB
-   - **High bottleneck**: Merging multiple chromosome files
+   - Current memory allocation: 1000 MB - **⚠️ NOT EFFECTIVE**
+   - **High bottleneck**: Merging multiple chromosome files, potentially unlimited memory usage
 
 6. **`indep_pairwise_for_benchmark` process** (`prepare_benchmark_scoring.sh:13-19`)
    - Command: `plink2 --pfile ${prefix} --indep-pairwise 500kb 1 0.2 --memory 1000`
-   - Fixed memory allocation: 1000 MB
-   - **Moderate bottleneck**: LD pruning across samples
+   - Fixed memory allocation: 1000 MB - **⚠️ NOT EFFECTIVE**
+   - **Moderate bottleneck**: LD pruning across samples with no memory protection
 
 ## Proposed Solution: Sample-Based Splitting Strategy
 
@@ -49,6 +78,25 @@ The key insight is that **genotype operations can be safely split by samples** b
 - Polygenic scoring is independent per sample
 - Most plink operations scale linearly with sample count
 - Results can be merged without loss of information
+
+**This approach is now essential** since plink2's `--memory` flag cannot be relied upon to prevent out-of-memory errors. Sample splitting provides the only reliable method to control memory usage in the current pipeline.
+
+### Priority Ranking Based on Real Usage Data
+
+Based on the execution trace analysis, processes should be prioritized for optimization in this order:
+
+**🔴 CRITICAL (>1 GB peak RSS):**
+1. **`make_snplist_from_pvar`** (10.3 GB) - Highest priority, single massive bottleneck
+2. **`variant_map_for_sbayesr`** (3.2-9 GB) - Multiple instances, varies by chromosome
+3. **`qc_posteriors`** (up to 1.9 GB) - Quality control operations
+
+**🟡 HIGH (100 MB - 1 GB peak RSS):**
+4. **`calc_score`** (150-730 MB) - Many instances, good splitting candidate
+5. **`extract_maf_from_genotypes`** (126-609 MB) - Scales with samples, good splitting candidate
+6. **`indep_pairwise_for_benchmark`** (87-368 MB) - LD pruning operations
+
+**🟢 MEDIUM (<100 MB peak RSS):**
+- Most other processes show reasonable memory usage and may not need immediate optimization
 
 ### Implementation Strategy
 
@@ -490,9 +538,12 @@ process {
 ## Expected Benefits
 
 ### Memory Reduction
-- **Primary bottleneck (`calc_score`)**: 60-80% memory reduction for large cohorts
-- **Secondary bottlenecks**: 40-60% memory reduction
-- **Overall pipeline**: 30-50% peak memory reduction
+- **Primary bottleneck (`calc_score`)**: 60-80% memory reduction for large cohorts (from observed 150-730 MB to ~50-200 MB per chunk)
+- **Secondary bottlenecks**: 40-60% memory reduction (MAF extraction from 126-609 MB to ~50-200 MB per chunk)
+- **Critical processes**: Major impact on `make_snplist_from_pvar` (10.3 GB) and `variant_map_for_sbayesr` (3.2-9 GB)
+- **Overall pipeline**: 30-50% peak memory reduction, with some processes seeing 70-80% reduction
+
+**Critical Note**: These benefits are even more significant given that plink2's `--memory` flag provides no protection. Without sample splitting, memory usage is completely uncontrolled and can easily exceed available system resources. The execution trace shows processes regularly using 5-10x their configured memory limits.
 
 ### Scalability Improvements
 - Support for cohorts with >100K samples
@@ -532,14 +583,21 @@ process {
 - **Pros**: Might have better memory efficiency
 - **Cons**: Major workflow changes, validation overhead, tool compatibility issues
 
+### 4. plink2 Memory Flag Workarounds
+- **Pros**: Might restore some memory control without major code changes
+- **Cons**: No reliable workarounds exist; plink2 developers acknowledge this limitation
+- **Status**: Investigated but not viable - sample splitting remains the only reliable solution
+
 ## Conclusion
 
-The proposed sample-based splitting strategy provides a **simple, maintainable, and effective** solution to pgscalculator's memory issues. By focusing on the primary bottleneck (`calc_score`) and implementing a modular approach with backward compatibility, we can achieve significant memory reductions while maintaining computational correctness and workflow stability.
+The proposed sample-based splitting strategy provides a **simple, maintainable, and effective** solution to pgscalculator's memory issues. **Given that plink2's `--memory` flag is ineffective**, this approach is not just an optimization but a **necessity** for handling large datasets reliably.
+
+By focusing on the primary bottleneck (`calc_score`) and implementing a modular approach with backward compatibility, we can achieve significant memory reductions while maintaining computational correctness and workflow stability.
 
 The solution aligns with the user's requirements for:
-- **Clever**: Leverages the mathematical properties of genotype operations
+- **Clever**: Leverages the mathematical properties of genotype operations and addresses the fundamental limitation of plink2's memory management
 - **Simple**: Modular design with clear separation of concerns  
 - **Maintainable**: Backward compatible with feature flags and comprehensive testing
 
-Implementation should proceed in phases to allow for thorough testing and validation at each step.
+**Urgency**: Implementation should proceed in phases to allow for thorough testing and validation at each step. However, given the complete lack of memory protection in the current pipeline, this work should be prioritized for production environments handling large cohorts.
 

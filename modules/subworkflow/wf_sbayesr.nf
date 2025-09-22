@@ -40,6 +40,7 @@ include {
   make_geno_pvar_snpid_unique_pvar_psam_pgen
   add_rsid_to_genotypes 
   concat_genotypes
+  create_sample_chunk
 } from '../process/pr_format_genotypes.nf'
 include { 
   extract_maf_from_genotypes
@@ -233,11 +234,28 @@ workflow wf_sbayesr_calc_posteriors {
 
   // Standardize .psam files to IID-only format
   standardize_psam_to_iid_only(raw_unified_plink2_files)
-  .set { unified_plink2_files }
+  .set { standardized_plink2_files }
+
+  // Apply sample chunking if enabled
+  if (params.sample_chunk_size != false) {
+    // Sequential chunking using maxForks 1 to avoid memory overload
+    standardized_plink2_files
+    .map { chr, pgen, pvar, psam -> tuple(chr, 0, pgen, pvar, psam) }
+    .set { chunk_input }
+    
+    // Create sample chunks (maxForks 1 ensures sequential processing)
+    create_sample_chunk(chunk_input)
+    .set { unified_plink2_files }
+  } else {
+    // No chunking - add chunk_id = 0 to maintain consistent tuple structure
+    standardized_plink2_files
+    .map { chr, pgen, pvar, psam -> tuple(chr, 0, pgen, pvar, psam) }
+    .set { unified_plink2_files }
+  }
 
   // Extract pvar files for the existing pipeline
   unified_plink2_files
-  .map { chrid, pgen, pvar, psam -> tuple(chrid, pvar) }
+  .map { chrid, chunk_id, pgen, pvar, psam -> tuple(chrid, pvar) }
   .map { 
     if (params.dev) {
       file("${params.outdir}/channel-trace").mkdirs()
@@ -408,7 +426,7 @@ workflow wf_sbayesr_calc_posteriors {
   .join(ch_ldfiles)
   .set { ch_calc_posteriors }  
 
-  //ch_calc_posteriors
+  // Calculate posteriors with SBayesR
   calc_posteriors_sbayesr(ch_calc_posteriors).set { ch_calculated_posteriors }
 
   //format and id-mapping for scoring
@@ -462,7 +480,7 @@ workflow wf_sbayesr_calc_score {
     if (params.dev) {
       file("${params.outdir}/channel-trace").mkdirs()
       def traceFile = file("${params.outdir}/channel-trace/genotypes_for_scoring.txt")
-      traceFile.append("CHR: ${it[0]}, PGEN: ${it[1]}, PVAR: ${it[2]}, PSAM: ${it[3]}\n")
+      traceFile.append("CHR: ${it[0]}, CHUNK: ${it[1]}, PGEN: ${it[2]}, PVAR: ${it[3]}, PSAM: ${it[4]}\n")
     }
     return it
   }

@@ -57,6 +57,7 @@ workflow {
         return tuple(chr, file)
       }.set { ch_calculated_posteriors }
     }else{
+      // TESTING: Only run genotype processing and chunking for memory testing
       wf_sbayesr_calc_posteriors(ch_input)
       wf_sbayesr_calc_posteriors.out.ch_formatted_posteriors.set{ ch_formatted_posteriors }
       wf_sbayesr_calc_posteriors.out.variant_maps_for_sbayesr.set{ ch_variant_maps }

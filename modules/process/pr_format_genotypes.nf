@@ -2,6 +2,50 @@
 
 nextflow.enable.dsl = 2
 
+process create_sample_chunk {
+    publishDir "${params.outdir}/intermediates/create_sample_chunk", mode: 'rellink', overwrite: true, enabled: params.dev
+    maxForks 1  // Force sequential processing to avoid memory overload
+    
+    input:
+        tuple val(chr), val(chunk_id), path(pgen), path(pvar), path(psam)
+
+    output:
+        tuple val(chr), val(chunk_id), path("${chr}_chunk_${chunk_id}.pgen"), path("${chr}_chunk_${chunk_id}.pvar"), path("${chr}_chunk_${chunk_id}.psam")
+
+    script:
+        """
+        echo "Sequential chunking: Processing chromosome ${chr} (chunk ${chunk_id})"
+        
+        # Create sample subset file for this specific chunk
+        chunk_size=${params.sample_chunk_size}
+        start_line=\$((${chunk_id} * chunk_size + 2))  # +2 to account for header being line 1
+        end_line=\$((start_line + chunk_size - 1))
+        
+        # Create sample subset file (keep header + chunk samples)
+        head -1 ${psam} > ${chr}_chunk_${chunk_id}.psam
+        sed -n "\${start_line},\${end_line}p" ${psam} >> ${chr}_chunk_${chunk_id}.psam
+        
+        # Create genotype subset using plink2
+        # Use the staged file names directly (Nextflow stages them in working directory)
+        base_name=\$(basename ${pgen} .pgen)
+        
+        # Link the files with consistent naming for plink2
+        ln -s ${pgen} geno.pgen
+        ln -s ${pvar} geno.pvar
+        ln -s ${psam} geno.psam
+        
+        echo "Running plink2 for chromosome ${chr}..."
+        plink2 --pfile geno \\
+               --keep ${chr}_chunk_${chunk_id}.psam \\
+               --make-pgen \\
+               --memory ${params.memory.plink.extract_maf_from_genotypes} \\
+               --threads 1 \\
+               --out ${chr}_chunk_${chunk_id}
+        
+        echo "Completed chunking for chromosome ${chr}"
+        """
+}
+
 process convert_plink1_to_plink2 {
     publishDir "${params.outdir}/intermediates/convert_plink1_to_plink2", mode: 'rellink', overwrite: true, enabled: params.dev
     
@@ -63,7 +107,7 @@ process make_geno_pvar_snpid_unique_pvar_psam_pgen {
     publishDir "${params.outdir}/intermediates/make_geno_pvar_snpid_unique_pvar_psam_pgen", mode: 'rellink', overwrite: true, enabled: params.dev
     
     input:
-        tuple val(chr), path(pgen), path(pvar), path(psam)
+        tuple val(chr), val(chunk_id), path(pgen), path(pvar), path(psam)
 
     output:
         tuple val(chr), path(pgen), path("${chr}_geno.pvar"), path(psam)
