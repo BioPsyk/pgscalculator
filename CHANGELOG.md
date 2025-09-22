@@ -4,6 +4,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.2] - 2025-09-22
+### Fixed
+- **Critical sorting issue in variant_map_for_sbayesr.sh that caused incomplete variant mappings**
+- Missing sort operation for snp2 file before first join operation, which led to join failures
+- Incomplete or incorrect results when processing variant mapping for SBayesR workflow
+
+### Added
+- Comprehensive sorting validation tests to detect and prevent sorting issues
+- Dedicated test suite for variant mapping sorting validation (`test_variant_map_sorting_validation.sh`)
+- Helper functions for sorting validation in unit tests (`_check_file_sorted`, `_validate_join_prerequisites`)
+- Detailed technical documentation of sorting issues and fixes
+- Performance testing for large datasets (100+ variants) in sorting validation
+
+### Changed
+- Enhanced existing variant mapping tests with sorting validation capabilities
+- Improved test coverage for edge cases (empty files, single records, different genome builds)
+
 ## [1.3.1] - 2025-09-13
 ### Added
 - Robust column-name-based MAF extraction script for better maintainability
