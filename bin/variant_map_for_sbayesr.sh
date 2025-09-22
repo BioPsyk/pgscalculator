@@ -13,6 +13,9 @@ output_file="${7}"
 
 head ${snp2_sorted} > snp2_head
 
+# Sort snp2_sorted file on column 1 (critical for first join operation)
+LC_ALL=C sort -k1,1 "${snp2_sorted}" > snp2_sorted_fixed.tmp
+
 if [ ${gbuild} == "38" ]; then
   # if build 38, switch b37 and b38 columns, and then switch back as last step
   awk -vFS="\t" -vOFS="\t" '{print $2,$1,$3,$4,$5}' ${ss2_file} | LC_ALL=C  sort -k1,1 > ss2_sorted.tmp
@@ -30,7 +33,7 @@ LC_ALL=C sort -k4,4 ${bim2_file} > bim2_sorted_1.tmp
 LC_ALL=C sort -k1,1 ${ld2_file} > ld2_sorted.tmp
 
 # Perform the joins
-LC_ALL=C join -1 1 -2 4 -o 2.1 2.2 2.3 2.4 "${snp2_sorted}" bim2_sorted_1.tmp > join0.tmp
+LC_ALL=C join -1 1 -2 4 -o 2.1 2.2 2.3 2.4 "snp2_sorted_fixed.tmp" bim2_sorted_1.tmp > join0.tmp
 LC_ALL=C sort -k1,1 join0.tmp > bim2_sorted_2.tmp
 
 LC_ALL=C join -1 1 -2 1 -o 1.1 1.2 1.5 1.3 1.4 2.4 2.2 2.3 ss2_sorted.tmp bim2_sorted_2.tmp > join1.tmp
