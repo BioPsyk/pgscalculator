@@ -106,3 +106,11 @@ USER nextflow
 #    rm test.nf
 
 
+
+
+# pgscalculator v2 CLI
+COPY bin/ /pgscalculator/bin/
+COPY assets/ /pgscalculator/assets/
+COPY config.template.yaml /pgscalculator/
+RUN chmod +x /pgscalculator/bin/pgscalculator
+ENV PATH="/pgscalculator/bin:${PATH}"

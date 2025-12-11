@@ -1,0 +1,19 @@
+
+# pgscalculator v2.0.0 Configuration
+input: /path/to/cleansumstats/output
+outdir: /path/to/output
+genodir: /path/to/genotypes
+genofile: /path/to/genotype_manifest.tsv
+lddir: /path/to/ld_reference
+info_threshold: 0.8
+maf_threshold: 0.01
+whichn: totalN
+sbayesr:
+  gamma: 0.0,0.01,0.1,1
+  pi: 0.95,0.02,0.02,0.01
+  burn_in: 2000
+  chain_length: 10000
+  threads: 6
+  seed: 80851
+  exclude_mhc: true
+score_columns: 2 5 9
