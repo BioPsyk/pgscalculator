@@ -7,11 +7,11 @@ _Created by Jesper R. Gådin, Morten Dybdahl Krebs, and Andrew Schork (IBP)_
 ## What's New in v2.1
 
 - **Config-first**: Reference paths in config.yaml, not CLI
-- **Modular CLI**: Run individual steps or groups of steps
-- **Reusable prep steps**: Run prep once, reuse across multiple sumstats
-- **Step-by-step control**: Skip completed steps, resume failed runs
-- **Better logging**: Track progress with status command
-- **Simplified CLI**: Only `--config` and `-i` needed for most runs
+- **Explicit steps**: `--steps` required - only runs what you specify
+- **Prerequisite checks**: Helpful errors if prep/previous steps not done
+- **Reusable prep**: Run prep once, reuse across multiple sumstats
+- **SLURM integration**: `--sbatch` flag auto-submits with config settings
+- **Simplified CLI**: Just `--config`, `--steps`, and `-i`
 
 ## Quick Start
 
@@ -56,16 +56,42 @@ sbayesr:
   threads: 6
   seed: 80851
   exclude_mhc: true
+
+# Optional: SLURM settings for --sbatch
+slurm:
+  account: my_account
+  prep:       { mem: 10g, cpus: 6, time: '1:00:00' }
+  posteriors: { mem: 20g, cpus: 8, time: '2:00:00' }
+  score:      { mem: 10g, cpus: 4, time: '0:30:00' }
 ```
 
 ### Run Pipeline
 
 ```bash
-# Run prep (once per project)
+# Step 1: Run prep (once per project)
 ./pgscalculator-v2.sh --config config.yaml --steps prep
 
-# Run per-sumstat (for each trait)
-./pgscalculator-v2.sh --config config.yaml -i /path/to/sumstat_TRAIT --skip-prep
+# Step 2: Run per-sumstat steps (for each trait)
+./pgscalculator-v2.sh --config config.yaml --steps sumstat,posteriors,score -i /path/to/sumstat_TRAIT
+
+# Or submit as SLURM jobs (uses slurm settings from config)
+./pgscalculator-v2.sh --config config.yaml --steps prep --sbatch
+./pgscalculator-v2.sh --config config.yaml --steps sumstat,posteriors,score -i /path/to/sumstat_TRAIT --sbatch
+```
+
+### Batch Processing Multiple Sumstats
+
+```bash
+# Submit prep once
+./pgscalculator-v2.sh --config config.yaml --steps prep --sbatch
+
+# Wait for prep to complete, then submit per-sumstat jobs
+for sumstat in /path/to/sumstat_*; do
+  ./pgscalculator-v2.sh --config config.yaml \
+    --steps sumstat,posteriors,score \
+    -i "$sumstat" \
+    --sbatch
+done
 ```
 
 ## Architecture
@@ -128,17 +154,17 @@ The wrapper script (`pgscalculator-v2.sh`) uses a config-first approach:
 # Run prep steps (once per project)
 ./pgscalculator-v2.sh --config config.yaml --steps prep
 
-# Run all steps for a sumstat
-./pgscalculator-v2.sh --config config.yaml -i /path/to/sumstat_TRAIT
+# Run per-sumstat steps
+./pgscalculator-v2.sh --config config.yaml --steps sumstat,posteriors,score -i /path/to/sumstat_TRAIT
 
-# Run per-sumstat steps (skip prep if done)
-./pgscalculator-v2.sh --config config.yaml -i /path/to/sumstat_TRAIT --skip-prep
-
-# Run specific steps only
-./pgscalculator-v2.sh --config config.yaml -i /path/to/sumstat_TRAIT --steps posteriors,score --skip-prep
+# Run specific steps only (prerequisite checking will warn if previous steps missing)
+./pgscalculator-v2.sh --config config.yaml --steps posteriors,score -i /path/to/sumstat_TRAIT
 
 # Limit to specific chromosomes (for testing)
-./pgscalculator-v2.sh --config config.yaml -i /path/to/sumstat_TRAIT --chr 21-22 --skip-prep
+./pgscalculator-v2.sh --config config.yaml --steps sumstat,posteriors,score -i /path/to/sumstat_TRAIT --chr 21-22
+
+# Submit as SLURM job (uses slurm settings from config)
+./pgscalculator-v2.sh --config config.yaml --steps sumstat,posteriors,score -i /path/to/sumstat_TRAIT --sbatch
 ```
 
 #### Wrapper Script Options
@@ -146,13 +172,39 @@ The wrapper script (`pgscalculator-v2.sh`) uses a config-first approach:
 | Option | Description |
 |--------|-------------|
 | `--config <file>` | **Required**: Path to config.yaml with reference paths |
+| `--steps <list>` | **Required**: Steps to run: `prep`, `sumstat`, `posteriors`, `score` |
 | `-i <dir>` | Path to sumstat folder (required for non-prep steps) |
 | `-o <dir>` | Output directory (overrides config) |
-| `--steps <list>` | Comma-separated steps: `prep`, `sumstat`, `posteriors`, `score` |
-| `--skip-prep` | Skip prep steps if already completed |
 | `--chr <range>` | Chromosome range (e.g., "21-22") |
+| `--sbatch` | Submit as SLURM job using slurm settings from config |
 | `-d` | Dev/verbose mode |
 | `-v` | Show version |
+
+#### Step Groups
+
+| Step | Description |
+|------|-------------|
+| `prep` | Prepare genotypes and LD reference (run once per project) |
+| `sumstat` | Format and filter sumstat |
+| `posteriors` | Calculate posteriors with sbayesR |
+| `score` | Calculate PGS scores |
+
+#### Prerequisite Checking
+
+The pipeline automatically checks that required outputs exist before running steps:
+
+```
+Error: Prep outputs not found.
+
+Missing:
+  - Genotype prep: /path/prep/genotypes/
+  - Inclusion list: /path/prep/inclusion-list/inclusion_list.txt
+
+Run prep first:
+  ./pgscalculator-v2.sh --config config.yaml --steps prep
+
+Then retry your command.
+```
 
 ### Option 2: Direct CLI (Inside Container)
 
