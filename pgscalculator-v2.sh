@@ -8,47 +8,51 @@
 ################################################################################
 
 function general_usage(){
- echo "Usage:"
-  echo "  ./pgscalculator-v2.sh --config <file> [options]"
+  echo "Usage:"
+  echo "  ./pgscalculator-v2.sh --config <file> --steps <steps> [options]"
   echo ""
   echo "Required:"
   echo "  --config <file>   Path to config.yaml with all settings"
+  echo "  --steps <list>    Steps to run: prep, sumstat, posteriors, score"
   echo ""
   echo "Optional:"
-  echo "  -i <dir>          Path to sumstats folder (overrides config)"
+  echo "  -i <dir>          Path to sumstats folder (required for non-prep steps)"
   echo "  -o <dir>          Path to output directory (overrides config)"
-  echo "  --sumstat <name>  Sumstat name/ID (extracted from -i path if not provided)"
-  echo "  --steps <list>    Steps to run: prep, sumstat, posteriors, score (default: all)"
-  echo "  --skip-prep       Skip prep steps if already completed"
   echo "  --chr <range>     Chromosomes to process (e.g., '21-22', default: 1-22)"
   echo "  --sbatch          Submit as SLURM job using sbatch settings from config"
   echo "  -d                Dev mode (verbose output)"
   echo "  -v                Show version"
   echo "  -h                Show this help"
   echo ""
+  echo "Step groups:"
+  echo "  prep        Run prep steps (genotypes, ldref, inclusion-list)"
+  echo "  sumstat     Format and filter sumstat"
+  echo "  posteriors  Calculate posteriors with sbayesR"
+  echo "  score       Calculate PGS scores"
+  echo ""
   echo "Config file (config.yaml) should contain:"
   echo "  ld_reference: /path/to/band_ukb_10k_hm3"
   echo "  genotypes: /path/to/genotypes"
   echo "  genotype_manifest: /path/to/manifest.txt"
   echo "  outdir: /path/to/output"
- echo ""
+  echo ""
   echo "  # Optional: SLURM settings for --sbatch"
   echo "  slurm:"
   echo "    account: my_account"
-  echo "    partition: normal"
   echo "    prep:       { mem: 10g, cpus: 6, time: '1:00:00' }"
   echo "    posteriors: { mem: 20g, cpus: 8, time: '2:00:00' }"
   echo "    score:      { mem: 10g, cpus: 4, time: '0:30:00' }"
- echo ""
- echo "Examples:"
-  echo "  # Run directly"
-  echo "  ./pgscalculator-v2.sh --config config.yaml -i /path/to/sumstat_814"
- echo ""
-  echo "  # Submit as SLURM job"
-  echo "  ./pgscalculator-v2.sh --config config.yaml -i /path/to/sumstat_814 --sbatch"
- echo ""
-  echo "  # Run prep as SLURM job"
+  echo ""
+  echo "Examples:"
+  echo "  # Step 1: Run prep (once per project)"
+  echo "  ./pgscalculator-v2.sh --config config.yaml --steps prep"
+  echo ""
+  echo "  # Step 2: Run per-sumstat steps"
+  echo "  ./pgscalculator-v2.sh --config config.yaml --steps sumstat,posteriors,score -i /path/to/sumstat_814"
+  echo ""
+  echo "  # Or submit as SLURM jobs"
   echo "  ./pgscalculator-v2.sh --config config.yaml --steps prep --sbatch"
+  echo "  ./pgscalculator-v2.sh --config config.yaml --steps sumstat,posteriors,score -i /path/to/sumstat_814 --sbatch"
 }
 
 ################################################################################
@@ -67,8 +71,6 @@ config_file=""
 infold=""
 outdir=""
 steps_arg=""
-sumstat_name=""
-skip_prep=false
 chromosomes=""
 devmode=""
 use_sbatch=false
@@ -83,14 +85,6 @@ while [ $i -lt ${#paramarray[@]} ]; do
     --steps)
       steps_arg="${paramarray[$((i+1))]}"
       i=$((i+2))
-      ;;
-    --sumstat)
-      sumstat_name="${paramarray[$((i+1))]}"
-      i=$((i+2))
-      ;;
-    --skip-prep)
-      skip_prep=true
-      i=$((i+1))
       ;;
     --chr)
       chromosomes="${paramarray[$((i+1))]}"
@@ -129,7 +123,7 @@ while [ $i -lt ${#paramarray[@]} ]; do
 done
 
 ################################################################################
-# Validate config file
+# Validate required arguments
 ################################################################################
 if [[ -z "$config_file" ]]; then
   >&2 echo "Error: --config is required"
@@ -139,6 +133,21 @@ fi
 
 if [[ ! -f "$config_file" ]]; then
   >&2 echo "Error: Config file not found: $config_file"
+  exit 1
+fi
+
+if [[ -z "$steps_arg" ]]; then
+  >&2 echo "Error: --steps is required"
+  >&2 echo ""
+  >&2 echo "Available steps:"
+  >&2 echo "  prep        - Prepare genotypes and LD reference (run once)"
+  >&2 echo "  sumstat     - Format and filter sumstat"
+  >&2 echo "  posteriors  - Calculate posteriors with sbayesR"
+  >&2 echo "  score       - Calculate PGS scores"
+  >&2 echo ""
+  >&2 echo "Examples:"
+  >&2 echo "  ./pgscalculator-v2.sh --config config.yaml --steps prep"
+  >&2 echo "  ./pgscalculator-v2.sh --config config.yaml --steps sumstat,posteriors,score -i /path/to/sumstat"
   exit 1
 fi
 
@@ -227,21 +236,16 @@ if [[ "$use_sbatch" == true ]]; then
   slurm_time="${slurm_time:-2:00:00}"
   
   # Build job name
-  if [[ -n "$sumstat_name" ]]; then
-    job_name="pgs_${sumstat_name}"
-  elif [[ -n "$infold" ]]; then
+  if [[ -n "$infold" ]]; then
     job_name="pgs_$(basename "$infold" | sed 's/^sumstat_//')"
   else
     job_name="pgs_${step_profile}"
   fi
   
   # Build the command to run (same command without --sbatch)
-  run_cmd="${project_dir}/pgscalculator-v2.sh --config ${config_file_host}"
+  run_cmd="${project_dir}/pgscalculator-v2.sh --config ${config_file_host} --steps ${steps_arg}"
   [[ -n "$infold" ]] && run_cmd="${run_cmd} -i ${infold}"
   [[ -n "$outdir" ]] && run_cmd="${run_cmd} -o ${outdir}"
-  [[ -n "$steps_arg" ]] && run_cmd="${run_cmd} --steps ${steps_arg}"
-  [[ -n "$sumstat_name" ]] && run_cmd="${run_cmd} --sumstat ${sumstat_name}"
-  [[ "$skip_prep" == true ]] && run_cmd="${run_cmd} --skip-prep"
   [[ -n "$chromosomes" ]] && run_cmd="${run_cmd} --chr ${chromosomes}"
   [[ -n "$devmode" ]] && run_cmd="${run_cmd} -d"
   
@@ -337,11 +341,109 @@ else
   infold_host="${outdir_host}"
 fi
 
-# Extract sumstat name from input path if not provided
-if [[ -z "$sumstat_name" ]] && [[ -n "$infold" ]]; then
+# Extract sumstat name from input path
+sumstat_name=""
+if [[ -n "$infold" ]]; then
   sumstat_name=$(basename "$infold_host" | sed 's/^sumstat_//')
-  if [[ "$sumstat_name" == "$(basename "$infold_host")" ]]; then
-    sumstat_name=$(basename "$infold_host")
+fi
+
+################################################################################
+# Prerequisite checking
+################################################################################
+check_prep_exists() {
+  local outdir="$1"
+  local missing=""
+  
+  # Check for genotype prep outputs
+  if [[ ! -d "${outdir}/prep/genotypes" ]] || [[ -z "$(ls -A "${outdir}/prep/genotypes" 2>/dev/null)" ]]; then
+    missing="${missing}  - Genotype prep: ${outdir}/prep/genotypes/\n"
+  fi
+  
+  # Check for inclusion list
+  if [[ ! -f "${outdir}/prep/inclusion-list/inclusion_list.txt" ]]; then
+    missing="${missing}  - Inclusion list: ${outdir}/prep/inclusion-list/inclusion_list.txt\n"
+  fi
+  
+  if [[ -n "$missing" ]]; then
+    echo "$missing"
+    return 1
+  fi
+  return 0
+}
+
+check_sumstat_exists() {
+  local outdir="$1"
+  local sumstat="$2"
+  
+  if [[ ! -f "${outdir}/sumstats/${sumstat}/formatted/cleaned_sumstat.tsv" ]]; then
+    echo "  - Formatted sumstat: ${outdir}/sumstats/${sumstat}/formatted/cleaned_sumstat.tsv"
+    return 1
+  fi
+  return 0
+}
+
+check_posteriors_exists() {
+  local outdir="$1"
+  local sumstat="$2"
+  
+  if [[ ! -d "${outdir}/sumstats/${sumstat}/posteriors" ]] || [[ -z "$(ls -A "${outdir}/sumstats/${sumstat}/posteriors" 2>/dev/null)" ]]; then
+    echo "  - Posteriors: ${outdir}/sumstats/${sumstat}/posteriors/"
+    return 1
+  fi
+  return 0
+}
+
+# Check prerequisites based on requested steps
+if [[ "$steps_arg" != "prep" ]]; then
+  # Non-prep steps require prep to be completed
+  missing_prep=$(check_prep_exists "$outdir_host")
+  if [[ $? -ne 0 ]]; then
+    >&2 echo "Error: Prep outputs not found."
+    >&2 echo ""
+    >&2 echo "Missing:"
+    >&2 echo -e "$missing_prep"
+    >&2 echo ""
+    >&2 echo "Run prep first:"
+    >&2 echo "  ./pgscalculator-v2.sh --config ${config_file} --steps prep"
+    >&2 echo ""
+    >&2 echo "Then retry your command."
+    exit 1
+  fi
+fi
+
+# Check sumstat prerequisite for posteriors
+if [[ "$steps_arg" == *"posteriors"* ]] && [[ "$steps_arg" != *"sumstat"* ]]; then
+  missing_sumstat=$(check_sumstat_exists "$outdir_host" "$sumstat_name")
+  if [[ $? -ne 0 ]]; then
+    >&2 echo "Error: Sumstat formatting not completed."
+    >&2 echo ""
+    >&2 echo "Missing:"
+    >&2 echo "$missing_sumstat"
+    >&2 echo ""
+    >&2 echo "Run sumstat step first:"
+    >&2 echo "  ./pgscalculator-v2.sh --config ${config_file} --steps sumstat -i ${infold}"
+    >&2 echo ""
+    >&2 echo "Or include sumstat in your steps:"
+    >&2 echo "  ./pgscalculator-v2.sh --config ${config_file} --steps sumstat,posteriors -i ${infold}"
+    exit 1
+  fi
+fi
+
+# Check posteriors prerequisite for score
+if [[ "$steps_arg" == *"score"* ]] && [[ "$steps_arg" != *"posteriors"* ]]; then
+  missing_posteriors=$(check_posteriors_exists "$outdir_host" "$sumstat_name")
+  if [[ $? -ne 0 ]]; then
+    >&2 echo "Error: Posteriors calculation not completed."
+    >&2 echo ""
+    >&2 echo "Missing:"
+    >&2 echo "$missing_posteriors"
+    >&2 echo ""
+    >&2 echo "Run posteriors step first:"
+    >&2 echo "  ./pgscalculator-v2.sh --config ${config_file} --steps posteriors -i ${infold}"
+    >&2 echo ""
+    >&2 echo "Or include posteriors in your steps:"
+    >&2 echo "  ./pgscalculator-v2.sh --config ${config_file} --steps posteriors,score -i ${infold}"
+    exit 1
   fi
 fi
 

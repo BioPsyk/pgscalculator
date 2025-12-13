@@ -128,8 +128,8 @@ ${PGSFOLD}/pgscalculator-v2.sh --config ${CONFIG} --steps prep
 ```bash
 # Single sumstat - settings come from config.yaml
 ./pgscalculator-v2.sh --config config.yaml \
+  --steps sumstat,posteriors,score \
   -i /path/to/sumstat_814 \
-  --skip-prep \
   --sbatch
 ```
 
@@ -148,7 +148,7 @@ sbatch --mem=20g --cpus-per-task=8 --time=2:00:00 \
   --output="pgs_${ID}.out" \
   --error="pgs_${ID}.err" \
   --wrap="
-${PGSFOLD}/pgscalculator-v2.sh --config ${CONFIG} -i ${SUMSTAT_LIB}/sumstat_${ID} --skip-prep
+${PGSFOLD}/pgscalculator-v2.sh --config ${CONFIG} --steps sumstat,posteriors,score -i ${SUMSTAT_LIB}/sumstat_${ID}
 "
 ```
 
