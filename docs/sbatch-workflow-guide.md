@@ -76,6 +76,16 @@ sbayesr:
   seed: 80851
   exclude_mhc: true
 
+# SLURM settings for --sbatch flag
+slurm:
+  account: ibp_pipeline_cleansumstats
+  partition: normal
+  prep:       { mem: 10g, cpus: 6, time: '1:00:00' }
+  sumstat:    { mem: 5g,  cpus: 2, time: '0:30:00' }
+  posteriors: { mem: 20g, cpus: 8, time: '2:00:00' }
+  score:      { mem: 10g, cpus: 4, time: '0:30:00' }
+  default:    { mem: 20g, cpus: 8, time: '2:00:00' }
+
 # Optional: limit chromosomes for testing
 # chromosomes: "21-22"
 ```
@@ -87,6 +97,15 @@ mkdir -p /faststorage/project/ibp_pipeline_pgscalculator/my_project
 ```
 
 ### Step 2: Run Prep (Once)
+
+**Option A: Using --sbatch (recommended)**
+
+```bash
+# Just add --sbatch flag - settings come from config.yaml
+./pgscalculator-v2.sh --config config.yaml --steps prep --sbatch
+```
+
+**Option B: Manual sbatch**
 
 ```bash
 PGSFOLD="/faststorage/project/ibp_pipeline_pgscalculator/pgscalculator"
@@ -104,8 +123,19 @@ ${PGSFOLD}/pgscalculator-v2.sh --config ${CONFIG} --steps prep
 
 ### Step 3: Run Per-Sumstat (For Each Trait)
 
+**Option A: Using --sbatch (recommended)**
+
 ```bash
-# Set paths
+# Single sumstat - settings come from config.yaml
+./pgscalculator-v2.sh --config config.yaml \
+  -i /path/to/sumstat_814 \
+  --skip-prep \
+  --sbatch
+```
+
+**Option B: Manual sbatch**
+
+```bash
 PGSFOLD="/faststorage/project/ibp_pipeline_pgscalculator/pgscalculator"
 CONFIG="/faststorage/project/ibp_pipeline_pgscalculator/my_project/config.yaml"
 SUMSTAT_LIB="/faststorage/project/ibp_pipeline_cleansumstats/raw_library/sumstat_clean_library/version_1.12.0"

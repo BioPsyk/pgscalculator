@@ -8,7 +8,7 @@
 ################################################################################
 
 function general_usage(){
-  echo "Usage:"
+ echo "Usage:"
   echo "  ./pgscalculator-v2.sh --config <file> [options]"
   echo ""
   echo "Required:"
@@ -21,6 +21,7 @@ function general_usage(){
   echo "  --steps <list>    Steps to run: prep, sumstat, posteriors, score (default: all)"
   echo "  --skip-prep       Skip prep steps if already completed"
   echo "  --chr <range>     Chromosomes to process (e.g., '21-22', default: 1-22)"
+  echo "  --sbatch          Submit as SLURM job using sbatch settings from config"
   echo "  -d                Dev mode (verbose output)"
   echo "  -v                Show version"
   echo "  -h                Show this help"
@@ -29,21 +30,25 @@ function general_usage(){
   echo "  ld_reference: /path/to/band_ukb_10k_hm3"
   echo "  genotypes: /path/to/genotypes"
   echo "  genotype_manifest: /path/to/manifest.txt"
-  echo "  outdir: /path/to/output  # optional, can use -o instead"
-  echo "  # Plus sbayesr parameters, thresholds, etc."
-  echo ""
-  echo "Examples:"
-  echo "  # Run all steps for a sumstat"
+  echo "  outdir: /path/to/output"
+ echo ""
+  echo "  # Optional: SLURM settings for --sbatch"
+  echo "  slurm:"
+  echo "    account: my_account"
+  echo "    partition: normal"
+  echo "    prep:       { mem: 10g, cpus: 6, time: '1:00:00' }"
+  echo "    posteriors: { mem: 20g, cpus: 8, time: '2:00:00' }"
+  echo "    score:      { mem: 10g, cpus: 4, time: '0:30:00' }"
+ echo ""
+ echo "Examples:"
+  echo "  # Run directly"
   echo "  ./pgscalculator-v2.sh --config config.yaml -i /path/to/sumstat_814"
-  echo ""
-  echo "  # Run only prep (reusable across sumstats)"
-  echo "  ./pgscalculator-v2.sh --config config.yaml --steps prep"
-  echo ""
-  echo "  # Run per-sumstat steps (after prep is done)"
-  echo "  ./pgscalculator-v2.sh --config config.yaml -i /path/to/sumstat_814 --skip-prep"
-  echo ""
-  echo "  # Run specific steps only"
-  echo "  ./pgscalculator-v2.sh --config config.yaml -i /path/to/sumstat_814 --steps posteriors,score --skip-prep"
+ echo ""
+  echo "  # Submit as SLURM job"
+  echo "  ./pgscalculator-v2.sh --config config.yaml -i /path/to/sumstat_814 --sbatch"
+ echo ""
+  echo "  # Run prep as SLURM job"
+  echo "  ./pgscalculator-v2.sh --config config.yaml --steps prep --sbatch"
 }
 
 ################################################################################
@@ -66,13 +71,14 @@ sumstat_name=""
 skip_prep=false
 chromosomes=""
 devmode=""
+use_sbatch=false
 
 i=0
 while [ $i -lt ${#paramarray[@]} ]; do
   case "${paramarray[$i]}" in
     --config)
       config_file="${paramarray[$((i+1))]}"
-      i=$((i+2))
+        i=$((i+2))
       ;;
     --steps)
       steps_arg="${paramarray[$((i+1))]}"
@@ -89,6 +95,10 @@ while [ $i -lt ${#paramarray[@]} ]; do
     --chr)
       chromosomes="${paramarray[$((i+1))]}"
       i=$((i+2))
+      ;;
+    --sbatch)
+      use_sbatch=true
+      i=$((i+1))
       ;;
     -i)
       infold="${paramarray[$((i+1))]}"
@@ -143,6 +153,33 @@ parse_yaml_value() {
   awk -F': ' -v key="$key" '$1 == key {gsub(/^[ \t]+|[ \t]+$/, "", $2); print $2; exit}' "$file"
 }
 
+# Parse nested YAML values (e.g., slurm.account, slurm.prep.mem)
+parse_yaml_nested() {
+  local section="$1"
+  local key="$2"
+  local file="$3"
+  awk -v section="$section" -v key="$key" '
+    BEGIN { in_section = 0 }
+    /^[a-zA-Z]/ { in_section = 0 }
+    $0 ~ "^"section":" { in_section = 1; next }
+    in_section && $0 ~ "^  "key":" {
+      gsub(/^  [a-zA-Z_]+: */, "")
+      gsub(/[{}]/, "")
+      print
+      exit
+    }
+  ' "$file"
+}
+
+# Parse inline YAML dict (e.g., "{ mem: 10g, cpus: 6, time: '1:00:00' }")
+parse_inline_dict() {
+  local dict="$1"
+  local key="$2"
+  echo "$dict" | sed 's/[{}]//g' | tr ',' '\n' | awk -F': ' -v key="$key" '
+    $1 ~ key { gsub(/^[ \t]+|[ \t]+$|'"'"'/, "", $2); print $2 }
+  '
+}
+
 # Read paths from config
 cfg_ld_reference=$(parse_yaml_value "ld_reference" "$config_file_host")
 cfg_genotypes=$(parse_yaml_value "genotypes" "$config_file_host")
@@ -157,6 +194,83 @@ fi
 
 if [[ -n "$chromosomes" ]]; then
   cfg_chromosomes="$chromosomes"
+fi
+
+################################################################################
+# Handle --sbatch: submit as SLURM job
+################################################################################
+if [[ "$use_sbatch" == true ]]; then
+  # Read SLURM settings from config
+  slurm_account=$(parse_yaml_nested "slurm" "account" "$config_file_host")
+  slurm_partition=$(parse_yaml_nested "slurm" "partition" "$config_file_host")
+  
+  # Determine which step profile to use
+  step_profile="default"
+  if [[ -n "$steps_arg" ]]; then
+    # Use first step as profile (prep, posteriors, score, etc.)
+    step_profile=$(echo "$steps_arg" | cut -d',' -f1)
+  fi
+  
+  # Get step-specific settings
+  step_settings=$(parse_yaml_nested "slurm" "$step_profile" "$config_file_host")
+  
+  # Parse settings or use defaults
+  if [[ -n "$step_settings" ]]; then
+    slurm_mem=$(parse_inline_dict "$step_settings" "mem")
+    slurm_cpus=$(parse_inline_dict "$step_settings" "cpus")
+    slurm_time=$(parse_inline_dict "$step_settings" "time")
+  fi
+  
+  # Apply defaults if not set
+  slurm_mem="${slurm_mem:-20g}"
+  slurm_cpus="${slurm_cpus:-8}"
+  slurm_time="${slurm_time:-2:00:00}"
+  
+  # Build job name
+  if [[ -n "$sumstat_name" ]]; then
+    job_name="pgs_${sumstat_name}"
+  elif [[ -n "$infold" ]]; then
+    job_name="pgs_$(basename "$infold" | sed 's/^sumstat_//')"
+  else
+    job_name="pgs_${step_profile}"
+  fi
+  
+  # Build the command to run (same command without --sbatch)
+  run_cmd="${project_dir}/pgscalculator-v2.sh --config ${config_file_host}"
+  [[ -n "$infold" ]] && run_cmd="${run_cmd} -i ${infold}"
+  [[ -n "$outdir" ]] && run_cmd="${run_cmd} -o ${outdir}"
+  [[ -n "$steps_arg" ]] && run_cmd="${run_cmd} --steps ${steps_arg}"
+  [[ -n "$sumstat_name" ]] && run_cmd="${run_cmd} --sumstat ${sumstat_name}"
+  [[ "$skip_prep" == true ]] && run_cmd="${run_cmd} --skip-prep"
+  [[ -n "$chromosomes" ]] && run_cmd="${run_cmd} --chr ${chromosomes}"
+  [[ -n "$devmode" ]] && run_cmd="${run_cmd} -d"
+  
+  # Determine output directory for logs
+  log_dir="${cfg_outdir:-./}"
+  mkdir -p "$log_dir"
+  
+  # Build sbatch command
+  sbatch_cmd="sbatch"
+  sbatch_cmd="${sbatch_cmd} --mem=${slurm_mem}"
+  sbatch_cmd="${sbatch_cmd} --cpus-per-task=${slurm_cpus}"
+  sbatch_cmd="${sbatch_cmd} --time=${slurm_time}"
+  sbatch_cmd="${sbatch_cmd} --job-name=${job_name}"
+  sbatch_cmd="${sbatch_cmd} --output=${log_dir}/${job_name}.out"
+  sbatch_cmd="${sbatch_cmd} --error=${log_dir}/${job_name}.err"
+  [[ -n "$slurm_account" ]] && sbatch_cmd="${sbatch_cmd} --account=${slurm_account}"
+  [[ -n "$slurm_partition" ]] && sbatch_cmd="${sbatch_cmd} --partition=${slurm_partition}"
+  sbatch_cmd="${sbatch_cmd} --wrap=\"${run_cmd}\""
+  
+  echo "Submitting SLURM job..."
+  echo "  Job name: ${job_name}"
+  echo "  Resources: mem=${slurm_mem}, cpus=${slurm_cpus}, time=${slurm_time}"
+  echo "  Logs: ${log_dir}/${job_name}.out"
+  echo "  Command: ${run_cmd}"
+  echo ""
+  
+  # Submit and exit
+  eval ${sbatch_cmd}
+  exit $?
 fi
 
 ################################################################################
@@ -246,7 +360,7 @@ fi
 source "${project_dir}/scripts/init-containerization.sh"
 
 # Default to singularity
-mountflag="-B"
+  mountflag="-B"
 
 # Container paths
 indir_container="/pgscalculator/input"
@@ -257,10 +371,10 @@ outdir_container="/pgscalculator/outdir"
 config_container="/pgscalculator/config"
 
 if [[ -n "$genofile_host" ]]; then
-  genodir2_host=$(dirname "${genofile_host}")
-  genofile_name=$(basename "${genofile_host}")
-  genodir2_container="/pgscalculator/genodir2"
-  genofile_container="${genodir2_container}/${genofile_name}"
+genodir2_host=$(dirname "${genofile_host}")
+genofile_name=$(basename "${genofile_host}")
+genodir2_container="/pgscalculator/genodir2"
+genofile_container="${genodir2_container}/${genofile_name}"
 else
   genodir2_host=""
   genofile_container=""
@@ -300,7 +414,7 @@ fi
 ################################################################################
 # Determine image
 ################################################################################
-runimage="sif/${singularity_image_tag}"
+  runimage="sif/${singularity_image_tag}" 
 if [[ ! -f "${project_dir}/${runimage}" ]]; then
   # Try to find any available sif file
   runimage=$(ls -1 "${project_dir}"/sif/*.sif 2>/dev/null | head -1)
@@ -357,12 +471,12 @@ fi
 echo "Running pgscalculator v2.1.0 in Singularity"
 echo "Config: ${config_file_host}"
 echo "Output: ${outdir_host}"
-echo "Command: ${cli_cmd}"
+  echo "Command: ${cli_cmd}"
 
-singularity run \
-  --contain \
-  --cleanenv \
-  ${mount_flags} \
+  singularity run \
+     --contain \
+     --cleanenv \
+     ${mount_flags} \
   ${mount_opts} \
-  "${runimage}" \
-  ${cli_cmd}
+     "${runimage}" \
+     ${cli_cmd}
