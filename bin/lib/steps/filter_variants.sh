@@ -1,6 +1,7 @@
 #!/bin/bash
 # pgscalculator v2 - filter-variants step
-# Filter sumstat to whitelist variants (early variant reduction for memory optimization)
+# Filter sumstat to inclusion list variants, then derive N/EAF/B/SE
+# (Early filtering reduces data volume before expensive stat derivation)
 
 # This script is sourced by the main pgscalculator CLI
 
@@ -20,9 +21,9 @@ check_filter_variants_deps() {
     local prep_dir
     prep_dir=$(get_prep_dir "$outdir")
     
-    # Check that prep-whitelist has been run
-    require_file "${prep_dir}/whitelist/variant_whitelist.tsv" "Run 'pgscalculator prep-whitelist' first"
-    require_file "${prep_dir}/whitelist/whitelist_rsids_sorted" "Run 'pgscalculator prep-whitelist' first"
+    # Check that prep-inclusion-list has been run
+    require_file "${prep_dir}/inclusion_list/variant_inclusion_list.tsv" "Run 'pgscalculator prep-inclusion-list' first"
+    require_file "${prep_dir}/inclusion_list/.rsid_index" "Run 'pgscalculator prep-inclusion-list' first"
 }
 
 # =============================================================================
@@ -56,8 +57,11 @@ run_filter_variants() {
         return 0
     fi
     
-    local whitelist_file="${prep_dir}/whitelist/whitelist_rsids_sorted"
+    local inclusion_file="${prep_dir}/inclusion_list/.rsid_index"
     local formatted_sumstat="${format_dir}/sumstat_formatted.tsv.gz"
+    local input_dir="${CFG_INPUT}"
+    local metadata_file="${input_dir}/cleaned_metadata.yaml"
+    local which_n="${CFG_WHICHN:-totalN}"
     
     # Count input variants
     local input_count
@@ -65,15 +69,29 @@ run_filter_variants() {
     input_count=$((input_count - 1))
     log_info "Input variants: ${input_count}"
     
-    # Step 1: Filter sumstat to whitelist variants
-    log_substep "Filtering to whitelist variants"
-    filter_to_whitelist "$formatted_sumstat" "$whitelist_file" "${step_dir}/sumstat_filtered.tsv"
+    # Step 1: Filter sumstat to inclusion list variants
+    log_substep "Filtering to inclusion list variants"
+    filter_to_inclusion_list "$formatted_sumstat" "$inclusion_file" "${step_dir}/sumstat_filtered_raw.tsv"
     
-    # Step 2: Split filtered sumstat by chromosome
+    local filtered_count
+    filtered_count=$(wc -l < "${step_dir}/sumstat_filtered_raw.tsv")
+    filtered_count=$((filtered_count - 1))
+    local reduction_pct
+    reduction_pct=$(awk "BEGIN {printf \"%.1f\", (1 - $filtered_count / $input_count) * 100}")
+    log_info "After inclusion list filter: ${filtered_count} variants (${reduction_pct}% reduction)"
+    
+    # Step 2: Derive N/EAF/B/SE on the filtered subset (much faster than on full sumstat)
+    log_substep "Deriving N/EAF/B/SE statistics"
+    derive_stats "${step_dir}/sumstat_filtered_raw.tsv" "${step_dir}/sumstat_filtered.tsv" "$metadata_file" "$which_n"
+    
+    # Clean up intermediate file
+    rm -f "${step_dir}/sumstat_filtered_raw.tsv"
+    
+    # Step 3: Split filtered sumstat by chromosome
     log_substep "Splitting filtered sumstat by chromosome"
     split_filtered_by_chr "${step_dir}/sumstat_filtered.tsv" "$step_dir"
     
-    # Step 3: Compress the main filtered file
+    # Step 4: Compress the main filtered file
     gzip -f "${step_dir}/sumstat_filtered.tsv"
     
     # Mark step as completed
@@ -83,10 +101,8 @@ run_filter_variants() {
     local output_count
     output_count=$(zcat "${step_dir}/sumstat_filtered.tsv.gz" | wc -l)
     output_count=$((output_count - 1))
-    local reduction_pct
-    reduction_pct=$(awk "BEGIN {printf \"%.1f\", (1 - $output_count / $input_count) * 100}")
     
-    log_info "Output variants: ${output_count} (${reduction_pct}% reduction)"
+    log_info "Output variants: ${output_count}"
     log_info "Output directory: ${step_dir}"
 }
 
@@ -94,9 +110,9 @@ run_filter_variants() {
 # PROCESSING FUNCTIONS
 # =============================================================================
 
-filter_to_whitelist() {
+filter_to_inclusion_list() {
     local input_sumstat="$1"
-    local whitelist_file="$2"
+    local inclusion_file="$2"
     local output_file="$3"
     
     # Get header and find SNP/RSID column
@@ -120,39 +136,211 @@ filter_to_whitelist() {
     
     log_debug "SNP column index: $snp_col"
     
-    # Create temporary sorted files for join
-    local tmpdir
-    tmpdir=$(mktemp -d)
-    
-    # Sort sumstat by SNP column
-    zcat "$input_sumstat" | tail -n +2 | \
-        sort -t$'\t' -k${snp_col},${snp_col} > "${tmpdir}/sumstat_sorted.tsv"
-    
-    # Join with whitelist (whitelist is already sorted)
-    # Keep all fields from sumstat where SNP matches whitelist
-    join -t$'\t' -1 1 -2 ${snp_col} -o 2.1,2.2,2.3,2.4,2.5,2.6,2.7,2.8,2.9,2.10,2.11,2.12,2.13,2.14,2.15,2.16,2.17,2.18,2.19,2.20 \
-        "$whitelist_file" "${tmpdir}/sumstat_sorted.tsv" 2>/dev/null | \
-        sed 's/\t$//' | grep -v '^\s*$' > "${tmpdir}/filtered_body.tsv" || true
-    
-    # Alternative approach using awk for more flexibility
+    # Filter using awk (inclusion list is sorted)
     awk -F'\t' -v OFS='\t' -v snp_col="$snp_col" '
         ARGIND == 1 {
-            whitelist[$1] = 1
+            inclusion[$1] = 1
+            next
+        }
+        FNR == 1 {
+            print
             next
         }
         {
-            if ($snp_col in whitelist) {
+            if ($snp_col in inclusion) {
                 print
             }
         }
-    ' "$whitelist_file" <(zcat "$input_sumstat" | tail -n +2) > "${tmpdir}/filtered_body2.tsv"
+    ' "$inclusion_file" <(zcat "$input_sumstat") > "$output_file"
+}
+
+derive_stats() {
+    local input="$1"
+    local output="$2"
+    local metadata_file="$3"
+    local which_n="$4"
     
-    # Write output with header
-    echo "$header" > "$output_file"
-    cat "${tmpdir}/filtered_body2.tsv" >> "$output_file"
+    local tmpdir
+    tmpdir=$(mktemp -d)
+    
+    # Step 1: Add/fix N (effective or total based on config)
+    add_sample_size "$input" "${tmpdir}/step1.tsv" "$metadata_file" "$which_n"
+    
+    # Step 2: Force EAF column (use EAF_1KG if EAF missing)
+    force_eaf "${tmpdir}/step1.tsv" "${tmpdir}/step2.tsv"
+    
+    # Step 3: Filter bad values (first pass - remove NA/invalid before derivation)
+    filter_bad_values "${tmpdir}/step2.tsv" "${tmpdir}/step3.tsv"
+    
+    # Step 4: Derive B and SE if missing (from Z, N, EAF)
+    add_beta_se "${tmpdir}/step3.tsv" "${tmpdir}/step4.tsv"
+    
+    # Step 5: Filter bad values (second pass - ensure derived values are valid)
+    filter_bad_values "${tmpdir}/step4.tsv" "$output"
     
     # Clean up
     rm -rf "$tmpdir"
+    
+    local count
+    count=$(wc -l < "$output")
+    count=$((count - 1))
+    log_debug "After stat derivation: ${count} variants"
+}
+
+add_sample_size() {
+    local input="$1"
+    local output="$2"
+    local metadata_file="$3"
+    local which_n="$4"
+    
+    awk -F'\t' -v OFS='\t' -v which_n="$which_n" '
+        NR == 1 {
+            for(i=1; i<=NF; i++) {
+                header[i] = $i
+                if($i == "N") n_col = i
+                if($i == "CaseN") case_col = i
+                if($i == "ControlN") ctrl_col = i
+            }
+            print
+            next
+        }
+        {
+            if (n_col && $n_col != "NA" && $n_col != "") {
+                # N already exists
+                print
+            } else if (which_n == "effectiveN" && case_col && ctrl_col) {
+                # Calculate effective N: 4 * (cases * controls) / (cases + controls)
+                if ($case_col != "NA" && $ctrl_col != "NA" && $case_col > 0 && $ctrl_col > 0) {
+                    eff_n = 4 * ($case_col * $ctrl_col) / ($case_col + $ctrl_col)
+                    if (n_col) {
+                        $n_col = eff_n
+                    }
+                }
+                print
+            } else {
+                # Keep as is
+                print
+            }
+        }
+    ' "$input" > "$output"
+}
+
+force_eaf() {
+    local input="$1"
+    local output="$2"
+    
+    awk -F'\t' -v OFS='\t' '
+        NR == 1 {
+            has_eaf = 0
+            has_eaf_1kg = 0
+            for(i=1; i<=NF; i++) {
+                header[i] = $i
+                if($i == "EAF") { eaf_col = i; has_eaf = 1 }
+                if($i == "EAF_1KG") { eaf_1kg_col = i; has_eaf_1kg = 1 }
+            }
+            print
+            next
+        }
+        {
+            if (has_eaf && ($eaf_col == "NA" || $eaf_col == "") && has_eaf_1kg) {
+                # Use EAF_1KG as fallback
+                $eaf_col = $eaf_1kg_col
+            }
+            print
+        }
+    ' "$input" > "$output"
+}
+
+filter_bad_values() {
+    local input="$1"
+    local output="$2"
+    
+    awk -F'\t' -v OFS='\t' '
+        NR == 1 {
+            for(i=1; i<=NF; i++) {
+                header[i] = $i
+                if($i == "B" || $i == "BETA") b_col = i
+                if($i == "SE") se_col = i
+                if($i == "EAF") eaf_col = i
+            }
+            print
+            next
+        }
+        {
+            valid = 1
+            
+            # Check B/BETA
+            if (b_col) {
+                if ($b_col == "NA" || $b_col == "" || $b_col == 0) valid = 0
+            }
+            
+            # Check SE
+            if (se_col) {
+                if ($se_col == "NA" || $se_col == "" || $se_col == 0) valid = 0
+            }
+            
+            # Check EAF
+            if (eaf_col) {
+                if ($eaf_col == "NA" || $eaf_col == "" || 
+                    $eaf_col == 0 || $eaf_col == 1) valid = 0
+            }
+            
+            if (valid) print
+        }
+    ' "$input" > "$output"
+}
+
+add_beta_se() {
+    local input="$1"
+    local output="$2"
+    
+    # Derive B and SE from Z, N, EAF if missing
+    # Formula: denom^2 = 2 * EAF * (1 - EAF) * (N + Z^2)
+    #          SE = 1 / sqrt(denom^2)
+    #          B = Z / sqrt(denom^2)
+    
+    awk -F'\t' -v OFS='\t' '
+        NR == 1 {
+            for(i=1; i<=NF; i++) {
+                header[i] = $i
+                if($i == "B" || $i == "BETA") b_col = i
+                if($i == "SE") se_col = i
+                if($i == "Z") z_col = i
+                if($i == "N") n_col = i
+                if($i == "EAF") eaf_col = i
+            }
+            print
+            next
+        }
+        {
+            # Try to derive B and SE if missing but Z, N, EAF available
+            if (z_col && n_col && eaf_col) {
+                z = $z_col
+                n = $n_col
+                eaf = $eaf_col
+                
+                if (z != "NA" && n != "NA" && eaf != "NA" && 
+                    n > 0 && eaf > 0 && eaf < 1) {
+                    
+                    denom2 = 2 * eaf * (1 - eaf) * (n + z * z)
+                    if (denom2 > 0) {
+                        sqrt_denom2 = sqrt(denom2)
+                        derived_se = 1 / sqrt_denom2
+                        derived_b = z / sqrt_denom2
+                        
+                        # Fill in if missing
+                        if (b_col && ($b_col == "NA" || $b_col == "")) {
+                            $b_col = derived_b
+                        }
+                        if (se_col && ($se_col == "NA" || $se_col == "")) {
+                            $se_col = derived_se
+                        }
+                    }
+                }
+            }
+            print
+        }
+    ' "$input" > "$output"
 }
 
 split_filtered_by_chr() {
@@ -206,7 +394,3 @@ split_filtered_by_chr() {
         fi
     done
 }
-
-
-
-

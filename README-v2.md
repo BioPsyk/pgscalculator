@@ -57,7 +57,7 @@ pgscalculator v2.0.0
 │       └── steps/           # Individual step scripts
 │           ├── prep_genotypes.sh
 │           ├── prep_ldref.sh
-│           ├── prep_whitelist.sh
+│           ├── prep_inclusion_list.sh
 │           ├── format_sumstat.sh
 │           ├── filter_variants.sh
 │           ├── calc_posteriors.sh
@@ -76,14 +76,14 @@ pgscalculator v2.0.0
 |------|---------|-------------|
 | 1 | `prep-genotypes` | Extract variant IDs from genotype .pvar files |
 | 2 | `prep-ldref` | Extract RSIDs from LD reference |
-| 3 | `prep-whitelist` | Create variant whitelist (INFO/MAF filtered, LD intersect) |
+| 3 | `prep-inclusion-list` | Create variant inclusion list (INFO/MAF filtered, LD intersect) |
 
 ### Per-Sumstat Processing Steps
 
 | Step | Command | Description |
 |------|---------|-------------|
 | 4 | `format-sumstat` | Add build coordinates, derive B/SE/EAF/N |
-| 5 | `filter-variants` | Filter sumstat to whitelist variants |
+| 5 | `filter-variants` | Filter sumstat to inclusion list variants |
 | 6 | `calc-posteriors` | Run sbayesR per chromosome |
 | 7 | `format-posteriors` | Map posteriors to genotype variant IDs |
 | 8 | `calc-score` | Calculate PGS with plink2 per chromosome |
@@ -159,7 +159,7 @@ singularity shell --contain --cleanenv \
 # Inside container - run individual steps
 pgscalculator prep-genotypes --config /path/to/config.yaml
 pgscalculator prep-ldref --config /path/to/config.yaml
-pgscalculator prep-whitelist --config /path/to/config.yaml
+pgscalculator prep-inclusion-list --config /path/to/config.yaml
 
 pgscalculator format-sumstat --sumstat TRAIT --config /path/to/config.yaml
 pgscalculator calc-posteriors --sumstat TRAIT --config /path/to/config.yaml
@@ -280,9 +280,9 @@ output_dir/
 │   │   └── snplist_sorted   # All genotype variant IDs
 │   ├── ldref/
 │   │   └── chr*_ld_rsids    # LD reference RSIDs per chromosome
-│   └── whitelist/
-│       ├── variant_whitelist.tsv
-│       └── variant_map.tsv  # rsid <-> genotype_id mapping
+│   ├── inclusion_list/
+│   │   └── variant_inclusion_list.tsv  # Filtered variants for analysis
+│   └── variant_map.tsv      # Full rsid <-> genotype_id crosswalk
 ├── sumstat_{name}/          # Per-sumstat outputs
 │   ├── formatted/
 │   │   └── sumstat_formatted.tsv
@@ -319,7 +319,7 @@ The wrapper creates `config.yaml` in the output directory. Check:
 ### "No variants mapped"
 
 The variant map couldn't match sbayesR RSIDs to genotype IDs. Check:
-- Variant whitelist was created successfully
+- Variant inclusion list was created successfully
 - Genotype .pvar file uses expected ID format
 - LD reference matches the expected HM3 variants
 

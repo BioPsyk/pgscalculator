@@ -25,10 +25,12 @@ function general_usage(){
  echo "-j <mode>   Image mode: docker, dockerhub_biopsyk, or singularity (default: singularity)"
  echo "-d          Dev mode, keep intermediates"
  echo "-v          Get version number"
- echo "-1          Disable step1 (calc posteriors) - only format sumstat"
- echo "-2          Disable step2 (calc score) - only calc posteriors"
- echo "--steps <steps>  Specify steps to run (e.g., prep,posteriors,score or all)"
- echo "--sumstat <name> Sumstat name/ID (extracted from -i path if not provided)"
+echo "-1          Disable step1 (calc posteriors) - only format sumstat"
+echo "-2          Disable step2 (calc score) - only calc posteriors"
+echo "--steps <steps>  Specify steps to run (e.g., prep,posteriors,score or all)"
+echo "--sumstat <name> Sumstat name/ID (extracted from -i path if not provided)"
+echo "--chr <range>    Chromosomes to process (e.g., '21-22' or '10,11,12' or '21,22')"
+echo "                 Default: 1-22"
  echo ""
  echo "Examples:"
  echo "  # Run all steps"
@@ -56,8 +58,9 @@ paramarray=($@)
 steps_arg=""
 sumstat_name=""
 skip_prep=false
+chromosomes=""
 
-# Remove --steps, --sumstat, --skip-prep from array for getopts
+# Remove --steps, --sumstat, --skip-prep, --chr from array for getopts
 new_paramarray=()
 i=0
 while [ $i -lt ${#paramarray[@]} ]; do
@@ -70,6 +73,9 @@ while [ $i -lt ${#paramarray[@]} ]; do
     elif [[ "${paramarray[$i]}" == "--skip-prep" ]]; then
         skip_prep=true
         i=$((i+1))
+    elif [[ "${paramarray[$i]}" == "--chr" ]]; then
+        chromosomes="${paramarray[$((i+1))]}"
+        i=$((i+2))
     else
         new_paramarray+=("${paramarray[$i]}")
         i=$((i+1))
@@ -353,7 +359,7 @@ sbayesr:
   threads: 6
   seed: 80851
   exclude_mhc: true
-score_columns: 2 5 9
+score_columns: 1 2 5
 EOF
 else
   # For .config files, add defaults (user can override later)
@@ -369,8 +375,13 @@ sbayesr:
   threads: 6
   seed: 80851
   exclude_mhc: true
-score_columns: 2 5 9
+score_columns: 1 2 5
 EOF
+fi
+
+# Add chromosome range if specified
+if [[ -n "$chromosomes" ]]; then
+  echo "chromosomes: ${chromosomes}" >> "${config_yaml_host}"
 fi
 
 ################################################################################
@@ -394,11 +405,11 @@ source "${project_dir}/conf/init-docker-config.sh"
 # Build mount flags
 mount_flags=$(format_mount_flags "${mountflag}")
 
-# Build CLI command
+# Build CLI command (use full path since old containers may not have /pgscalculator/bin in PATH)
 if [[ "$run_all" == true ]]; then
-  cli_cmd="pgscalculator run --all --sumstat ${sumstat_name} --config ${config_yaml_container}"
+  cli_cmd="/pgscalculator/bin/pgscalculator run --all --sumstat ${sumstat_name} --config ${config_yaml_container}"
 else
-  cli_cmd="pgscalculator run --steps ${steps_arg} --sumstat ${sumstat_name} --config ${config_yaml_container}"
+  cli_cmd="/pgscalculator/bin/pgscalculator run --steps ${steps_arg} --sumstat ${sumstat_name} --config ${config_yaml_container}"
   if [[ "$skip_prep" == true ]]; then
     cli_cmd="${cli_cmd} --skip-prep"
   fi

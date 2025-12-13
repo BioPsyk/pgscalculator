@@ -64,7 +64,7 @@ cd /faststorage/project/ibp_migration_opengdk/PROJECT_pgscalculator/pgscalculato
 ```bash
 # Check prep output
 ls -la /faststorage/project/ibp_pipeline_pgscalculator/test-zone/out_test_v2_prep/prep/
-ls -la /faststorage/project/ibp_pipeline_pgscalculator/test-zone/out_test_v2_prep/prep/whitelist/
+ls -la /faststorage/project/ibp_pipeline_pgscalculator/test-zone/out_test_v2_prep/prep/inclusion_list/
 
 # Check config was created
 cat /faststorage/project/ibp_pipeline_pgscalculator/test-zone/out_test_v2_prep/config.yaml

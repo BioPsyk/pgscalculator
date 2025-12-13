@@ -6,3 +6,9 @@ work
 references
 **/*.swo
 sif
+
+# Test outputs (not test scripts/docs)
+test-v2/out*/
+
+# Whitepaper (separate doc)
+PGS_DST_whitepaper.md

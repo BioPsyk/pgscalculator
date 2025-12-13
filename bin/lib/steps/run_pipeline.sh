@@ -2,7 +2,7 @@
 # pgscalculator v2 - run command
 
 declare -A STEP_GROUPS
-STEP_GROUPS=([prep]="prep-genotypes prep-ldref prep-whitelist" [sumstat]="format-sumstat filter-variants" [posteriors]="calc-posteriors format-posteriors" [score]="calc-score combine-scores" [benchmark]="calc-benchmark")
+STEP_GROUPS=([prep]="prep-genotypes prep-ldref prep-inclusion-list" [sumstat]="format-sumstat filter-variants" [posteriors]="calc-posteriors format-posteriors" [score]="calc-score combine-scores" [benchmark]="calc-benchmark")
 STEP_GROUP_ORDER=("prep" "sumstat" "posteriors" "score")
 
 run_pipeline() {
@@ -10,7 +10,7 @@ run_pipeline() {
     log_step "Running pipeline for: $sumstat_name"
     local -a groups_to_run
     if [[ "$run_all" -eq 1 ]]; then groups_to_run=("${STEP_GROUP_ORDER[@]}"); elif [[ -n "$steps_arg" ]]; then IFS="," read -ra groups_to_run <<< "$steps_arg"; else log_error "Must specify --all or --steps"; exit 1; fi
-    [[ "$skip_prep" -eq 1 ]] && check_step_completed "$(get_prep_dir "${CFG_OUTDIR}")/whitelist" && groups_to_run=("${groups_to_run[@]/prep/}")
+    [[ "$skip_prep" -eq 1 ]] && check_step_completed "$(get_prep_dir "${CFG_OUTDIR}")/inclusion_list" && groups_to_run=("${groups_to_run[@]/prep/}")
     local failed=0
     for group in "${groups_to_run[@]}"; do [[ -z "$group" ]] && continue; run_step_group "$group" "$sumstat_name" || { failed=1; break; }; done
     [[ $failed -eq 0 ]] && log_info "Pipeline completed" || { log_error "Pipeline failed"; exit 1; }
@@ -27,7 +27,7 @@ run_single_step() {
     case "$step" in
         prep-genotypes) source "${STEPS_DIR}/prep_genotypes.sh"; run_prep_genotypes;;
         prep-ldref) source "${STEPS_DIR}/prep_ldref.sh"; run_prep_ldref;;
-        prep-whitelist) source "${STEPS_DIR}/prep_whitelist.sh"; run_prep_whitelist;;
+        prep-inclusion-list) source "${STEPS_DIR}/prep_inclusion_list.sh"; run_prep_inclusion_list;;
         format-sumstat) source "${STEPS_DIR}/format_sumstat.sh"; run_format_sumstat "$sumstat_name";;
         filter-variants) source "${STEPS_DIR}/filter_variants.sh"; run_filter_variants "$sumstat_name";;
         calc-posteriors) source "${STEPS_DIR}/calc_posteriors.sh"; run_calc_posteriors "$sumstat_name" "";;

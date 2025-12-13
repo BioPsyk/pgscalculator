@@ -205,11 +205,11 @@ format_for_sbayesr() {
     snp_col=$(echo "$header" | awk -F'\t' '{for(i=1;i<=NF;i++) if($i=="SNP"||$i=="RSID"||$i=="rsid") print i}')
     a1_col=$(echo "$header" | awk -F'\t' '{for(i=1;i<=NF;i++) if($i=="A1"||$i=="EffectAllele"||$i=="effect_allele") print i}')
     a2_col=$(echo "$header" | awk -F'\t' '{for(i=1;i<=NF;i++) if($i=="A2"||$i=="OtherAllele"||$i=="other_allele") print i}')
-    freq_col=$(echo "$header" | awk -F'\t' '{for(i=1;i<=NF;i++) if($i=="EAF"||$i=="Freq"||$i=="freq") print i}')
+    freq_col=$(echo "$header" | awk -F'\t' '{for(i=1;i<=NF;i++) if($i=="EAF"||$i=="EAF_1KG"||$i=="Freq"||$i=="freq") print i}')
     beta_col=$(echo "$header" | awk -F'\t' '{for(i=1;i<=NF;i++) if($i=="B"||$i=="BETA"||$i=="beta") print i}')
     se_col=$(echo "$header" | awk -F'\t' '{for(i=1;i<=NF;i++) if($i=="SE"||$i=="se") print i}')
     p_col=$(echo "$header" | awk -F'\t' '{for(i=1;i<=NF;i++) if($i=="P"||$i=="p"||$i=="pval") print i}')
-    n_col=$(echo "$header" | awk -F'\t' '{for(i=1;i<=NF;i++) if($i=="N"||$i=="n") print i}')
+    n_col=$(echo "$header" | awk -F'\t' '{for(i=1;i<=NF;i++) if($i=="N"||$i=="n"||$i=="Neff") print i}')
     
     log_debug "Column indices: SNP=$snp_col A1=$a1_col A2=$a2_col FREQ=$freq_col BETA=$beta_col SE=$se_col P=$p_col N=$n_col"
     

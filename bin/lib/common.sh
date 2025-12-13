@@ -284,9 +284,24 @@ cat_file() {
 # CHROMOSOME UTILITIES
 # =============================================================================
 
-# Get list of chromosomes (1-22)
+# Get list of chromosomes (default: 1-22, configurable via CFG_CHROMOSOMES)
+# CFG_CHROMOSOMES can be:
+#   - "21,22" or "21 22" - specific chromosomes
+#   - "21-22" - range of chromosomes
+#   - not set - defaults to 1-22
 get_chromosomes() {
-    seq 1 22
+    local chr_spec="${CFG_CHROMOSOMES:-}"
+    
+    if [[ -z "$chr_spec" ]]; then
+        # Default: all chromosomes
+        seq 1 22
+    elif [[ "$chr_spec" =~ ^([0-9]+)-([0-9]+)$ ]]; then
+        # Range format: "21-22"
+        seq "${BASH_REMATCH[1]}" "${BASH_REMATCH[2]}"
+    else
+        # List format: "21,22" or "21 22"
+        echo "$chr_spec" | tr ',' ' ' | tr ' ' '\n' | sort -n | uniq
+    fi
 }
 
 # Validate chromosome number

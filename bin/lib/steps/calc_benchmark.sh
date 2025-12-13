@@ -33,7 +33,7 @@ run_calc_benchmark() {
     
     local genodir="${CFG_GENODIR}"
     local genofile="${CFG_GENOFILE}"
-    local whitelist_file="${prep_dir}/whitelist/variant_whitelist.tsv"
+    local inclusion_file="${prep_dir}/inclusion_list/variant_inclusion_list.tsv"
     
     log_info "MAF threshold: ${maf_threshold}"
     
@@ -42,7 +42,7 @@ run_calc_benchmark() {
         local filtered_file="${filtered_dir}/chr${chr}_filtered.tsv"
         [[ ! -f "$filtered_file" ]] && continue
         log_substep "Processing chromosome ${chr}"
-        if process_benchmark_chr "$chr" "$filtered_file" "$genodir" "$genofile" "$step_dir" "$maf_threshold" "$whitelist_file"; then
+        if process_benchmark_chr "$chr" "$filtered_file" "$genodir" "$genofile" "$step_dir" "$maf_threshold" "$inclusion_file"; then
             ((success_count++))
         fi
     done
@@ -54,14 +54,14 @@ run_calc_benchmark() {
 
 process_benchmark_chr() {
     local chr="$1" filtered_file="$2" genodir="$3" genofile="$4"
-    local step_dir="$5" maf_threshold="$6" whitelist_file="$7"
+    local step_dir="$5" maf_threshold="$6" inclusion_file="$7"
     
     local chr_workdir="${step_dir}/work_chr${chr}"
     mkdir -p "$chr_workdir"
     
     # Prepare benchmark sumstat with genotype IDs
     local bench_sumstat="${chr_workdir}/bench_sumstat.tsv"
-    awk -F'\t' 'NR > 1 {print $1, $2}' "$whitelist_file" > "${chr_workdir}/rsid_map.txt"
+    awk -F'\t' 'NR > 1 {print $1, $2}' "$inclusion_file" > "${chr_workdir}/rsid_map.txt"
     
     awk -F'\t' -v OFS='\t' '
         ARGIND == 1 { rsid_to_geno[$1] = $2; next }

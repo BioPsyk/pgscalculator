@@ -20,8 +20,8 @@ check_format_posteriors_deps() {
     local prep_dir
     prep_dir=$(get_prep_dir "$outdir")
     
-    # Check that prep-whitelist has been run
-    require_file "${prep_dir}/whitelist/variant_whitelist.tsv" "Run 'pgscalculator prep-whitelist' first"
+    # Check that prep-inclusion-list has been run
+    require_file "${prep_dir}/inclusion_list/variant_inclusion_list.tsv" "Run 'pgscalculator prep-inclusion-list' first"
 }
 
 # =============================================================================
@@ -55,12 +55,12 @@ run_format_posteriors() {
         return 0
     fi
     
-    local whitelist_file="${prep_dir}/whitelist/variant_whitelist.tsv"
+    local inclusion_file="${prep_dir}/inclusion_list/variant_inclusion_list.tsv"
     
     # Build RSID to genotype ID mapping
     log_substep "Building RSID to genotype ID mapping"
     local rsid_map="${step_dir}/rsid_to_genoid.tsv"
-    create_rsid_mapping "$whitelist_file" "$rsid_map"
+    create_rsid_mapping "$inclusion_file" "$rsid_map"
     
     # Process each chromosome
     log_substep "Mapping posteriors to genotype IDs"
@@ -94,16 +94,16 @@ run_format_posteriors() {
 # =============================================================================
 
 create_rsid_mapping() {
-    local whitelist_file="$1"
+    local inclusion_file="$1"
     local output_file="$2"
     
-    # Extract RSID -> pvar_snpid mapping from whitelist
-    # whitelist format: ld_rsid, pvar_snpid, chrpos
+    # Extract RSID -> pvar_snpid mapping from inclusion list
+    # inclusion list format: ld_rsid, pvar_snpid, chrpos
     awk -F'\t' -v OFS='\t' '
         NR > 1 {
             print $1, $2  # rsid, genotype_id
         }
-    ' "$whitelist_file" | LC_ALL=C sort -k1,1 > "$output_file"
+    ' "$inclusion_file" | LC_ALL=C sort -k1,1 > "$output_file"
     
     local count
     count=$(wc -l < "$output_file")
@@ -138,26 +138,32 @@ map_posteriors_for_chr() {
         "${tmpdir}/posteriors_sorted.tsv" "$rsid_map" 2>/dev/null > "${tmpdir}/mapped.tsv" || true
     
     # Alternative: use awk for more robust joining
-    awk -F' ' -v OFS='\t' '
+    # Note: sbayesR .snpRes format has space-padded columns:
+    # Id, Name(RSID), Chrom, Position, A1, A2, A1Frq, A1Effect, SE, PIP, LastSampleEff
+    # We need to use column 2 (Name) as RSID, and handle variable whitespace
+    awk -v OFS='\t' '
         ARGIND == 1 {
-            # Load RSID mapping
+            # Load RSID mapping (tab-separated: rsid, genotype_id)
             rsid_to_geno[$1] = $2
             next
         }
-        NR == 1 { next }  # Skip header in posteriors
+        FNR == 1 { next }  # Skip header in posteriors
         {
-            rsid = $1
+            # sbayesR output has whitespace-separated columns
+            # Column 2 is Name (RSID)
+            rsid = $2
             if (rsid in rsid_to_geno) {
                 geno_id = rsid_to_geno[rsid]
-                # Output: genotype_id, A1, A2, b, se, pval, Freq, N, effect, pj
-                print geno_id, $2, $3, $4, $5, $6, $7, $8, $9, $10
+                # Output: genotype_id, A1, A2, A1Frq, A1Effect, SE, PIP
+                # Fields: $5=A1, $6=A2, $7=A1Frq, $8=A1Effect, $9=SE, $10=PIP
+                print geno_id, $5, $6, $7, $8, $9, $10
             }
         }
     ' "$rsid_map" "$posterior_file" > "${tmpdir}/mapped_awk.tsv"
     
     # Write output with modified header
-    # Header: ID A1 A2 b se pval Freq N effect pj
-    echo -e "ID\tA1\tA2\tb\tse\tpval\tFreq\tN\teffect\tpj" > "$output_file"
+    # Header: ID A1 A2 Freq Effect SE PIP
+    echo -e "ID\tA1\tA2\tFreq\tEffect\tSE\tPIP" > "$output_file"
     cat "${tmpdir}/mapped_awk.tsv" >> "$output_file"
     
     # Count mapped variants

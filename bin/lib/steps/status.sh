@@ -10,7 +10,7 @@ show_status() {
     echo ""
     echo "=== Prep Steps ==="
     local prep_dir="${outdir}/prep"
-    for step in genotypes ldref whitelist; do
+    for step in genotypes ldref inclusion_list; do
         local d="${prep_dir}/${step}"
         if [[ -d "$d" ]]; then
             check_step_completed "$d" && echo "  [x] prep-${step}" || echo "  [~] prep-${step}"

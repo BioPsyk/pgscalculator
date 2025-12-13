@@ -33,11 +33,11 @@ COMMANDS:
     Preparation (run once, reused across sumstats):
         prep-genotypes    Extract variant IDs from genotype files
         prep-ldref        Extract RSIDs from LD reference
-        prep-whitelist    Create variant whitelist (INFO/MAF filtered, LD intersect)
+        prep-inclusion-list  Create variant inclusion list (INFO/MAF filtered, LD intersect)
 
     Per-sumstat processing:
         format-sumstat    Format and add build coordinates to sumstat
-        filter-variants   Filter sumstat to whitelist variants
+        filter-variants   Filter sumstat to inclusion list variants
         calc-posteriors   Calculate posterior effects using sbayesR
         format-posteriors Map posteriors to genotype variant IDs
         calc-score        Calculate PGS using plink2
@@ -64,7 +64,7 @@ EXAMPLES:
     # Step-by-step execution
     pgscalculator prep-genotypes --config config.yaml
     pgscalculator prep-ldref --config config.yaml
-    pgscalculator prep-whitelist --config config.yaml
+    pgscalculator prep-inclusion-list --config config.yaml
     pgscalculator format-sumstat --sumstat trait1 --config config.yaml
     pgscalculator calc-posteriors --sumstat trait1 --config config.yaml
     pgscalculator calc-score --sumstat trait1 --config config.yaml
@@ -126,15 +126,15 @@ OUTPUT:
         chr{1-22}_ld_rsids   RSIDs from LD reference per chromosome
 EOF
             ;;
-        prep-whitelist)
+        prep-inclusion-list)
             cat << EOF
-pgscalculator prep-whitelist - Create variant whitelist
+pgscalculator prep-inclusion-list - Create variant inclusion list
 
 USAGE:
-    pgscalculator prep-whitelist --config FILE [options]
+    pgscalculator prep-inclusion-list --config FILE [options]
 
 DESCRIPTION:
-    Creates a variant whitelist by:
+    Creates a variant inclusion list by:
     1. Intersecting genotype variants with LD reference RSIDs
     2. Filtering on INFO > threshold (default: 0.8)
     3. Filtering on MAF > threshold (default: 0.01)
@@ -148,9 +148,10 @@ OPTIONS:
     --dry-run        Show what would be done without executing
 
 OUTPUT:
-    {outdir}/prep/whitelist/
-        variant_whitelist.tsv    Final filtered variant list
-        variant_map.tsv          rsid <-> genotype_id mapping with MAF/INFO
+    {outdir}/prep/inclusion_list/
+        variant_inclusion_list.tsv  Final filtered variant list
+    {outdir}/prep/
+        variant_map.tsv             Full rsid <-> genotype_id crosswalk
 EOF
             ;;
         format-sumstat)
@@ -179,18 +180,18 @@ EOF
             ;;
         filter-variants)
             cat << EOF
-pgscalculator filter-variants - Filter sumstat to whitelist variants
+pgscalculator filter-variants - Filter sumstat to inclusion list variants
 
 USAGE:
     pgscalculator filter-variants --sumstat NAME --config FILE [options]
 
 DESCRIPTION:
     Filters the formatted summary statistics to only include variants
-    present in the whitelist. This early filtering significantly reduces
+    present in the inclusion list. This early filtering significantly reduces
     memory usage in downstream steps.
 
 DEPENDENCIES:
-    Requires prep-whitelist and format-sumstat to be completed first.
+    Requires prep-inclusion-list and format-sumstat to be completed first.
 
 OPTIONS:
     --sumstat NAME   Name of sumstat to process
@@ -242,7 +243,7 @@ DESCRIPTION:
     producing scoring-ready effect files for plink2.
 
 DEPENDENCIES:
-    Requires prep-whitelist and calc-posteriors to be completed first.
+    Requires prep-inclusion-list and calc-posteriors to be completed first.
 
 OPTIONS:
     --sumstat NAME   Name of sumstat to process
@@ -344,7 +345,7 @@ DESCRIPTION:
     a specific subset.
 
 STEP GROUPS:
-    prep         Run all prep steps (genotypes, ldref, whitelist)
+    prep         Run all prep steps (genotypes, ldref, inclusion-list)
     sumstat      Run all sumstat formatting steps (format, filter)
     posteriors   Run posterior calculation and formatting
     score        Run scoring and combining steps
@@ -507,10 +508,10 @@ dispatch_command() {
             source "${STEPS_DIR}/prep_ldref.sh"
             run_prep_ldref
             ;;
-        prep-whitelist)
+        prep-inclusion-list)
             require_file "$CONFIG_FILE" "Config file required. Use --config FILE"
-            source "${STEPS_DIR}/prep_whitelist.sh"
-            run_prep_whitelist
+            source "${STEPS_DIR}/prep_inclusion_list.sh"
+            run_prep_inclusion_list
             ;;
         format-sumstat)
             require_file "$CONFIG_FILE" "Config file required. Use --config FILE"

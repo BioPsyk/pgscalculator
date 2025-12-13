@@ -132,138 +132,44 @@ combine_chromosome_scores() {
     local scores_dir="$2"
     local output_file="$3"
     
-    # Create temporary directory for intermediate files
-    local tmpdir
-    tmpdir=$(mktemp -d)
-    
-    # Load IID reference into array
-    local -A iid_to_idx
-    local -a iids
-    local idx=0
-    while IFS= read -r iid; do
-        iids+=("$iid")
-        iid_to_idx["$iid"]=$idx
-        ((idx++))
-    done < "$ref_file"
-    
-    local n_samples=${#iids[@]}
+    local n_samples
+    n_samples=$(wc -l < "$ref_file")
     log_debug "Processing ${n_samples} samples"
     
-    # Initialize score sums for each sample
-    declare -a score_sums
-    declare -a allele_counts
-    for ((i=0; i<n_samples; i++)); do
-        score_sums[$i]=0
-        allele_counts[$i]=0
-    done
-    
-    # Process each chromosome score file
+    # Build explicit list of score files (avoid glob issues)
+    local score_file_list=""
     for chr in $(get_chromosomes); do
         local score_file="${scores_dir}/chr${chr}.sscore"
-        if [[ ! -f "$score_file" ]]; then
-            continue
+        if [[ -f "$score_file" ]]; then
+            score_file_list="${score_file_list} ${score_file}"
+            log_debug "Adding chr${chr} scores"
         fi
-        
-        log_debug "Adding chr${chr} scores"
-        
-        # Get column indices
-        local header
-        header=$(head -1 "$score_file")
-        
-        local iid_col score_col allele_col
-        iid_col=$(echo "$header" | awk -F'\t' '{for(i=1;i<=NF;i++) if($i=="IID"||$i=="#IID") print i}')
-        score_col=$(echo "$header" | awk -F'\t' '{for(i=1;i<=NF;i++) if($i=="SCORE1_SUM") print i}')
-        allele_col=$(echo "$header" | awk -F'\t' '{for(i=1;i<=NF;i++) if($i=="ALLELE_CT") print i}')
-        
-        # Sum scores using awk for efficiency
-        awk -F'\t' -v iid_col="$iid_col" -v score_col="$score_col" -v allele_col="$allele_col" '
-            BEGIN {
-                while ((getline line < "'"$ref_file"'") > 0) {
-                    idx++
-                    ref_iid[line] = idx
-                }
-            }
-            NR > 1 {
-                iid = $iid_col
-                if (iid in ref_iid) {
-                    idx = ref_iid[iid]
-                    scores[idx] += $score_col
-                    alleles[idx] += $allele_col
-                }
-            }
-            END {
-                for (idx=1; idx<=length(ref_iid); idx++) {
-                    print scores[idx], alleles[idx]
-                }
-            }
-        ' "$score_file" > "${tmpdir}/chr${chr}_partial.txt"
-        
     done
     
-    # Combine all partial sums
+    # Combine all chromosome scores
     log_substep "Aggregating scores across chromosomes"
     
-    # Write output header
-    echo -e "IID\tALLELE_CT\tSCORE1_SUM" > "$output_file"
-    
-    # Use paste to combine all partial files, then sum
-    paste "${tmpdir}"/chr*_partial.txt 2>/dev/null | \
-    awk -v n_samples="$n_samples" '
-        BEGIN {
-            # Read IIDs
-            idx = 0
-            while ((getline line < "'"$ref_file"'") > 0) {
-                idx++
-                iids[idx] = line
-            }
-        }
-        {
-            total_score = 0
-            total_alleles = 0
-            for (i=1; i<=NF; i+=2) {
-                total_score += $i
-                total_alleles += $(i+1)
-            }
-            print iids[NR], total_alleles, total_score
-        }
-    ' OFS='\t' >> "$output_file" || true
-    
-    # Alternative simpler approach using awk to process all files
+    # Simple and robust: use awk to sum scores from all files
+    # Score file format: IID<tab>SCORE1_SUM
     awk -F'\t' '
-        ARGIND == 1 {
-            # Load IID reference
-            ref_iids[FNR] = $0
-            n_iids = FNR
-            next
-        }
-        FNR == 1 {
-            # Get column indices from header
-            for(i=1; i<=NF; i++) {
-                if($i == "IID" || $i == "#IID") iid_col = i
-                if($i == "SCORE1_SUM") score_col = i
-                if($i == "ALLELE_CT") allele_col = i
-            }
-            next
-        }
+        FNR == 1 { next }  # Skip headers
         {
-            iid = $iid_col
-            scores[iid] += $score_col
-            alleles[iid] += $allele_col
+            iid = $1
+            score = $2
+            scores[iid] += score
+            if (!(iid in order)) {
+                order[iid] = ++n
+                iids[n] = iid
+            }
         }
         END {
-            for (i=1; i<=n_iids; i++) {
-                iid = ref_iids[i]
-                print iid, alleles[iid]+0, scores[iid]+0
+            print "IID\tSCORE1_SUM"
+            for (i=1; i<=n; i++) {
+                iid = iids[i]
+                print iid "\t" scores[iid]
             }
         }
-    ' OFS='\t' "$ref_file" "${scores_dir}"/chr*.sscore > "${tmpdir}/combined.txt"
-    
-    # Write final output with header
-    echo -e "IID\tALLELE_CT\tSCORE1_SUM" > "$output_file"
-    cat "${tmpdir}/combined.txt" >> "$output_file"
-    
-    # Clean up
-    rm -rf "$tmpdir"
+    ' $score_file_list > "$output_file"
 }
 
 
