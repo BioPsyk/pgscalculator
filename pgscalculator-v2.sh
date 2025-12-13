@@ -1,46 +1,49 @@
 #!/usr/bin/env bash
 
-# pgscalculator v2.0.0 wrapper script
-# Compatible with v1 command-line interface, runs new modular CLI
+# pgscalculator v2.1.0 wrapper script
+# Config-first approach: paths in config.yaml, minimal CLI
 
 ################################################################################
 # Help page
 ################################################################################
 
 function general_usage(){
- echo "Usage:"
- echo " ./pgscalculator-v2.sh -i <dir> -o <dir> -l <dir> -c <file> [options]"
- echo ""
- echo "options:"
- echo "-h          Display help message"
- echo "-i <dir>    Path to sumstats folder (cleansumstats output)"
- echo "-l <dir>    LD map dir, absolute paths"
- echo "-g <dir>    Target genotypes directory"
- echo "-f <file>   Genotype manifest file"
- echo "-s <file>   SNP list filtering (default: none)"
- echo "-c <file>   Config file (sbayesr.config or prscs.config)"
- echo "-o <dir>    Path to output directory"
- echo "-b <dir>    Path to system tmp or scratch (default: /tmp)"
- echo "-w <dir>    Path to workdir/intermediate files (default: work)"
- echo "-j <mode>   Image mode: docker, dockerhub_biopsyk, or singularity (default: singularity)"
- echo "-d          Dev mode, keep intermediates"
- echo "-v          Get version number"
-echo "-1          Disable step1 (calc posteriors) - only format sumstat"
-echo "-2          Disable step2 (calc score) - only calc posteriors"
-echo "--steps <steps>  Specify steps to run (e.g., prep,posteriors,score or all)"
-echo "--sumstat <name> Sumstat name/ID (extracted from -i path if not provided)"
-echo "--chr <range>    Chromosomes to process (e.g., '21-22' or '10,11,12' or '21,22')"
-echo "                 Default: 1-22"
- echo ""
- echo "Examples:"
- echo "  # Run all steps"
- echo "  ./pgscalculator-v2.sh -i /path/to/sumstat_123 -o /path/to/out -l /path/to/ld -c conf/sbayesr.config"
- echo ""
- echo "  # Run only prep and posteriors"
- echo "  ./pgscalculator-v2.sh -i /path/to/sumstat_123 -o /path/to/out -l /path/to/ld -c conf/sbayesr.config --steps prep,posteriors"
- echo ""
- echo "  # Run only scoring (skip prep if already done)"
- echo "  ./pgscalculator-v2.sh -i /path/to/sumstat_123 -o /path/to/out -l /path/to/ld -c conf/sbayesr.config --steps score --skip-prep"
+  echo "Usage:"
+  echo "  ./pgscalculator-v2.sh --config <file> [options]"
+  echo ""
+  echo "Required:"
+  echo "  --config <file>   Path to config.yaml with all settings"
+  echo ""
+  echo "Optional:"
+  echo "  -i <dir>          Path to sumstats folder (overrides config)"
+  echo "  -o <dir>          Path to output directory (overrides config)"
+  echo "  --sumstat <name>  Sumstat name/ID (extracted from -i path if not provided)"
+  echo "  --steps <list>    Steps to run: prep, sumstat, posteriors, score (default: all)"
+  echo "  --skip-prep       Skip prep steps if already completed"
+  echo "  --chr <range>     Chromosomes to process (e.g., '21-22', default: 1-22)"
+  echo "  -d                Dev mode (verbose output)"
+  echo "  -v                Show version"
+  echo "  -h                Show this help"
+  echo ""
+  echo "Config file (config.yaml) should contain:"
+  echo "  ld_reference: /path/to/band_ukb_10k_hm3"
+  echo "  genotypes: /path/to/genotypes"
+  echo "  genotype_manifest: /path/to/manifest.txt"
+  echo "  outdir: /path/to/output  # optional, can use -o instead"
+  echo "  # Plus sbayesr parameters, thresholds, etc."
+  echo ""
+  echo "Examples:"
+  echo "  # Run all steps for a sumstat"
+  echo "  ./pgscalculator-v2.sh --config config.yaml -i /path/to/sumstat_814"
+  echo ""
+  echo "  # Run only prep (reusable across sumstats)"
+  echo "  ./pgscalculator-v2.sh --config config.yaml --steps prep"
+  echo ""
+  echo "  # Run per-sumstat steps (after prep is done)"
+  echo "  ./pgscalculator-v2.sh --config config.yaml -i /path/to/sumstat_814 --skip-prep"
+  echo ""
+  echo "  # Run specific steps only"
+  echo "  ./pgscalculator-v2.sh --config config.yaml -i /path/to/sumstat_814 --steps posteriors,score --skip-prep"
 }
 
 ################################################################################
@@ -54,215 +57,176 @@ project_dir="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 ################################################################################
 paramarray=($@)
 
-# Parse new-style arguments first
+# Parse all arguments
+config_file=""
+infold=""
+outdir=""
 steps_arg=""
 sumstat_name=""
 skip_prep=false
 chromosomes=""
-
-# Remove --steps, --sumstat, --skip-prep, --chr from array for getopts
-new_paramarray=()
-i=0
-while [ $i -lt ${#paramarray[@]} ]; do
-    if [[ "${paramarray[$i]}" == "--steps" ]]; then
-        steps_arg="${paramarray[$((i+1))]}"
-        i=$((i+2))
-    elif [[ "${paramarray[$i]}" == "--sumstat" ]]; then
-        sumstat_name="${paramarray[$((i+1))]}"
-        i=$((i+2))
-    elif [[ "${paramarray[$i]}" == "--skip-prep" ]]; then
-        skip_prep=true
-        i=$((i+1))
-    elif [[ "${paramarray[$i]}" == "--chr" ]]; then
-        chromosomes="${paramarray[$((i+1))]}"
-        i=$((i+2))
-    else
-        new_paramarray+=("${paramarray[$i]}")
-        i=$((i+1))
-    fi
-done
-
-# Defaults
-infold=""
-lddir=""
-genodir=""
-genofile=""
-snpfile=""
-conffile=""
-outdir="out"
-container_image=""
-calc_posterior=true
-calc_score=true
-
-infold_given=false
-lddir_given=false
-genodir_given=false
-genofile_given=false
-snpfile_given=false
-conffile_given=false
-outdir_given=false
-tmpdir_given=false
-devmode_given=false
-calc_posterior_given=false
-calc_score_given=false
-container_image_given=false
-
-tmpdir="/tmp"
-workdir="${present_dir}/work"
 devmode=""
 
-getoptsstring=":hvi:o:b:w:l:g:f:s:m:c:db:12j:"
-
-while getopts "${getoptsstring}" opt "${new_paramarray[@]}"; do
-  case ${opt} in
-    h )
-      general_usage 1>&2
-      exit 0
+i=0
+while [ $i -lt ${#paramarray[@]} ]; do
+  case "${paramarray[$i]}" in
+    --config)
+      config_file="${paramarray[$((i+1))]}"
+      i=$((i+2))
       ;;
-    v )
+    --steps)
+      steps_arg="${paramarray[$((i+1))]}"
+      i=$((i+2))
+      ;;
+    --sumstat)
+      sumstat_name="${paramarray[$((i+1))]}"
+      i=$((i+2))
+      ;;
+    --skip-prep)
+      skip_prep=true
+      i=$((i+1))
+      ;;
+    --chr)
+      chromosomes="${paramarray[$((i+1))]}"
+      i=$((i+2))
+      ;;
+    -i)
+      infold="${paramarray[$((i+1))]}"
+      i=$((i+2))
+      ;;
+    -o)
+      outdir="${paramarray[$((i+1))]}"
+      i=$((i+2))
+      ;;
+    -d)
+      devmode="--verbose"
+      i=$((i+1))
+      ;;
+    -v)
       cat ${project_dir}/VERSION 1>&2
       exit 0
       ;;
-    i )
-      infold="$OPTARG"
-      infold_given=true
+    -h|--help)
+      general_usage 1>&2
+      exit 0
       ;;
-    l )
-      lddir="$OPTARG"
-      lddir_given=true
-      ;;
-    g )
-      genodir="$OPTARG"
-      genodir_given=true
-      ;;
-    f )
-      genofile="$OPTARG"
-      genofile_given=true
-      ;;
-    s )
-      snpfile="$OPTARG"
-      snpfile_given=true
-      ;;
-    c )
-      conffile="$OPTARG"
-      conffile_given=true
-      ;;
-    o )
-      outdir="$OPTARG"
-      outdir_given=true
-      ;;
-    j )
-      container_image="$OPTARG"
-      container_image_given=true
-      ;;
-    b )
-      tmpdir="$OPTARG"
-      tmpdir_given=true
-      ;;
-    w )
-      workdir="$OPTARG"
-      workdir_given=true
-      ;;
-    d )
-      devmode="--dev"
-      devmode_given=true
-      ;;
-    1 )
-      calc_posterior=false
-      calc_posterior_given=true
-      ;;
-    2 )
-      calc_score=false
-      calc_score_given=true
-      ;;
-    \? )
-      echo "Invalid Option: -$OPTARG" 1>&2
-      exit 1
-      ;;
-    : )
-      echo "Invalid Option: -$OPTARG requires an argument" 1>&2
+    *)
+      echo "Unknown option: ${paramarray[$i]}" 1>&2
+      general_usage 1>&2
       exit 1
       ;;
   esac
 done
 
 ################################################################################
-# Validate required arguments
+# Validate config file
 ################################################################################
-if ! ${infold_given}; then
-  >&2 echo "Error: -i (input directory) is required"
+if [[ -z "$config_file" ]]; then
+  >&2 echo "Error: --config is required"
+  >&2 echo "Run with -h for help"
   exit 1
 fi
 
-if ! ${outdir_given}; then
-  >&2 echo "Error: -o (output directory) is required"
+if [[ ! -f "$config_file" ]]; then
+  >&2 echo "Error: Config file not found: $config_file"
   exit 1
 fi
 
-if ! ${lddir_given}; then
-  >&2 echo "Error: -l (LD directory) is required"
+config_file_host=$(realpath "$config_file")
+
+################################################################################
+# Parse config file (simple YAML parsing with awk)
+################################################################################
+parse_yaml_value() {
+  local key="$1"
+  local file="$2"
+  awk -F': ' -v key="$key" '$1 == key {gsub(/^[ \t]+|[ \t]+$/, "", $2); print $2; exit}' "$file"
+}
+
+# Read paths from config
+cfg_ld_reference=$(parse_yaml_value "ld_reference" "$config_file_host")
+cfg_genotypes=$(parse_yaml_value "genotypes" "$config_file_host")
+cfg_genotype_manifest=$(parse_yaml_value "genotype_manifest" "$config_file_host")
+cfg_outdir=$(parse_yaml_value "outdir" "$config_file_host")
+cfg_chromosomes=$(parse_yaml_value "chromosomes" "$config_file_host")
+
+# CLI overrides config
+if [[ -n "$outdir" ]]; then
+  cfg_outdir="$outdir"
+fi
+
+if [[ -n "$chromosomes" ]]; then
+  cfg_chromosomes="$chromosomes"
+fi
+
+################################################################################
+# Validate required paths
+################################################################################
+# LD reference is required
+if [[ -z "$cfg_ld_reference" ]]; then
+  >&2 echo "Error: ld_reference not found in config file"
   exit 1
 fi
 
-if ! ${conffile_given}; then
-  >&2 echo "Error: -c (config file) is required"
+if [[ ! -d "$cfg_ld_reference" ]]; then
+  >&2 echo "Error: LD reference directory not found: $cfg_ld_reference"
   exit 1
 fi
 
-if ! ${genodir_given} || ! ${genofile_given}; then
-  >&2 echo "Warning: -g and -f (genotype directory and manifest) are required for scoring"
+# Genotypes required for scoring
+if [[ -z "$cfg_genotypes" ]] || [[ -z "$cfg_genotype_manifest" ]]; then
+  >&2 echo "Warning: genotypes and genotype_manifest should be in config for scoring"
+fi
+
+# Output directory required (from config or CLI)
+if [[ -z "$cfg_outdir" ]]; then
+  >&2 echo "Error: outdir not found in config file and -o not provided"
+  exit 1
+fi
+
+# Input sumstat: required for non-prep steps
+if [[ -z "$infold" ]] && [[ "$steps_arg" != "prep" ]]; then
+  # Check if we're only running prep
+  if [[ -z "$steps_arg" ]] || [[ "$steps_arg" == *"sumstat"* ]] || [[ "$steps_arg" == *"posteriors"* ]] || [[ "$steps_arg" == *"score"* ]]; then
+    >&2 echo "Error: -i (sumstat input) is required for non-prep steps"
+    exit 1
+  fi
 fi
 
 ################################################################################
 # Resolve paths
 ################################################################################
-mkdir -p ${outdir}
-mkdir -p ${workdir}
-mkdir -p ${tmpdir}
+mkdir -p "${cfg_outdir}"
+outdir_host=$(realpath "${cfg_outdir}")
+lddir_host=$(realpath "${cfg_ld_reference}")
 
-infold_host=$(realpath "${infold}")
-outdir_host=$(realpath "${outdir}")
-tmpdir_host=$(realpath "${tmpdir}")
-workdir_host=$(realpath "${workdir}")
-
-if [ ! -d "$infold_host" ]; then
-  >&2 echo "Error: Input directory doesn't exist: $infold_host"
-  exit 1
+if [[ -n "$cfg_genotypes" ]] && [[ -d "$cfg_genotypes" ]]; then
+  genodir_host=$(realpath "${cfg_genotypes}")
+else
+  genodir_host=""
 fi
 
-lddir_host=$(realpath "${lddir}")
-if [ ! -d "$lddir_host" ]; then
-  >&2 echo "Error: LD directory doesn't exist: $lddir_host"
-  exit 1
+if [[ -n "$cfg_genotype_manifest" ]] && [[ -f "$cfg_genotype_manifest" ]]; then
+  genofile_host=$(realpath "${cfg_genotype_manifest}")
+else
+  genofile_host=""
 fi
 
-if ${genodir_given}; then
-  genodir_host=$(realpath "${genodir}")
-  if [ ! -d "$genodir_host" ]; then
-    >&2 echo "Error: Genotype directory doesn't exist: $genodir_host"
+if [[ -n "$infold" ]]; then
+  infold_host=$(realpath "${infold}")
+  if [[ ! -d "$infold_host" ]]; then
+    >&2 echo "Error: Input directory doesn't exist: $infold_host"
     exit 1
   fi
-fi
-
-if ${genofile_given}; then
-  genofile_host=$(realpath "${genofile}")
-  if [ ! -f "$genofile_host" ]; then
-    >&2 echo "Error: Genotype manifest file doesn't exist: $genofile_host"
-    exit 1
-  fi
-fi
-
-conffile_host=$(realpath "${conffile}")
-if [ ! -f "$conffile_host" ]; then
-  >&2 echo "Error: Config file doesn't exist: $conffile_host"
-  exit 1
+else
+  # For prep-only, use a placeholder
+  infold_host="${outdir_host}"
 fi
 
 # Extract sumstat name from input path if not provided
-if [[ -z "$sumstat_name" ]]; then
+if [[ -z "$sumstat_name" ]] && [[ -n "$infold" ]]; then
   sumstat_name=$(basename "$infold_host" | sed 's/^sumstat_//')
   if [[ "$sumstat_name" == "$(basename "$infold_host")" ]]; then
-    # If no sumstat_ prefix, use the directory name as-is
     sumstat_name=$(basename "$infold_host")
   fi
 fi
@@ -271,22 +235,8 @@ fi
 # Determine steps to run
 ################################################################################
 if [[ -n "$steps_arg" ]]; then
-  # User specified steps explicitly
-  run_all=false
-elif [[ "$calc_posterior" == false ]] && [[ "$calc_score" == false ]]; then
-  # Both disabled - only format sumstat
-  steps_arg="sumstat"
-  run_all=false
-elif [[ "$calc_posterior" == false ]]; then
-  # Only posteriors disabled - run prep, sumstat, score
-  steps_arg="prep,sumstat,score"
-  run_all=false
-elif [[ "$calc_score" == false ]]; then
-  # Only score disabled - run prep, sumstat, posteriors
-  steps_arg="prep,sumstat,posteriors"
   run_all=false
 else
-  # Default: run all steps
   run_all=true
 fi
 
@@ -295,47 +245,37 @@ fi
 ################################################################################
 source "${project_dir}/scripts/init-containerization.sh"
 
-# Which mount symbol to use
-if [ "${container_image}" == "docker" ] || [ "${container_image}" == "dockerhub_biopsyk" ]; then
-  mountflag="-v"
-else
-  mountflag="-B"
-fi
+# Default to singularity
+mountflag="-B"
 
-# Container paths (same as v1)
+# Container paths
 indir_container="/pgscalculator/input"
 foldername=$(basename "$lddir_host")
 lddir_container="/pgscalculator/$foldername"
 genodir_container="/pgscalculator/genodir"
-genodir2_host=$(dirname "${genofile_host}")
-genofile_name=$(basename "${genofile_host}")
-genodir2_container="/pgscalculator/genodir2"
-genofile_container="${genodir2_container}/${genofile_name}"
-confdir_host=$(dirname "${conffile_host}")
-conffile_name=$(basename "${conffile_host}")
-confdir_container="/pgscalculator/confdir"
-conffile_container="${confdir_container}/${conffile_name}"
 outdir_container="/pgscalculator/outdir"
-tmpdir_container="/tmp"
-workdir_container="/pgscalculator/work"
+config_container="/pgscalculator/config"
 
-if ${snpfile_given}; then
-  snpdir_host=$(dirname "${snpfile_host}")
-  snpfile_name=$(basename "${snpfile_host}")
-  snpdir_container="/pgscalculator/snpdir"
-  snpfile_container="${snpdir_container}/${snpfile_name}"
-  snplist_host_container="${mountflag} ${snpdir_host}:${snpdir_container}"
+if [[ -n "$genofile_host" ]]; then
+  genodir2_host=$(dirname "${genofile_host}")
+  genofile_name=$(basename "${genofile_host}")
+  genodir2_container="/pgscalculator/genodir2"
+  genofile_container="${genodir2_container}/${genofile_name}"
 else
-  snplist_host_container=""
+  genodir2_host=""
+  genofile_container=""
 fi
 
-# Create config.yaml in output directory
+################################################################################
+# Generate container config.yaml
+################################################################################
 config_yaml_host="${outdir_host}/config.yaml"
 config_yaml_container="${outdir_container}/config.yaml"
 
-# Generate config.yaml
+# Copy original config and update paths for container
 cat > "${config_yaml_host}" << EOF
-# pgscalculator v2.0.0 - Auto-generated config
+# pgscalculator v2.1.0 - Auto-generated config for container
+# Generated from: ${config_file_host}
 input: ${indir_container}
 outdir: ${outdir_container}
 lddir: ${lddir_container}
@@ -343,58 +283,31 @@ genodir: ${genodir_container}
 genofile: ${genofile_container}
 EOF
 
-# Add optional parameters from config file if it's a yaml file
-if [[ "$conffile_name" == *.yaml ]] || [[ "$conffile_name" == *.yml ]]; then
-  # If config is already yaml, we can source some values
-  # For now, just add basic sbayesr defaults
-  cat >> "${config_yaml_host}" << EOF
-info_threshold: 0.8
-maf_threshold: 0.01
-whichn: totalN
-sbayesr:
-  gamma: 0.0,0.01,0.1,1
-  pi: 0.95,0.02,0.02,0.01
-  burn_in: 2000
-  chain_length: 10000
-  threads: 6
-  seed: 80851
-  exclude_mhc: true
-score_columns: 1 2 5
-EOF
-else
-  # For .config files, add defaults (user can override later)
-  cat >> "${config_yaml_host}" << EOF
-info_threshold: 0.8
-maf_threshold: 0.01
-whichn: totalN
-sbayesr:
-  gamma: 0.0,0.01,0.1,1
-  pi: 0.95,0.02,0.02,0.01
-  burn_in: 2000
-  chain_length: 10000
-  threads: 6
-  seed: 80851
-  exclude_mhc: true
-score_columns: 1 2 5
-EOF
-fi
+# Copy parameters from user's config (skip path keys we've already set)
+awk '
+  !/^(ld_reference|genotypes|genotype_manifest|outdir|input|lddir|genodir|genofile):/ {
+    print
+  }
+' "$config_file_host" >> "${config_yaml_host}"
 
-# Add chromosome range if specified
-if [[ -n "$chromosomes" ]]; then
-  echo "chromosomes: ${chromosomes}" >> "${config_yaml_host}"
+# Add/override chromosome range if specified
+if [[ -n "$cfg_chromosomes" ]]; then
+  # Remove existing chromosomes line and add new one
+  sed -i '/^chromosomes:/d' "${config_yaml_host}"
+  echo "chromosomes: ${cfg_chromosomes}" >> "${config_yaml_host}"
 fi
 
 ################################################################################
 # Determine image
 ################################################################################
-if [ "${container_image}" == "docker" ]; then
-  runimage="${image_tag}" 
-elif [ "${container_image}" == "dockerhub_biopsyk" ]; then
-  runimage="${deploy_image_tag_docker_hub}" 
-elif [ "${container_image}" == "" ]; then
-  runimage="sif/${singularity_image_tag}" 
-else
-  runimage="${container_image}" 
+runimage="sif/${singularity_image_tag}"
+if [[ ! -f "${project_dir}/${runimage}" ]]; then
+  # Try to find any available sif file
+  runimage=$(ls -1 "${project_dir}"/sif/*.sif 2>/dev/null | head -1)
+  if [[ -z "$runimage" ]]; then
+    >&2 echo "Error: No singularity image found in ${project_dir}/sif/"
+    exit 1
+  fi
 fi
 
 source "${project_dir}/conf/init-docker-config.sh"
@@ -405,7 +318,7 @@ source "${project_dir}/conf/init-docker-config.sh"
 # Build mount flags
 mount_flags=$(format_mount_flags "${mountflag}")
 
-# Build CLI command (use full path since old containers may not have /pgscalculator/bin in PATH)
+# Build CLI command
 if [[ "$run_all" == true ]]; then
   cli_cmd="/pgscalculator/bin/pgscalculator run --all --sumstat ${sumstat_name} --config ${config_yaml_container}"
 else
@@ -416,48 +329,40 @@ else
 fi
 
 if [[ -n "$devmode" ]]; then
-  cli_cmd="${cli_cmd} --verbose"
+  cli_cmd="${cli_cmd} ${devmode}"
+fi
+
+################################################################################
+# Build mount options
+################################################################################
+mount_opts=""
+mount_opts="${mount_opts} ${mountflag} ${outdir_host}:${outdir_container}"
+mount_opts="${mount_opts} ${mountflag} ${lddir_host}:${lddir_container}"
+
+if [[ -n "$infold" ]]; then
+  mount_opts="${mount_opts} ${mountflag} ${infold_host}:${indir_container}"
+fi
+
+if [[ -n "$genodir_host" ]] && [[ -d "$genodir_host" ]]; then
+  mount_opts="${mount_opts} ${mountflag} ${genodir_host}:${genodir_container}"
+fi
+
+if [[ -n "$genodir2_host" ]] && [[ -d "$genodir2_host" ]]; then
+  mount_opts="${mount_opts} ${mountflag} ${genodir2_host}:${genodir2_container}"
 fi
 
 ################################################################################
 # Execute
 ################################################################################
-if [ "${container_image}" == "docker" ] || [ "${container_image}" == "dockerhub_biopsyk" ]; then
-  echo "Running pgscalculator v2.0.0 in Docker"
-  echo "Command: ${cli_cmd}"
-  exec docker run \
-     --rm \
-     ${docker_run_args} \
-     ${mount_flags} \
-     ${mountflag} "${infold_host}:${indir_container}" \
-     ${mountflag} "${outdir_host}:${outdir_container}" \
-     ${mountflag} "${lddir_host}:${lddir_container}" \
-     ${mountflag} "${genodir_host}:${genodir_container}" \
-     ${mountflag} "${genodir2_host}:${genodir2_container}" \
-     ${mountflag} "${confdir_host}:${confdir_container}" \
-     ${mountflag} "${tmpdir_host}:${tmpdir_container}" \
-     ${mountflag} "${workdir_host}:${workdir_container}" \
-     ${snplist_host_container} \
-     "${runimage}" \
-     ${cli_cmd}
-else
-  echo "Running pgscalculator v2.0.0 in Singularity"
-  echo "Command: ${cli_cmd}"
-  singularity run \
-     --contain \
-     --cleanenv \
-     ${mount_flags} \
-     ${mountflag} "${infold_host}:${indir_container}" \
-     ${mountflag} "${outdir_host}:${outdir_container}" \
-     ${mountflag} "${lddir_host}:${lddir_container}" \
-     ${mountflag} "${genodir_host}:${genodir_container}" \
-     ${mountflag} "${genodir2_host}:${genodir2_container}" \
-     ${mountflag} "${confdir_host}:${confdir_container}" \
-     ${mountflag} "${tmpdir_host}:${tmpdir_container}" \
-     ${mountflag} "${workdir_host}:${workdir_container}" \
-     ${snplist_host_container} \
-     "${runimage}" \
-     ${cli_cmd}
-fi
+echo "Running pgscalculator v2.1.0 in Singularity"
+echo "Config: ${config_file_host}"
+echo "Output: ${outdir_host}"
+echo "Command: ${cli_cmd}"
 
-
+singularity run \
+  --contain \
+  --cleanenv \
+  ${mount_flags} \
+  ${mount_opts} \
+  "${runimage}" \
+  ${cli_cmd}

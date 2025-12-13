@@ -1,16 +1,17 @@
-# pgscalculator v2.0.0
+# pgscalculator v2.1.0
 
 Modular PGS calculation pipeline with step-by-step control for sbayesR-based polygenic scoring.
 
 _Created by Jesper R. Gådin, Morten Dybdahl Krebs, and Andrew Schork (IBP)_
 
-## What's New in v2
+## What's New in v2.1
 
+- **Config-first**: Reference paths in config.yaml, not CLI
 - **Modular CLI**: Run individual steps or groups of steps
 - **Reusable prep steps**: Run prep once, reuse across multiple sumstats
 - **Step-by-step control**: Skip completed steps, resume failed runs
 - **Better logging**: Track progress with status command
-- **Backwards compatible**: Wrapper script supports v1 command-line interface
+- **Simplified CLI**: Only `--config` and `-i` needed for most runs
 
 ## Quick Start
 
@@ -18,7 +19,7 @@ _Created by Jesper R. Gådin, Morten Dybdahl Krebs, and Andrew Schork (IBP)_
 
 ```bash
 # Check required software
-singularity --version  # or docker --version
+singularity --version
 git --version
 
 # Clone repository
@@ -33,16 +34,38 @@ mkdir -p sif
 singularity pull sif/ibp-pgscalculator-base_version-2.0.0.sif docker://biopsyk/ibp-pgscalculator:2.0.0-amd64
 ```
 
-### Run Full Pipeline (v1-compatible wrapper)
+### Create Config File
+
+Create `config.yaml` with your reference data paths:
+
+```yaml
+# config.yaml
+outdir: /path/to/output
+ld_reference: /path/to/ld-reference/band_ukb_10k_hm3
+genotypes: /path/to/genotypes
+genotype_manifest: /path/to/genotype_manifest.txt
+
+info_threshold: 0.8
+maf_threshold: 0.01
+
+sbayesr:
+  gamma: "0.0,0.01,0.1,1"
+  pi: "0.95,0.02,0.02,0.01"
+  burn_in: 2000
+  chain_length: 10000
+  threads: 6
+  seed: 80851
+  exclude_mhc: true
+```
+
+### Run Pipeline
 
 ```bash
-./pgscalculator-v2.sh \
-  -i /path/to/cleansumstats/output/sumstat_TRAIT \
-  -l /path/to/ld-reference/band_ukb_10k_hm3 \
-  -g /path/to/genotypes \
-  -f /path/to/genotype_manifest.txt \
-  -c conf/sbayesr.config \
-  -o /path/to/output
+# Run prep (once per project)
+./pgscalculator-v2.sh --config config.yaml --steps prep
+
+# Run per-sumstat (for each trait)
+./pgscalculator-v2.sh --config config.yaml -i /path/to/sumstat_TRAIT --skip-prep
 ```
 
 ## Architecture
@@ -99,52 +122,37 @@ pgscalculator v2.0.0
 
 ### Option 1: Wrapper Script (Recommended for Batch Jobs)
 
-The wrapper script (`pgscalculator-v2.sh`) provides backwards compatibility with v1:
+The wrapper script (`pgscalculator-v2.sh`) uses a config-first approach:
 
 ```bash
-# Run all steps
-./pgscalculator-v2.sh \
-  -i /path/to/sumstat_TRAIT \
-  -l /path/to/ld-reference \
-  -g /path/to/genotypes \
-  -f /path/to/manifest.txt \
-  -c conf/sbayesr.config \
-  -o /path/to/output
+# Run prep steps (once per project)
+./pgscalculator-v2.sh --config config.yaml --steps prep
 
-# Run specific steps
-./pgscalculator-v2.sh \
-  -i /path/to/sumstat_TRAIT \
-  -l /path/to/ld-reference \
-  -c conf/sbayesr.config \
-  -o /path/to/output \
-  --steps prep,posteriors
+# Run all steps for a sumstat
+./pgscalculator-v2.sh --config config.yaml -i /path/to/sumstat_TRAIT
 
-# Skip prep if already completed
-./pgscalculator-v2.sh \
-  -i /path/to/sumstat_TRAIT \
-  -l /path/to/ld-reference \
-  -c conf/sbayesr.config \
-  -o /path/to/output \
-  --steps score --skip-prep
+# Run per-sumstat steps (skip prep if done)
+./pgscalculator-v2.sh --config config.yaml -i /path/to/sumstat_TRAIT --skip-prep
+
+# Run specific steps only
+./pgscalculator-v2.sh --config config.yaml -i /path/to/sumstat_TRAIT --steps posteriors,score --skip-prep
+
+# Limit to specific chromosomes (for testing)
+./pgscalculator-v2.sh --config config.yaml -i /path/to/sumstat_TRAIT --chr 21-22 --skip-prep
 ```
 
 #### Wrapper Script Options
 
 | Option | Description |
 |--------|-------------|
-| `-i <dir>` | Path to cleansumstats output folder |
-| `-l <dir>` | LD reference directory |
-| `-g <dir>` | Target genotypes directory |
-| `-f <file>` | Genotype manifest file |
-| `-c <file>` | Config file (sbayesr.config) |
-| `-o <dir>` | Output directory |
-| `-j <mode>` | Container mode: `docker`, `dockerhub_biopsyk`, or `singularity` (default) |
-| `-d` | Dev mode (keep intermediates) |
-| `-v` | Show version |
-| `-1` | Disable posterior calculation |
-| `-2` | Disable scoring |
+| `--config <file>` | **Required**: Path to config.yaml with reference paths |
+| `-i <dir>` | Path to sumstat folder (required for non-prep steps) |
+| `-o <dir>` | Output directory (overrides config) |
 | `--steps <list>` | Comma-separated steps: `prep`, `sumstat`, `posteriors`, `score` |
 | `--skip-prep` | Skip prep steps if already completed |
+| `--chr <range>` | Chromosome range (e.g., "21-22") |
+| `-d` | Dev/verbose mode |
+| `-v` | Show version |
 
 ### Option 2: Direct CLI (Inside Container)
 
