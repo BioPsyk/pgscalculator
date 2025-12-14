@@ -216,7 +216,7 @@ create_final_inclusion_list() {
     
     # Apply filters
     local tmpdir
-    tmpdir=$(mktemp -d)
+    tmpdir=$(make_tmpdir "prep_inclusion_list")
     
     # Copy variant map to temp (add header for filtering output)
     cp "$variant_map" "${tmpdir}/variants.tsv"
@@ -293,7 +293,7 @@ compute_maf_from_genotypes() {
         if [[ -n "$pgen" ]] && [[ -f "$pgen" ]]; then
             local geno_prefix="${pgen%.pgen}"
             local tmpdir
-            tmpdir=$(mktemp -d)
+            tmpdir=$(make_tmpdir "prep_inclusion_list_plink2_freq")
             
             # Compute allele frequencies
             plink2 --pfile "$geno_prefix" --freq --out "${tmpdir}/freq" \
@@ -325,7 +325,7 @@ compute_maf_from_genotypes() {
             if [[ -n "$bed" ]] && [[ -f "$bed" ]]; then
                 local geno_prefix="${bed%.bed}"
                 local tmpdir
-                tmpdir=$(mktemp -d)
+                tmpdir=$(make_tmpdir "prep_inclusion_list_plink2_freq")
                 
                 plink2 --bfile "$geno_prefix" --freq --out "${tmpdir}/freq" \
                     --threads 1 > "${tmpdir}/plink2.log" 2>&1 || true

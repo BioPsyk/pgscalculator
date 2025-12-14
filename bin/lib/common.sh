@@ -304,6 +304,30 @@ get_chromosomes() {
     fi
 }
 
+# =============================================================================
+# TEMP DIRECTORY UTILITIES
+# =============================================================================
+
+# Create a temp directory.
+# Prefer placing temp files under ${CFG_OUTDIR}/tmp (inside output mount) to avoid
+# failures on compute nodes with small/full /tmp.
+make_tmpdir() {
+    local prefix="${1:-pgscalc}"
+    local base=""
+
+    if [[ -n "${CFG_OUTDIR:-}" ]]; then
+        base="${CFG_OUTDIR}/tmp"
+        mkdir -p "$base" 2>/dev/null || true
+        # If we can write to base, use it; else fall back to system mktemp
+        if [[ -d "$base" ]] && [[ -w "$base" ]]; then
+            mktemp -d "${base}/${prefix}.XXXXXX"
+            return $?
+        fi
+    fi
+
+    mktemp -d
+}
+
 # Validate chromosome number
 is_valid_chromosome() {
     local chr="$1"

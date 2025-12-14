@@ -8,7 +8,7 @@
 ################################################################################
 
 function general_usage(){
-  echo "Usage:"
+ echo "Usage:"
   echo "  ./pgscalculator-v2.sh --config <file> --steps <steps> [options]"
   echo ""
   echo "Required:"
@@ -35,21 +35,21 @@ function general_usage(){
   echo "  genotypes: /path/to/genotypes"
   echo "  genotype_manifest: /path/to/manifest.txt"
   echo "  outdir: /path/to/output"
-  echo ""
+ echo ""
   echo "  # Optional: SLURM settings for --sbatch"
   echo "  slurm:"
   echo "    account: my_account"
   echo "    prep:       { mem: 10g, cpus: 6, time: '1:00:00' }"
   echo "    posteriors: { mem: 20g, cpus: 8, time: '2:00:00' }"
   echo "    score:      { mem: 10g, cpus: 4, time: '0:30:00' }"
-  echo ""
-  echo "Examples:"
+ echo ""
+ echo "Examples:"
   echo "  # Step 1: Run prep (once per project)"
   echo "  ./pgscalculator-v2.sh --config config.yaml --steps prep"
-  echo ""
+ echo ""
   echo "  # Step 2: Run per-sumstat steps"
   echo "  ./pgscalculator-v2.sh --config config.yaml --steps sumstat,posteriors,score -i /path/to/sumstat_814"
-  echo ""
+ echo ""
   echo "  # Or submit as SLURM jobs"
   echo "  ./pgscalculator-v2.sh --config config.yaml --steps prep --sbatch"
   echo "  ./pgscalculator-v2.sh --config config.yaml --steps sumstat,posteriors,score -i /path/to/sumstat_814 --sbatch"
@@ -335,10 +335,10 @@ else
 fi
 
 if [[ -n "$infold" ]]; then
-  infold_host=$(realpath "${infold}")
+infold_host=$(realpath "${infold}")
   if [[ ! -d "$infold_host" ]]; then
-    >&2 echo "Error: Input directory doesn't exist: $infold_host"
-    exit 1
+  >&2 echo "Error: Input directory doesn't exist: $infold_host"
+  exit 1
   fi
 else
   # For prep-only, use a placeholder
@@ -363,9 +363,15 @@ check_prep_exists() {
     missing="${missing}  - Genotype prep: ${outdir}/prep/genotypes/\n"
   fi
   
-  # Check for inclusion list
-  if [[ ! -f "${outdir}/prep/inclusion-list/inclusion_list.txt" ]]; then
-    missing="${missing}  - Inclusion list: ${outdir}/prep/inclusion-list/inclusion_list.txt\n"
+  # Check for inclusion list (v2.1)
+  if [[ ! -f "${outdir}/prep/inclusion_list/variant_inclusion_list.tsv" ]]; then
+    missing="${missing}  - Inclusion list: ${outdir}/prep/inclusion_list/variant_inclusion_list.tsv\n"
+  fi
+  if [[ ! -f "${outdir}/prep/inclusion_list/.rsid_index" ]]; then
+    missing="${missing}  - Inclusion index: ${outdir}/prep/inclusion_list/.rsid_index\n"
+  fi
+  if [[ ! -f "${outdir}/prep/variant_map.tsv" ]]; then
+    missing="${missing}  - Variant map: ${outdir}/prep/variant_map.tsv\n"
   fi
   
   if [[ -n "$missing" ]]; then
@@ -379,8 +385,14 @@ check_sumstat_exists() {
   local outdir="$1"
   local sumstat="$2"
   
-  if [[ ! -f "${outdir}/sumstats/${sumstat}/formatted/cleaned_sumstat.tsv" ]]; then
-    echo "  - Formatted sumstat: ${outdir}/sumstats/${sumstat}/formatted/cleaned_sumstat.tsv"
+  # v2.1 format-sumstat output
+  if [[ ! -f "${outdir}/sumstats/${sumstat}/formatted/sumstat_formatted.tsv.gz" ]]; then
+    echo "  - Formatted sumstat: ${outdir}/sumstats/${sumstat}/formatted/sumstat_formatted.tsv.gz"
+    return 1
+  fi
+  # v2.1 filter-variants output (required for posteriors)
+  if [[ ! -f "${outdir}/sumstats/${sumstat}/filtered/sumstat_filtered.tsv.gz" ]]; then
+    echo "  - Filtered sumstat: ${outdir}/sumstats/${sumstat}/filtered/sumstat_filtered.tsv.gz"
     return 1
   fi
   return 0
@@ -390,8 +402,14 @@ check_posteriors_exists() {
   local outdir="$1"
   local sumstat="$2"
   
+  # v2.1 calc-posteriors output
   if [[ ! -d "${outdir}/sumstats/${sumstat}/posteriors" ]] || [[ -z "$(ls -A "${outdir}/sumstats/${sumstat}/posteriors" 2>/dev/null)" ]]; then
     echo "  - Posteriors: ${outdir}/sumstats/${sumstat}/posteriors/"
+    return 1
+  fi
+  # v2.1 format-posteriors output (required for scoring)
+  if [[ ! -d "${outdir}/sumstats/${sumstat}/posteriors_mapped" ]] || [[ -z "$(ls -A "${outdir}/sumstats/${sumstat}/posteriors_mapped" 2>/dev/null)" ]]; then
+    echo "  - Posteriors mapped: ${outdir}/sumstats/${sumstat}/posteriors_mapped/"
     return 1
   fi
   return 0
@@ -447,7 +465,7 @@ if [[ "$steps_arg" == *"score"* ]] && [[ "$steps_arg" != *"posteriors"* ]]; then
     >&2 echo ""
     >&2 echo "Or include posteriors in your steps:"
     >&2 echo "  ./pgscalculator-v2.sh --config ${config_file} --steps posteriors,score -i ${infold}"
-    exit 1
+  exit 1
   fi
 fi
 

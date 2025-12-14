@@ -115,7 +115,7 @@ generate_augmented_sumstat() {
     # Output: all columns from formatted sumstat + GENO_ID + POST_EFFECT + POST_PIP + IN_ANALYSIS
     
     local tmpdir
-    tmpdir=$(mktemp -d)
+    tmpdir=$(make_tmpdir "finalize_output")
     
     # Load posteriors into lookup (RSID -> EFFECT, PIP)
     awk -F'\t' -v OFS='\t' '

@@ -162,7 +162,7 @@ derive_stats() {
     local prep_dir="$5"
     
     local tmpdir
-    tmpdir=$(mktemp -d)
+    tmpdir=$(make_tmpdir "filter_variants")
     
     # Step 1: Add/fix N (effective or total based on config)
     add_sample_size "$input" "${tmpdir}/step1.tsv" "$metadata_file" "$which_n"

@@ -122,7 +122,7 @@ map_posteriors_for_chr() {
     # 2. Keep allele information for scoring
     
     local tmpdir
-    tmpdir=$(mktemp -d)
+    tmpdir=$(make_tmpdir "format_posteriors")
     
     # Get header from posterior file
     local header
