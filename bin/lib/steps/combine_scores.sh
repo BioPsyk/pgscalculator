@@ -70,15 +70,19 @@ run_combine_scores() {
     local merged_file="${step_dir}/merged.sscore"
     combine_chromosome_scores "$ref_file" "${scores_dir}" "$merged_file"
     
+    # Step 3: Create final scores.tsv.gz in sumstat root
+    log_substep "Creating final scores.tsv.gz"
+    create_final_scores "$merged_file" "${sumstat_dir}/scores.tsv.gz"
+    
     # Mark step as completed
     mark_step_completed "$step_dir"
     
     # Report results
     local sample_count
-    sample_count=$(wc -l < "$merged_file")
+    sample_count=$(zcat "${sumstat_dir}/scores.tsv.gz" | wc -l)
     sample_count=$((sample_count - 1))
     log_info "Combined scores for ${sample_count} samples"
-    log_info "Output: ${merged_file}"
+    log_info "Output: ${sumstat_dir}/scores.tsv.gz"
 }
 
 # =============================================================================
@@ -149,27 +153,55 @@ combine_chromosome_scores() {
     # Combine all chromosome scores
     log_substep "Aggregating scores across chromosomes"
     
-    # Simple and robust: use awk to sum scores from all files
-    # Score file format: IID<tab>SCORE1_SUM
+    # Sum scores, allele counts, and variant counts across chromosomes
+    # Score file format: IID, ALLELE_CT, DENOM, SCORE1_SUM, N_VARIANTS (or subset)
     awk -F'\t' '
-        FNR == 1 { next }  # Skip headers
+        FNR == 1 {
+            # Parse header to find column indices
+            for (i=1; i<=NF; i++) {
+                if ($i == "IID" || $i == "#IID") iid_col = i
+                if ($i == "SCORE1_SUM") score_col = i
+                if ($i == "ALLELE_CT") allele_col = i
+                if ($i == "DENOM") denom_col = i
+                if ($i == "N_VARIANTS") nvar_col = i
+            }
+            next
+        }
         {
-            iid = $1
-            score = $2
-            scores[iid] += score
+            iid = $iid_col
+            
+            # Sum score
+            if (score_col) scores[iid] += $score_col
+            
+            # Sum allele count (if available)
+            if (allele_col) alleles[iid] += $allele_col
+            
+            # Sum variants (if available)
+            if (nvar_col) nvars[iid] += $nvar_col
+            
             if (!(iid in order)) {
                 order[iid] = ++n
                 iids[n] = iid
             }
         }
         END {
-            print "IID\tSCORE1_SUM"
+            print "IID\tSCORE_SUM\tALLELE_CT\tN_VARIANTS"
             for (i=1; i<=n; i++) {
                 iid = iids[i]
-                print iid "\t" scores[iid]
+                printf "%s\t%.6g\t%d\t%d\n", iid, scores[iid], alleles[iid]+0, nvars[iid]+0
             }
         }
     ' $score_file_list > "$output_file"
+}
+
+create_final_scores() {
+    local merged_file="$1"
+    local output_file="$2"
+    
+    # Gzip the final output
+    gzip -c "$merged_file" > "$output_file"
+    
+    log_debug "Created final scores file: $output_file"
 }
 
 

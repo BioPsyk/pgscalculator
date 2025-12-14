@@ -83,6 +83,10 @@ run_prep_ldref() {
     log_substep "Creating combined LD RSID list"
     cat "${step_dir}"/chr*_ld_rsids | awk -F'\t' '{print $4}' | LC_ALL=C sort -u > "${step_dir}/ld_rsids_all"
     
+    # Extract EAF from LD reference for use as fallback in sumstat processing
+    log_substep "Extracting allele frequencies from LD reference"
+    extract_ldref_eaf "$lddir" "$outdir"
+    
     # Mark step as completed
     mark_step_completed "$step_dir"
     
@@ -93,6 +97,45 @@ run_prep_ldref() {
 # =============================================================================
 # HELPER FUNCTIONS
 # =============================================================================
+
+extract_ldref_eaf() {
+    local lddir="$1"
+    local outdir="$2"
+    
+    # Create references directory
+    local ref_dir="${outdir}/prep/references"
+    ensure_dir "$ref_dir"
+    
+    local eaf_file="${ref_dir}/ldref_eaf.tsv"
+    
+    # Header for EAF file
+    echo -e "RSID\tA1\tA2\tA2Freq" > "$eaf_file"
+    
+    local total_variants=0
+    
+    for chr in $(get_chromosomes); do
+        local info_file
+        info_file=$(find_ld_info_file "$lddir" "$chr")
+        
+        if [[ -z "$info_file" ]] || [[ ! -f "$info_file" ]]; then
+            continue
+        fi
+        
+        # Extract: RSID (col 2), A1 (col 5), A2 (col 6), A2Freq (col 7)
+        # Info file format (sbayesR): Chrom ID GenPos PhysPos A1 A2 A2Freq ...
+        awk -F' ' -v OFS='\t' '
+            NR > 1 {
+                print $2, $5, $6, $7
+            }
+        ' "$info_file" >> "$eaf_file"
+        
+        local chr_count
+        chr_count=$(awk 'NR > 1' "$info_file" | wc -l)
+        total_variants=$((total_variants + chr_count))
+    done
+    
+    log_info "Extracted EAF for ${total_variants} variants to: ${eaf_file}"
+}
 
 find_ld_info_file() {
     local lddir="$1"

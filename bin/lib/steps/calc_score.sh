@@ -175,7 +175,7 @@ score_chr() {
     fi
     
     cmd+=" --extract ${extract_file}"
-    cmd+=" --score ${posteriors_file} ${score_columns} header cols=scoresums ignore-dup-ids"
+    cmd+=" --score ${posteriors_file} ${score_columns} header cols=+scoresums,+denom ignore-dup-ids"
     cmd+=" --out ${chr_workdir}/chr${chr}"
     cmd+=" --threads 1"
     
@@ -194,10 +194,22 @@ score_chr() {
             # Remove leading # from header if present
             sed -i '1s/^#//' "$score_file"
             
+            # Count variants used (from log file)
+            local n_variants=0
+            if [[ -f "${chr_workdir}/plink2.log" ]]; then
+                n_variants=$(grep -oP '\d+(?= variants loaded from --score file)' "${chr_workdir}/plink2.log" || echo "0")
+            fi
+            
+            # Add N_VARIANTS column
+            awk -F'\t' -v OFS='\t' -v n_variants="$n_variants" '
+                NR == 1 { print $0, "N_VARIANTS"; next }
+                { print $0, n_variants }
+            ' "$score_file" > "${score_file}.tmp" && mv "${score_file}.tmp" "$score_file"
+            
             # Move to final location
             mv "$score_file" "${step_dir}/chr${chr}.sscore"
             
-            log_debug "chr${chr}: Scoring completed successfully"
+            log_debug "chr${chr}: Scoring completed successfully (${n_variants} variants)"
             return 0
         else
             log_error "chr${chr}: plink2 did not produce score file"

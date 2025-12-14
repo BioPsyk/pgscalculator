@@ -232,7 +232,7 @@ get_prep_dir() {
 get_sumstat_dir() {
     local outdir="$1"
     local sumstat_name="$2"
-    echo "${outdir}/sumstat_${sumstat_name}"
+    echo "${outdir}/sumstats/${sumstat_name}"
 }
 
 # =============================================================================

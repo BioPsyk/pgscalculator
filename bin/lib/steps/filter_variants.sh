@@ -82,7 +82,7 @@ run_filter_variants() {
     
     # Step 2: Derive N/EAF/B/SE on the filtered subset (much faster than on full sumstat)
     log_substep "Deriving N/EAF/B/SE statistics"
-    derive_stats "${step_dir}/sumstat_filtered_raw.tsv" "${step_dir}/sumstat_filtered.tsv" "$metadata_file" "$which_n"
+    derive_stats "${step_dir}/sumstat_filtered_raw.tsv" "${step_dir}/sumstat_filtered.tsv" "$metadata_file" "$which_n" "$prep_dir"
     
     # Clean up intermediate file
     rm -f "${step_dir}/sumstat_filtered_raw.tsv"
@@ -159,6 +159,7 @@ derive_stats() {
     local output="$2"
     local metadata_file="$3"
     local which_n="$4"
+    local prep_dir="$5"
     
     local tmpdir
     tmpdir=$(mktemp -d)
@@ -166,8 +167,9 @@ derive_stats() {
     # Step 1: Add/fix N (effective or total based on config)
     add_sample_size "$input" "${tmpdir}/step1.tsv" "$metadata_file" "$which_n"
     
-    # Step 2: Force EAF column (use EAF_1KG if EAF missing)
-    force_eaf "${tmpdir}/step1.tsv" "${tmpdir}/step2.tsv"
+    # Step 2: Force EAF column (use ldref_eaf as fallback, preferred over EAF_1KG)
+    local ldref_eaf_file="${prep_dir}/references/ldref_eaf.tsv"
+    force_eaf "${tmpdir}/step1.tsv" "${tmpdir}/step2.tsv" "$ldref_eaf_file"
     
     # Step 3: Filter bad values (first pass - remove NA/invalid before derivation)
     filter_bad_values "${tmpdir}/step2.tsv" "${tmpdir}/step3.tsv"
@@ -228,27 +230,95 @@ add_sample_size() {
 force_eaf() {
     local input="$1"
     local output="$2"
+    local ldref_eaf_file="$3"
     
-    awk -F'\t' -v OFS='\t' '
-        NR == 1 {
-            has_eaf = 0
-            has_eaf_1kg = 0
+    # If ldref_eaf.tsv exists, use it as preferred fallback
+    # Priority: EAF (from sumstat) > ldref_eaf (from LD reference) > EAF_1KG (last resort)
+    if [[ -f "$ldref_eaf_file" ]]; then
+        log_debug "Using LD reference EAF as fallback from: $ldref_eaf_file"
+        
+        # First, find SNP/RSID column in input
+        local snp_col
+        snp_col=$(head -1 "$input" | awk -F'\t' '{
             for(i=1; i<=NF; i++) {
-                header[i] = $i
-                if($i == "EAF") { eaf_col = i; has_eaf = 1 }
-                if($i == "EAF_1KG") { eaf_1kg_col = i; has_eaf_1kg = 1 }
+                if($i == "SNP" || $i == "RSID" || $i == "rsid" || $i == "ID") {
+                    print i
+                    exit
+                }
             }
-            print
-            next
-        }
-        {
-            if (has_eaf && ($eaf_col == "NA" || $eaf_col == "") && has_eaf_1kg) {
-                # Use EAF_1KG as fallback
-                $eaf_col = $eaf_1kg_col
+        }')
+        
+        awk -F'\t' -v OFS='\t' -v snp_col="$snp_col" '
+            # Load LD reference EAF (RSID -> A2Freq)
+            ARGIND == 1 && FNR > 1 {
+                # ldref_eaf format: RSID, A1, A2, A2Freq
+                ldref_eaf[$1] = $4
+                ldref_a1[$1] = $2
+                ldref_a2[$1] = $3
+                next
             }
-            print
-        }
-    ' "$input" > "$output"
+            # Process sumstat
+            ARGIND == 2 && FNR == 1 {
+                for(i=1; i<=NF; i++) {
+                    header[i] = $i
+                    if($i == "EAF") eaf_col = i
+                    if($i == "EAF_1KG") eaf_1kg_col = i
+                    if($i == "A1" || $i == "EffectAllele") a1_col = i
+                }
+                print
+                next
+            }
+            ARGIND == 2 {
+                rsid = $snp_col
+                
+                # If EAF is missing or NA, try to fill from ldref
+                if (eaf_col && ($eaf_col == "NA" || $eaf_col == "")) {
+                    if (rsid in ldref_eaf) {
+                        # Check allele alignment
+                        ldref_freq = ldref_eaf[rsid]
+                        if (a1_col && $a1_col == ldref_a2[rsid]) {
+                            # A1 matches ldref A2, use A2Freq directly
+                            $eaf_col = ldref_freq
+                        } else if (a1_col && $a1_col == ldref_a1[rsid]) {
+                            # A1 matches ldref A1, flip frequency
+                            $eaf_col = 1 - ldref_freq
+                        } else {
+                            # Cannot align, use as-is (assume A2 is effect allele in ldref)
+                            $eaf_col = ldref_freq
+                        }
+                    } else if (eaf_1kg_col && $eaf_1kg_col != "NA" && $eaf_1kg_col != "") {
+                        # Last resort: use EAF_1KG
+                        $eaf_col = $eaf_1kg_col
+                    }
+                }
+                print
+            }
+        ' "$ldref_eaf_file" "$input" > "$output"
+    else
+        # No ldref_eaf file, fall back to old behavior (EAF_1KG)
+        log_debug "No LD reference EAF file found, using EAF_1KG as fallback"
+        
+        awk -F'\t' -v OFS='\t' '
+            NR == 1 {
+                has_eaf = 0
+                has_eaf_1kg = 0
+                for(i=1; i<=NF; i++) {
+                    header[i] = $i
+                    if($i == "EAF") { eaf_col = i; has_eaf = 1 }
+                    if($i == "EAF_1KG") { eaf_1kg_col = i; has_eaf_1kg = 1 }
+                }
+                print
+                next
+            }
+            {
+                if (has_eaf && ($eaf_col == "NA" || $eaf_col == "") && has_eaf_1kg) {
+                    # Use EAF_1KG as fallback
+                    $eaf_col = $eaf_1kg_col
+                }
+                print
+            }
+        ' "$input" > "$output"
+    fi
 }
 
 filter_bad_values() {

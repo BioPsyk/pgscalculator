@@ -2,7 +2,7 @@
 # pgscalculator v2 - run command
 
 declare -A STEP_GROUPS
-STEP_GROUPS=([prep]="prep-genotypes prep-ldref prep-inclusion-list" [sumstat]="format-sumstat filter-variants" [posteriors]="calc-posteriors format-posteriors" [score]="calc-score combine-scores" [benchmark]="calc-benchmark")
+STEP_GROUPS=([prep]="prep-genotypes prep-ldref prep-inclusion-list" [sumstat]="format-sumstat filter-variants" [posteriors]="calc-posteriors format-posteriors" [score]="calc-score combine-scores finalize-output" [benchmark]="calc-benchmark")
 STEP_GROUP_ORDER=("prep" "sumstat" "posteriors" "score")
 
 run_pipeline() {
@@ -34,6 +34,7 @@ run_single_step() {
         format-posteriors) source "${STEPS_DIR}/format_posteriors.sh"; run_format_posteriors "$sumstat_name";;
         calc-score) source "${STEPS_DIR}/calc_score.sh"; run_calc_score "$sumstat_name" "";;
         combine-scores) source "${STEPS_DIR}/combine_scores.sh"; run_combine_scores "$sumstat_name";;
+        finalize-output) source "${STEPS_DIR}/finalize_output.sh"; run_finalize_output "$sumstat_name";;
         calc-benchmark) source "${STEPS_DIR}/calc_benchmark.sh"; run_calc_benchmark "$sumstat_name" "";;
         *) return 1;;
     esac
