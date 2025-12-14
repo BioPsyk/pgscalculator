@@ -20,8 +20,8 @@ WRAPPER="${PGS_DIR}/pgscalculator-v2.sh"
 # Base paths (adjust as needed)
 INPUT_DIR="/faststorage/project/ibp_migration_opengdk/PROJECT_pgscalculator/pgscalculator/sumstats/5668"
 LDDIR="/faststorage/project/ibp_migration_opengdk/PROJECT_pgscalculator/pgscalculator/references/ld-sbayesr/ukb/band_ukb_10k_hm3"
-GENODIR="/faststorage/project/ibp_migration_opengdk/PROJECT_pgscalculator/pgscalculator/genotypes/plink2_genodir"
-GENOFILE="/faststorage/project/ibp_migration_opengdk/PROJECT_pgscalculator/pgscalculator/genotypes/plink2_genodir2/plink2_genodir_genofiles.txt"
+GENODIR="/faststorage/project/ibp_migration_opengdk/PROJECT_pgscalculator/pgscalculator/references/genotypes_test/plink2"
+GENOFILE="/faststorage/project/ibp_migration_opengdk/PROJECT_pgscalculator/pgscalculator/references/genotypes_test/mapfiles/plink2_genodir_genofiles.txt"
 
 SCENARIO="${1:-1}"
 

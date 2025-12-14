@@ -557,7 +557,30 @@ dispatch_command() {
             ;;
         run)
             require_file "$CONFIG_FILE" "Config file required. Use --config FILE"
-            [[ -z "$SUMSTAT_NAME" ]] && { log_error "Sumstat name required. Use --sumstat NAME"; exit 1; }
+            # Sumstat name is only required for non-prep steps
+            if [[ -z "$SUMSTAT_NAME" ]]; then
+                # Check if only prep steps are being run
+                if [[ "$STEPS" != "prep" ]] && [[ "$RUN_ALL" -eq 1 ]]; then
+                    log_error "Sumstat name required. Use --sumstat NAME"
+                    exit 1
+                fi
+                # For non-all runs, check if any non-prep steps are requested
+                if [[ -n "$STEPS" ]] && [[ "$STEPS" != "prep" ]]; then
+                    # Check if steps contain anything other than prep
+                    local needs_sumstat=0
+                    IFS=',' read -ra step_array <<< "$STEPS"
+                    for s in "${step_array[@]}"; do
+                        if [[ "$s" != "prep" ]]; then
+                            needs_sumstat=1
+                            break
+                        fi
+                    done
+                    if [[ $needs_sumstat -eq 1 ]]; then
+                        log_error "Sumstat name required for non-prep steps. Use --sumstat NAME"
+                        exit 1
+                    fi
+                fi
+            fi
             source "${STEPS_DIR}/run_pipeline.sh"
             run_pipeline "$SUMSTAT_NAME" "$STEPS" "$RUN_ALL" "$SKIP_PREP"
             ;;

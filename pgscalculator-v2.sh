@@ -489,8 +489,9 @@ fi
 ################################################################################
 # Generate container config.yaml
 ################################################################################
-config_yaml_host="${outdir_host}/config.yaml"
-config_yaml_container="${outdir_container}/config.yaml"
+# Use a different filename to avoid overwriting user's original config
+config_yaml_host="${outdir_host}/config_container.yaml"
+config_yaml_container="${outdir_container}/config_container.yaml"
 
 # Copy original config and update paths for container
 cat > "${config_yaml_host}" << EOF
@@ -544,9 +545,15 @@ mount_flags=$(format_mount_flags "${mountflag}")
 
 # Build CLI command
 if [[ "$run_all" == true ]]; then
-  cli_cmd="/pgscalculator/bin/pgscalculator run --all --sumstat ${sumstat_name} --config ${config_yaml_container}"
+  cli_cmd="/pgscalculator/bin/pgscalculator run --all --config ${config_yaml_container}"
+  if [[ -n "$sumstat_name" ]]; then
+    cli_cmd="${cli_cmd} --sumstat ${sumstat_name}"
+  fi
 else
-  cli_cmd="/pgscalculator/bin/pgscalculator run --steps ${steps_arg} --sumstat ${sumstat_name} --config ${config_yaml_container}"
+  cli_cmd="/pgscalculator/bin/pgscalculator run --steps ${steps_arg} --config ${config_yaml_container}"
+  if [[ -n "$sumstat_name" ]]; then
+    cli_cmd="${cli_cmd} --sumstat ${sumstat_name}"
+  fi
   if [[ "$skip_prep" == true ]]; then
     cli_cmd="${cli_cmd} --skip-prep"
   fi
