@@ -196,6 +196,10 @@ cfg_genotype_manifest=$(parse_yaml_value "genotype_manifest" "$config_file_host"
 cfg_outdir=$(parse_yaml_value "outdir" "$config_file_host")
 cfg_chromosomes=$(parse_yaml_value "chromosomes" "$config_file_host")
 
+# Read optional reference files (for INFO/MAF filtering)
+cfg_info_file=$(parse_yaml_nested "references" "info_file" "$config_file_host")
+cfg_maf_file=$(parse_yaml_nested "references" "maf_file" "$config_file_host")
+
 # CLI overrides config
 if [[ -n "$outdir" ]]; then
   cfg_outdir="$outdir"
@@ -499,8 +503,12 @@ genodir: ${genodir_container}
 genofile: ${genofile_container}
 EOF
 
-# Copy parameters from user's config (skip path keys we've already set)
+# Copy parameters from user's config (skip path keys and references section - handled separately)
 awk '
+  BEGIN { in_references = 0 }
+  /^references:/ { in_references = 1; next }
+  /^[a-zA-Z]/ && in_references { in_references = 0 }
+  in_references { next }
   !/^(ld_reference|genotypes|genotype_manifest|outdir|input|lddir|genodir|genofile):/ {
     print
   }
@@ -565,6 +573,24 @@ fi
 
 if [[ -n "$genodir2_host" ]] && [[ -d "$genodir2_host" ]]; then
   mount_opts="${mount_opts} ${mountflag} ${genodir2_host}:${genodir2_container}"
+fi
+
+# Mount INFO file if provided
+if [[ -n "$cfg_info_file" ]] && [[ -f "$cfg_info_file" ]]; then
+  info_file_host=$(realpath "$cfg_info_file")
+  info_file_container="/pgscalculator/references/info_scores.tsv"
+  mount_opts="${mount_opts} ${mountflag} ${info_file_host}:${info_file_container}"
+  # Add to config
+  echo "info_file: ${info_file_container}" >> "${config_yaml_host}"
+fi
+
+# Mount MAF file if provided
+if [[ -n "$cfg_maf_file" ]] && [[ -f "$cfg_maf_file" ]]; then
+  maf_file_host=$(realpath "$cfg_maf_file")
+  maf_file_container="/pgscalculator/references/maf.tsv"
+  mount_opts="${mount_opts} ${mountflag} ${maf_file_host}:${maf_file_container}"
+  # Add to config
+  echo "maf_file: ${maf_file_container}" >> "${config_yaml_host}"
 fi
 
 ################################################################################
