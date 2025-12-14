@@ -2,6 +2,26 @@
 
 This document outlines the changes needed to produce the specified output structure from the current v2.1 pipeline.
 
+---
+
+## Existing Benchmark Step
+
+The `calc-benchmark` step **already exists** in `bin/lib/steps/calc_benchmark.sh`:
+
+- **Requires:** `filter-variants` step completed first
+- **Method:** LD pruning (`--indep-pairwise 250 50 0.25`) + MAF filter (default 0.05)
+- **Scores with:** Original BETA values (not posteriors)
+- **Output:** `{sumstat_dir}/benchmark/benchmark.sscore`
+
+**Usage:**
+```bash
+./pgscalculator-v2.sh --config config.yaml --steps sumstat,benchmark -i /path/to/sumstat
+```
+
+**Note:** Benchmark is optional and not included in `--all`. Must be run explicitly with `--steps benchmark`.
+
+---
+
 ## Current State vs Target
 
 ### Current Output Structure
@@ -20,8 +40,10 @@ This document outlines the changes needed to produce the specified output struct
     ├── posteriors/
     ├── posteriors_mapped/
     ├── scores/
-    └── scores_combined/
-        └── merged.sscore
+    ├── scores_combined/
+    │   └── merged.sscore
+    └── benchmark/            # ← Optional (if --steps benchmark run)
+        └── benchmark.sscore
 ```
 
 ### Target Output Structure
@@ -33,8 +55,9 @@ This document outlines the changes needed to produce the specified output struct
 │   └── ... (same)
 └── sumstats/                 # ← Grouped under sumstats/
     └── {name}/
-        ├── scores.tsv.gz           # Final score
-        ├── sumstat_augmented.tsv.gz # Augmented sumstat
+        ├── scores.tsv.gz              # Final PGS score (posteriors)
+        ├── scores_benchmark.tsv.gz    # Benchmark score (optional)
+        ├── sumstat_augmented.tsv.gz   # Augmented sumstat
         ├── details/
         ├── qc/
         └── intermediates/
@@ -43,6 +66,76 @@ This document outlines the changes needed to produce the specified output struct
 ---
 
 ## Implementation Tasks
+
+### Phase 0: INFO/MAF Reference Files
+
+Currently, INFO/MAF filtering is **not implemented** despite config options existing.
+
+**Task 0.1: Add reference file support to prep step**
+
+Create `prep/references/` directory with:
+- `info_scores.tsv` - User-provided INFO scores (genotype_id → INFO)
+- `maf.tsv` - MAF values (can be computed from genotypes or user-provided)
+
+**Key design:** Use genotype variant IDs as keys, so users can create these files from imputation output.
+
+**Config additions:**
+```yaml
+references:
+  info_file: /path/to/info_scores.tsv    # Optional
+  maf_file: /path/to/maf.tsv             # Optional
+
+filters:
+  info_threshold: 0.8
+  maf_threshold: 0.01
+```
+
+**Task 0.2: Update `prep_inclusion_list.sh`**
+
+Modify `create_final_inclusion_list()` to:
+1. Load INFO scores from reference file (if provided)
+2. Load MAF from reference file (or compute with `plink2 --freq`)
+3. Apply INFO threshold filter
+4. Apply MAF threshold filter
+5. Output filtered inclusion list
+
+**Task 0.3: Add MAF computation helper**
+
+If no `maf_file` provided, compute from genotypes:
+```bash
+plink2 --pfile ${geno_prefix} --freq --out ${prep_dir}/references/maf_computed
+# Extract: ID, ALT_FREQS → maf.tsv format
+```
+
+**Task 0.4: Extract EAF from LD reference**
+
+The LD reference `.info` files contain `A2Freq` (allele frequency from UKB).
+Modify `prep_ldref.sh` to also output:
+
+```bash
+# Extract: RSID, A1, A2, A2Freq → ldref_eaf.tsv
+awk -F' ' -v OFS='\t' '
+    NR > 1 { print $2, $5, $6, $7 }
+' band_chr*.ldm.sparse.info > prep/references/ldref_eaf.tsv
+```
+
+**Task 0.5: Update EAF fallback logic in filter_variants.sh**
+
+Change EAF priority from:
+```
+EAF → EAF_1KG (current - bad)
+```
+To:
+```
+EAF → ldref_eaf (preferred - same population as LD matrix)
+```
+
+This requires:
+1. Load `ldref_eaf.tsv` as lookup table
+2. Match by RSID
+3. Handle allele alignment (A1/A2 matching)
+
+---
 
 ### Phase 1: Directory Structure Changes
 
@@ -228,6 +321,8 @@ Update all step scripts to use new paths:
 ## Priority Order
 
 1. **High Priority** (Core functionality)
+   - INFO/MAF reference file support (Task 0.1, 0.2, 0.3) ← **Currently broken**
+   - Extract EAF from LD reference (Task 0.4, 0.5) ← **Better than EAF_1KG**
    - `scores.tsv.gz` generation (Task 2.1)
    - Directory restructure (Task 1.1, 1.2)
    - `sumstat_augmented.tsv.gz` (Task 2.2)
@@ -235,6 +330,7 @@ Update all step scripts to use new paths:
 2. **Medium Priority** (Completeness)
    - Config copy to details/ (Task 4.1)
    - `variant_map.tsv.gz` (Task 2.3)
+   - Benchmark output rename: `benchmark.sscore` → `scores_benchmark.tsv.gz`
 
 3. **Low Priority** (Nice to have)
    - QC plots (Task 3.1)
@@ -246,6 +342,9 @@ Update all step scripts to use new paths:
 
 | Task | Effort | Files Changed |
 |------|--------|---------------|
+| INFO/MAF reference files | 3 hours | prep_inclusion_list.sh, config parsing |
+| Extract EAF from LD ref | 1 hour | prep_ldref.sh |
+| Update EAF fallback logic | 2 hours | filter_variants.sh |
 | Directory restructure | 2 hours | ~10 files |
 | scores.tsv.gz | 1 hour | combine_scores.sh |
 | sumstat_augmented.tsv.gz | 2 hours | new finalize_output.sh |
@@ -253,7 +352,7 @@ Update all step scripts to use new paths:
 | Config copy to details/ | 15 min | finalize_output.sh |
 | QC generation (TBD) | 3 hours | new generate_qc.sh + R/Python |
 
-**Total: ~9 hours**
+**Total: ~15 hours**
 
 ---
 

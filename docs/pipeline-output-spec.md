@@ -58,9 +58,20 @@ HG01873	-0.00243	1234712	617356
 
 ### 2. `scores_benchmark.tsv.gz` - Benchmark Scores (Optional)
 
-Scores using MAF-filtered + LD-pruned effects (for comparison).
+Scores using MAF-filtered + LD-pruned **original effects** (not posteriors).
+Used for comparison with the posterior-based scores.
 
-Same columns as `scores.tsv.gz`.
+**Method:** LD pruning (`--indep-pairwise 250 50 0.25`) + MAF filter (default 0.05)
+
+| Column | Type | Description |
+|--------|------|-------------|
+| IID | string | Sample identifier |
+| ALLELE_CT | int | Total allele count |
+| SCORE1_SUM | float | Sum of pruned effects |
+
+**Note:** Run with `--steps benchmark` after `sumstat` step. Not included in default `--all` flow.
+
+**Current output location:** `{sumstat_dir}/benchmark/benchmark.sscore`
 
 ### 3. `sumstat_augmented.tsv.gz` - Augmented Summary Statistics
 
@@ -162,6 +173,85 @@ intermediates/
 ---
 
 ## Prep Outputs (Reusable)
+
+### `prep/references/` - QC Reference Files
+
+These files enable INFO and MAF filtering during the inclusion list creation.
+**Key format:** Uses genotype variant IDs so users can create these from imputation output.
+
+#### `info_scores.tsv` (User-provided)
+
+| Column | Type | Description |
+|--------|------|-------------|
+| GENO_ID | string | Genotype variant ID (e.g., `chr1:12345:A:G` or `rs12345`) |
+| INFO | float | Imputation quality score (0-1) |
+
+```
+GENO_ID	INFO
+chr1:12345:A:G	0.95
+chr1:23456:T:C	0.82
+rs789012	0.99
+```
+
+**Source:** Extract from imputation server output (e.g., Michigan, TOPMed)
+
+#### `maf.tsv` (Can be computed or user-provided)
+
+| Column | Type | Description |
+|--------|------|-------------|
+| GENO_ID | string | Genotype variant ID |
+| MAF | float | Minor allele frequency (0-0.5) |
+
+```
+GENO_ID	MAF
+chr1:12345:A:G	0.15
+chr1:23456:T:C	0.02
+rs789012	0.35
+```
+
+**Source:** 
+- Computed from genotypes: `plink2 --freq` → extract ID and ALT_FREQS
+- Or user-provided from imputation reference panel
+
+#### `ldref_eaf.tsv` (Auto-generated from LD reference)
+
+Extracted from LD reference `.info` files during `prep-ldref` step.
+
+| Column | Type | Description |
+|--------|------|-------------|
+| RSID | string | rs identifier (from LD reference) |
+| A1 | string | Allele 1 |
+| A2 | string | Allele 2 |
+| A2Freq | float | Frequency of A2 allele (from UKB) |
+
+```
+RSID	A1	A2	A2Freq
+rs7287144	A	G	0.71675
+rs4010558	G	A	0.707
+```
+
+**Source:** LD reference `.info` files (e.g., `band_chr22.ldm.sparse.info`)
+
+**Use case:** Fallback EAF for sumstats when EAF column is missing.
+
+#### EAF Priority for Sumstat Processing
+
+1. **EAF** from sumstat (if available and valid)
+2. **ldref_eaf** from LD reference (preferred fallback - same population as LD matrix)
+3. ~~**EAF_1KG**~~ from sumstat (avoid - different population, less accurate)
+
+#### Config reference
+
+```yaml
+references:
+  info_file: /path/to/info_scores.tsv    # Optional (user-provided)
+  maf_file: /path/to/maf.tsv             # Optional (can compute from genotypes)
+  # ldref_eaf is auto-generated during prep-ldref
+  
+filters:
+  info_threshold: 0.8
+  maf_threshold: 0.01
+```
 
 ### `prep/genotypes/`
 

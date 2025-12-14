@@ -188,6 +188,9 @@ The wrapper script (`pgscalculator-v2.sh`) uses a config-first approach:
 | `sumstat` | Format and filter sumstat |
 | `posteriors` | Calculate posteriors with sbayesR |
 | `score` | Calculate PGS scores |
+| `benchmark` | Calculate benchmark scores (LD-pruned + MAF-filtered, optional) |
+
+> **Note:** `benchmark` is optional and not included in `--all`. Run explicitly with `--steps benchmark`.
 
 #### Prerequisite Checking
 
