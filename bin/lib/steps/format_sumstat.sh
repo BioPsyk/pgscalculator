@@ -124,8 +124,13 @@ add_build_coordinates() {
 
     rm -rf "$tmpdir"
 
-    # Sanity-check output isn't empty
-    if ! zcat "$output_file" | head -1 | grep -q $'\t'; then
+    # Sanity-check output isn't empty.
+    # With pipefail enabled, `zcat ... | head -1` can fail because zcat receives SIGPIPE.
+    local header=""
+    set +o pipefail
+    header="$(zcat "$output_file" | head -1)"
+    set -o pipefail
+    if [[ -z "$header" ]] || [[ "$header" != *$'\t'* ]]; then
         log_error "add_build_coordinates produced empty/invalid output: ${output_file}"
         exit 1
     fi
