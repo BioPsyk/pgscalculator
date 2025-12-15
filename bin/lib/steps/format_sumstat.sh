@@ -93,12 +93,42 @@ add_build_coordinates() {
     #   1: CHR_b37, 2: POS_b37, 3: RSID_b37, 4: CHR_b38, 5: POS_b38, 6+: rest
     # We want: CHR_b37, POS_b37, POS_b38, 0, RSID, ... (drop RSID_b37 and CHR_b38)
     # Use cut -f1-2,5- to skip columns 3 and 4
-    paste <(zcat "$input_grch37") <(zcat "$input_grch38") | \
+    #
+    # NOTE: avoid process substitution here because failures inside <(zcat ...)
+    # don't reliably propagate under set -e/pipefail. Use FIFOs + wait instead.
+
+    require_file "$input_grch37" "Cleaned sumstat (GRCh37 map) not found"
+    require_file "$input_grch38" "Cleaned sumstat (GRCh38) not found"
+
+    local tmpdir fifo37 fifo38
+    tmpdir=$(make_tmpdir "format_sumstat")
+    fifo37="${tmpdir}/grch37.fifo"
+    fifo38="${tmpdir}/grch38.fifo"
+    mkfifo "$fifo37" "$fifo38"
+
+    # Start streaming decompress in background
+    zcat "$input_grch37" > "$fifo37" & local pid37=$!
+    zcat "$input_grch38" > "$fifo38" & local pid38=$!
+
+    # Consume both streams
+    paste "$fifo37" "$fifo38" | \
         awk -F'\t' -v OFS='\t' '{
             # Replace empty values with NA
             for(i=1; i<=NF; i++) if($i=="") $i="NA"
             print
         }' | cut -f1-2,5- | gzip -c > "$output_file"
+
+    # Ensure both zcat processes succeeded
+    wait "$pid37"
+    wait "$pid38"
+
+    rm -rf "$tmpdir"
+
+    # Sanity-check output isn't empty
+    if ! zcat "$output_file" | head -1 | grep -q $'\t'; then
+        log_error "add_build_coordinates produced empty/invalid output: ${output_file}"
+        exit 1
+    fi
 }
 
 filter_na_coordinates_gz() {
