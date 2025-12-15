@@ -55,11 +55,15 @@ run_finalize_output() {
     log_substep "Generating augmented sumstat"
     generate_augmented_sumstat "$sumstat_dir" "$prep_dir" "$posteriors_combined"
     
-    # Step 3: Copy config to details/
+    # Step 3: Copy variant map to sumstat root (v1-compatible artifact)
+    log_substep "Writing variant_map.tsv.gz"
+    write_variant_map "$prep_dir" "$sumstat_dir"
+
+    # Step 4: Copy config to details/
     log_substep "Copying configuration to details/"
     copy_config_to_details "$outdir" "$step_dir"
     
-    # Step 4: Generate run summary
+    # Step 5: Generate run summary
     log_substep "Generating run summary"
     generate_run_summary "$sumstat_dir" "$step_dir"
     
@@ -73,6 +77,22 @@ run_finalize_output() {
 # =============================================================================
 # PROCESSING FUNCTIONS
 # =============================================================================
+
+write_variant_map() {
+    local prep_dir="$1"
+    local sumstat_dir="$2"
+
+    local variant_map_src="${prep_dir}/variant_map.tsv"
+    local variant_map_out="${sumstat_dir}/variant_map.tsv.gz"
+
+    if [[ ! -f "$variant_map_src" ]]; then
+        log_warn "variant_map.tsv not found at: ${variant_map_src} (skipping)"
+        return 0
+    fi
+
+    gzip -c "$variant_map_src" > "$variant_map_out"
+    log_debug "Wrote variant map: ${variant_map_out}"
+}
 
 combine_posteriors() {
     local posteriors_dir="$1"

@@ -59,6 +59,11 @@ run_combine_scores() {
     fi
     
     log_info "Found ${#score_files[@]} chromosome score files"
+
+    # Compute total number of variants used across chromosomes (fallback for PLINK N_VARIANTS=0)
+    local total_nvar
+    total_nvar=$(compute_total_scored_variants "$scores_dir")
+    log_debug "Total scored variants (from work_chr*/variants.txt): ${total_nvar}"
     
     # Step 1: Build IID reference from first score file
     log_substep "Building IID reference"
@@ -68,7 +73,7 @@ run_combine_scores() {
     # Step 2: Combine scores across chromosomes
     log_substep "Combining chromosome scores"
     local merged_file="${step_dir}/merged.sscore"
-    combine_chromosome_scores "$ref_file" "${scores_dir}" "$merged_file"
+    combine_chromosome_scores "$ref_file" "${scores_dir}" "$merged_file" "$total_nvar"
     
     # Step 3: Create final scores.tsv.gz in sumstat root
     log_substep "Creating final scores.tsv.gz"
@@ -135,6 +140,7 @@ combine_chromosome_scores() {
     local ref_file="$1"
     local scores_dir="$2"
     local output_file="$3"
+    local total_nvar="$4"
     
     local n_samples
     n_samples=$(wc -l < "$ref_file")
@@ -155,7 +161,7 @@ combine_chromosome_scores() {
     
     # Sum scores, allele counts, and variant counts across chromosomes
     # Score file format: IID, ALLELE_CT, DENOM, SCORE1_SUM, N_VARIANTS (or subset)
-    awk -F'\t' '
+    awk -F'\t' -v total_nvar="${total_nvar:-0}" '
         FNR == 1 {
             # Parse header to find column indices
             for (i=1; i<=NF; i++) {
@@ -177,7 +183,11 @@ combine_chromosome_scores() {
             if (allele_col) alleles[iid] += $allele_col
             
             # Sum variants (if available)
-            if (nvar_col) nvars[iid] += $nvar_col
+            if (nvar_col) {
+                v = $nvar_col + 0
+                nvars[iid] += v
+                if (v > 0) any_nvar = 1
+            }
             
             if (!(iid in order)) {
                 order[iid] = ++n
@@ -188,10 +198,27 @@ combine_chromosome_scores() {
             print "IID\tSCORE_SUM\tALLELE_CT\tN_VARIANTS"
             for (i=1; i<=n; i++) {
                 iid = iids[i]
-                printf "%s\t%.6g\t%d\t%d\n", iid, scores[iid], alleles[iid]+0, nvars[iid]+0
+                out_nvar = (any_nvar ? (nvars[iid] + 0) : (total_nvar + 0))
+                printf "%s\t%.6g\t%d\t%d\n", iid, scores[iid], alleles[iid]+0, out_nvar
             }
         }
     ' $score_file_list > "$output_file"
+}
+
+compute_total_scored_variants() {
+    local scores_dir="$1"
+    local total=0
+
+    for chr in $(get_chromosomes); do
+        local vfile="${scores_dir}/work_chr${chr}/variants.txt"
+        if [[ -f "$vfile" ]]; then
+            local n
+            n=$(wc -l < "$vfile")
+            total=$((total + n))
+        fi
+    done
+
+    echo "$total"
 }
 
 create_final_scores() {
