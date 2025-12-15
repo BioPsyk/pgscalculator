@@ -49,7 +49,10 @@ run_finalize_output() {
     # Step 1: Combine all posteriors into single file
     log_substep "Combining posteriors from all chromosomes"
     local posteriors_combined="${sumstat_dir}/posteriors_combined.tsv"
-    combine_posteriors "${sumstat_dir}/posteriors_mapped" "$posteriors_combined"
+    migrate_sumstat_step_dir "$sumstat_dir" "posteriors_mapped"
+    local posteriors_mapped_dir
+    posteriors_mapped_dir=$(get_sumstat_step_dir "$sumstat_dir" "posteriors_mapped")
+    combine_posteriors "$posteriors_mapped_dir" "$posteriors_combined"
     
     # Step 2: Generate sumstat_augmented.tsv.gz
     log_substep "Generating augmented sumstat"
@@ -122,7 +125,9 @@ generate_augmented_sumstat() {
     local prep_dir="$2"
     local posteriors_file="$3"
     
-    local formatted_sumstat="${sumstat_dir}/formatted/sumstat_formatted.tsv.gz"
+    migrate_sumstat_step_dir "$sumstat_dir" "formatted"
+    local formatted_sumstat
+    formatted_sumstat="$(get_sumstat_step_dir "$sumstat_dir" "formatted")/sumstat_formatted.tsv.gz"
     local variant_map="${prep_dir}/variant_map.tsv"
     local output_file="${sumstat_dir}/sumstat_augmented.tsv.gz"
     
@@ -254,7 +259,8 @@ generate_run_summary() {
         echo ""
         echo "Chromosomes processed:"
         for chr in $(get_chromosomes); do
-            if [[ -f "${sumstat_dir}/scores/chr${chr}.sscore" ]]; then
+            migrate_sumstat_step_dir "$sumstat_dir" "scores"
+            if [[ -f "$(get_sumstat_step_dir "$sumstat_dir" "scores")/chr${chr}.sscore" ]]; then
                 echo "  - chr${chr}: OK"
             fi
         done

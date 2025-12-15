@@ -206,7 +206,8 @@ get_step_dir() {
     local sumstat_name="${3:-}"
     
     if [[ -n "$sumstat_name" ]]; then
-        echo "${outdir}/sumstat_${sumstat_name}/${step_name}"
+        # Sumstat step directories live under intermediates/
+        echo "${outdir}/sumstats/${sumstat_name}/intermediates/${step_name}"
     else
         echo "${outdir}/prep/${step_name}"
     fi
@@ -233,6 +234,38 @@ get_sumstat_dir() {
     local outdir="$1"
     local sumstat_name="$2"
     echo "${outdir}/sumstats/${sumstat_name}"
+}
+
+# Get the intermediates directory within a sumstat run directory
+get_sumstat_intermediates_dir() {
+    local sumstat_dir="$1"
+    echo "${sumstat_dir}/intermediates"
+}
+
+# Move legacy step directories (placed directly under sumstat_dir) into
+# sumstat_dir/intermediates/<step> for v2.1 output structure.
+migrate_sumstat_step_dir() {
+    local sumstat_dir="$1"
+    local step="$2"
+
+    local inter_dir
+    inter_dir=$(get_sumstat_intermediates_dir "$sumstat_dir")
+    ensure_dir "$inter_dir"
+
+    local old_dir="${sumstat_dir}/${step}"
+    local new_dir="${inter_dir}/${step}"
+
+    if [[ -d "$old_dir" ]] && [[ ! -d "$new_dir" ]]; then
+        mv "$old_dir" "$new_dir"
+    fi
+}
+
+get_sumstat_step_dir() {
+    local sumstat_dir="$1"
+    local step="$2"
+    local inter_dir
+    inter_dir=$(get_sumstat_intermediates_dir "$sumstat_dir")
+    echo "${inter_dir}/${step}"
 }
 
 # =============================================================================

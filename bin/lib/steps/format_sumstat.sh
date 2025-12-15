@@ -40,7 +40,9 @@ run_format_sumstat() {
     local outdir="${CFG_OUTDIR}"
     local sumstat_dir
     sumstat_dir=$(get_sumstat_dir "$outdir" "$sumstat_name")
-    local step_dir="${sumstat_dir}/formatted"
+    migrate_sumstat_step_dir "$sumstat_dir" "formatted"
+    local step_dir
+    step_dir=$(get_sumstat_step_dir "$sumstat_dir" "formatted")
     ensure_dir "$step_dir"
     
     # Check if already completed

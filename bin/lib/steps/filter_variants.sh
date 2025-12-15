@@ -44,8 +44,12 @@ run_filter_variants() {
     prep_dir=$(get_prep_dir "$outdir")
     local sumstat_dir
     sumstat_dir=$(get_sumstat_dir "$outdir" "$sumstat_name")
-    local format_dir="${sumstat_dir}/formatted"
-    local step_dir="${sumstat_dir}/filtered"
+    migrate_sumstat_step_dir "$sumstat_dir" "formatted"
+    migrate_sumstat_step_dir "$sumstat_dir" "filtered"
+    local format_dir
+    format_dir=$(get_sumstat_step_dir "$sumstat_dir" "formatted")
+    local step_dir
+    step_dir=$(get_sumstat_step_dir "$sumstat_dir" "filtered")
     ensure_dir "$step_dir"
     
     # Check that format-sumstat has been run

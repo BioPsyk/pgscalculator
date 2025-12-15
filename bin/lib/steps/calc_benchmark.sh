@@ -20,7 +20,9 @@ run_calc_benchmark() {
     local outdir="${CFG_OUTDIR}"
     local prep_dir=$(get_prep_dir "$outdir")
     local sumstat_dir=$(get_sumstat_dir "$outdir" "$sumstat_name")
-    local filtered_dir="${sumstat_dir}/filtered"
+    migrate_sumstat_step_dir "$sumstat_dir" "filtered"
+    local filtered_dir
+    filtered_dir=$(get_sumstat_step_dir "$sumstat_dir" "filtered")
     local step_dir="${sumstat_dir}/benchmark"
     ensure_dir "$step_dir"
     

@@ -36,8 +36,12 @@ run_calc_posteriors() {
     local outdir="${CFG_OUTDIR}"
     local sumstat_dir
     sumstat_dir=$(get_sumstat_dir "$outdir" "$sumstat_name")
-    local filter_dir="${sumstat_dir}/filtered"
-    local step_dir="${sumstat_dir}/posteriors"
+    migrate_sumstat_step_dir "$sumstat_dir" "filtered"
+    migrate_sumstat_step_dir "$sumstat_dir" "posteriors"
+    local filter_dir
+    filter_dir=$(get_sumstat_step_dir "$sumstat_dir" "filtered")
+    local step_dir
+    step_dir=$(get_sumstat_step_dir "$sumstat_dir" "posteriors")
     ensure_dir "$step_dir"
     
     # Check that filter-variants has been run

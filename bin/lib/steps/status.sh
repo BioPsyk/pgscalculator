@@ -24,10 +24,10 @@ show_status() {
     else
         # Check if any sumstat directories exist
         local found_sumstat=0
-        for dir in "${outdir}"/sumstat_*; do
+        for dir in "${outdir}"/sumstats/*; do
             if [[ -d "$dir" ]]; then
                 found_sumstat=1
-                show_one_sumstat "$outdir" "$(basename "$dir" | sed 's/^sumstat_//')"
+                show_one_sumstat "$outdir" "$(basename "$dir")"
             fi
         done
         if [[ $found_sumstat -eq 0 ]]; then
@@ -40,16 +40,24 @@ show_status() {
 
 show_one_sumstat() {
     local outdir="$1" name="$2"
-    local sd="${outdir}/sumstat_${name}"
+    local sd="${outdir}/sumstats/${name}"
+    local inter="${sd}/intermediates"
     echo "=== Sumstat: ${name} ==="
     [[ ! -d "$sd" ]] && { echo "  Not started"; echo ""; return; }
-    for step in formatted filtered posteriors posteriors_mapped scores scores_combined benchmark; do
-        local d="${sd}/${step}"
+    for step in formatted filtered posteriors posteriors_mapped scores scores_combined; do
+        local d="${inter}/${step}"
         if [[ -d "$d" ]]; then
             check_step_completed "$d" && echo "  [x] ${step}" || echo "  [~] ${step}"
         else
             echo "  [ ] ${step}"
         fi
     done
+    # benchmark currently lives at sumstat root
+    local bd="${sd}/benchmark"
+    if [[ -d "$bd" ]]; then
+        check_step_completed "$bd" && echo "  [x] benchmark" || echo "  [~] benchmark"
+    else
+        echo "  [ ] benchmark"
+    fi
     echo ""
 }

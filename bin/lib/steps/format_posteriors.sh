@@ -42,8 +42,12 @@ run_format_posteriors() {
     prep_dir=$(get_prep_dir "$outdir")
     local sumstat_dir
     sumstat_dir=$(get_sumstat_dir "$outdir" "$sumstat_name")
-    local posteriors_dir="${sumstat_dir}/posteriors"
-    local step_dir="${sumstat_dir}/posteriors_mapped"
+    migrate_sumstat_step_dir "$sumstat_dir" "posteriors"
+    migrate_sumstat_step_dir "$sumstat_dir" "posteriors_mapped"
+    local posteriors_dir
+    posteriors_dir=$(get_sumstat_step_dir "$sumstat_dir" "posteriors")
+    local step_dir
+    step_dir=$(get_sumstat_step_dir "$sumstat_dir" "posteriors_mapped")
     ensure_dir "$step_dir"
     
     # Check that calc-posteriors has been run

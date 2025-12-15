@@ -37,8 +37,12 @@ run_calc_score() {
     local outdir="${CFG_OUTDIR}"
     local sumstat_dir
     sumstat_dir=$(get_sumstat_dir "$outdir" "$sumstat_name")
-    local posteriors_mapped_dir="${sumstat_dir}/posteriors_mapped"
-    local step_dir="${sumstat_dir}/scores"
+    migrate_sumstat_step_dir "$sumstat_dir" "posteriors_mapped"
+    migrate_sumstat_step_dir "$sumstat_dir" "scores"
+    local posteriors_mapped_dir
+    posteriors_mapped_dir=$(get_sumstat_step_dir "$sumstat_dir" "posteriors_mapped")
+    local step_dir
+    step_dir=$(get_sumstat_step_dir "$sumstat_dir" "scores")
     ensure_dir "$step_dir"
     
     # Check that format-posteriors has been run

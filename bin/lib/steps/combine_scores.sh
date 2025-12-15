@@ -31,8 +31,12 @@ run_combine_scores() {
     local outdir="${CFG_OUTDIR}"
     local sumstat_dir
     sumstat_dir=$(get_sumstat_dir "$outdir" "$sumstat_name")
-    local scores_dir="${sumstat_dir}/scores"
-    local step_dir="${sumstat_dir}/scores_combined"
+    migrate_sumstat_step_dir "$sumstat_dir" "scores"
+    migrate_sumstat_step_dir "$sumstat_dir" "scores_combined"
+    local scores_dir
+    scores_dir=$(get_sumstat_step_dir "$sumstat_dir" "scores")
+    local step_dir
+    step_dir=$(get_sumstat_step_dir "$sumstat_dir" "scores_combined")
     ensure_dir "$step_dir"
     
     # Check that calc-score has been run

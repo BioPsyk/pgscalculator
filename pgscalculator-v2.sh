@@ -386,13 +386,13 @@ check_sumstat_exists() {
   local sumstat="$2"
   
   # v2.1 format-sumstat output
-  if [[ ! -f "${outdir}/sumstats/${sumstat}/formatted/sumstat_formatted.tsv.gz" ]]; then
-    echo "  - Formatted sumstat: ${outdir}/sumstats/${sumstat}/formatted/sumstat_formatted.tsv.gz"
+  if [[ ! -f "${outdir}/sumstats/${sumstat}/intermediates/formatted/sumstat_formatted.tsv.gz" ]]; then
+    echo "  - Formatted sumstat: ${outdir}/sumstats/${sumstat}/intermediates/formatted/sumstat_formatted.tsv.gz"
     return 1
   fi
   # v2.1 filter-variants output (required for posteriors)
-  if [[ ! -f "${outdir}/sumstats/${sumstat}/filtered/sumstat_filtered.tsv.gz" ]]; then
-    echo "  - Filtered sumstat: ${outdir}/sumstats/${sumstat}/filtered/sumstat_filtered.tsv.gz"
+  if [[ ! -f "${outdir}/sumstats/${sumstat}/intermediates/filtered/sumstat_filtered.tsv.gz" ]]; then
+    echo "  - Filtered sumstat: ${outdir}/sumstats/${sumstat}/intermediates/filtered/sumstat_filtered.tsv.gz"
     return 1
   fi
   return 0
@@ -403,13 +403,13 @@ check_posteriors_exists() {
   local sumstat="$2"
   
   # v2.1 calc-posteriors output
-  if [[ ! -d "${outdir}/sumstats/${sumstat}/posteriors" ]] || [[ -z "$(ls -A "${outdir}/sumstats/${sumstat}/posteriors" 2>/dev/null)" ]]; then
-    echo "  - Posteriors: ${outdir}/sumstats/${sumstat}/posteriors/"
+  if [[ ! -d "${outdir}/sumstats/${sumstat}/intermediates/posteriors" ]] || [[ -z "$(ls -A "${outdir}/sumstats/${sumstat}/intermediates/posteriors" 2>/dev/null)" ]]; then
+    echo "  - Posteriors: ${outdir}/sumstats/${sumstat}/intermediates/posteriors/"
     return 1
   fi
   # v2.1 format-posteriors output (required for scoring)
-  if [[ ! -d "${outdir}/sumstats/${sumstat}/posteriors_mapped" ]] || [[ -z "$(ls -A "${outdir}/sumstats/${sumstat}/posteriors_mapped" 2>/dev/null)" ]]; then
-    echo "  - Posteriors mapped: ${outdir}/sumstats/${sumstat}/posteriors_mapped/"
+  if [[ ! -d "${outdir}/sumstats/${sumstat}/intermediates/posteriors_mapped" ]] || [[ -z "$(ls -A "${outdir}/sumstats/${sumstat}/intermediates/posteriors_mapped" 2>/dev/null)" ]]; then
+    echo "  - Posteriors mapped: ${outdir}/sumstats/${sumstat}/intermediates/posteriors_mapped/"
     return 1
   fi
   return 0
