@@ -268,6 +268,15 @@ get_sumstat_step_dir() {
     echo "${inter_dir}/${step}"
 }
 
+# Migrate all known per-sumstat step directories into intermediates/.
+# Safe to call repeatedly.
+migrate_sumstat_all_step_dirs() {
+    local sumstat_dir="$1"
+    for step in formatted filtered posteriors posteriors_mapped scores scores_combined; do
+        migrate_sumstat_step_dir "$sumstat_dir" "$step"
+    done
+}
+
 # =============================================================================
 # FILE UTILITIES
 # =============================================================================

@@ -8,6 +8,10 @@ STEP_GROUP_ORDER=("prep" "sumstat" "posteriors" "score")
 run_pipeline() {
     local sumstat_name="$1" steps_arg="$2" run_all="$3" skip_prep="$4"
     log_step "Running pipeline for: $sumstat_name"
+    # Ensure legacy output layout is migrated into intermediates/
+    local sumstat_dir
+    sumstat_dir=$(get_sumstat_dir "${CFG_OUTDIR}" "$sumstat_name")
+    migrate_sumstat_all_step_dirs "$sumstat_dir"
     local -a groups_to_run
     if [[ "$run_all" -eq 1 ]]; then groups_to_run=("${STEP_GROUP_ORDER[@]}"); elif [[ -n "$steps_arg" ]]; then IFS="," read -ra groups_to_run <<< "$steps_arg"; else log_error "Must specify --all or --steps"; exit 1; fi
     [[ "$skip_prep" -eq 1 ]] && check_step_completed "$(get_prep_dir "${CFG_OUTDIR}")/inclusion_list" && groups_to_run=("${groups_to_run[@]/prep/}")
