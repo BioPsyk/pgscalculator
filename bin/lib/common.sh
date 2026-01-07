@@ -451,8 +451,24 @@ get_geno_files_for_chr() {
     local filetype="$4"  # pgen, pvar, psam, bed, bim, fam
     
     local result
-    result=$(awk -F'\t' -v chr="$chr" -v ft="$filetype" -v gdir="$genodir" \
-        '$1 == chr && $2 == ft { print gdir "/" $3 }' "$genofile")
+    # Manifest format:
+    #   <chr> <filetype> <filename>
+    # Supports both TAB and SPACE separated files, and tolerates CRLF line endings.
+    # Also accepts "chr1" in the chr column (normalized to "1").
+    result=$(awk -v chr="$chr" -v ft="$filetype" -v gdir="$genodir" '
+        BEGIN { FS = "[ \t]+" }
+        {
+            # Drop CR if file has Windows line endings
+            sub(/\r$/, "", $0)
+            c = $1; t = $2; f = $3
+            sub(/^chr/, "", c)
+            sub(/\r$/, "", t)
+            sub(/\r$/, "", f)
+            if (c == chr && t == ft) {
+                print gdir "/" f
+            }
+        }
+    ' "$genofile")
     
     echo "$result"
 }

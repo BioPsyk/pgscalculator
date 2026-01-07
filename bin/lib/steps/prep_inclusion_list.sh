@@ -54,8 +54,10 @@ run_prep_inclusion_list() {
     fi
     
     # Get filter thresholds from config (with defaults)
-    local info_threshold="${CFG_INFO_THRESHOLD:-0.8}"
-    local maf_threshold="${CFG_MAF_THRESHOLD:-0.01}"
+    # Preferred (v2.1): filters.info_threshold / filters.maf_threshold
+    # Backwards compatible: info_threshold / maf_threshold
+    local info_threshold="${CFG_FILTERS_INFO_THRESHOLD:-${CFG_INFO_THRESHOLD:-0.8}}"
+    local maf_threshold="${CFG_FILTERS_MAF_THRESHOLD:-${CFG_MAF_THRESHOLD:-0.01}}"
     
     log_info "INFO threshold: ${info_threshold}"
     log_info "MAF threshold: ${maf_threshold}"
@@ -201,8 +203,14 @@ create_final_inclusion_list() {
     local info_file="${CFG_INFO_FILE:-}"
     local maf_file="${CFG_MAF_FILE:-}"
     
-    # If no MAF file provided, try to compute from genotypes
-    if [[ -z "$maf_file" ]] || [[ ! -f "$maf_file" ]]; then
+    # Decide whether we need MAF at all (threshold <= 0 disables MAF filtering)
+    local maf_filter_enabled="yes"
+    if awk -v t="${maf_threshold}" 'BEGIN{ exit !(t <= 0) }' 2>/dev/null; then
+        maf_filter_enabled="no"
+    fi
+
+    # If MAF filtering enabled and no MAF file provided, compute from genotypes
+    if [[ "$maf_filter_enabled" == "yes" ]] && ( [[ -z "$maf_file" ]] || [[ ! -f "$maf_file" ]] ); then
         log_substep "Computing MAF from genotypes"
         compute_maf_from_genotypes "$prep_dir" "$ref_dir"
         maf_file="${ref_dir}/maf_computed.tsv"
@@ -221,26 +229,36 @@ create_final_inclusion_list() {
     # Copy variant map to temp (add header for filtering output)
     cp "$variant_map" "${tmpdir}/variants.tsv"
     
-    # Apply INFO filter if info_file provided
+    # INFO threshold <= 0 disables INFO filtering (even if info_file is provided)
+    local info_filter_enabled="yes"
+    if awk -v t="${info_threshold}" 'BEGIN{ exit !(t <= 0) }' 2>/dev/null; then
+        info_filter_enabled="no"
+    fi
+
+    # Apply INFO filter if enabled and info_file provided
     local after_info_count="$input_count"
-    if [[ -n "$info_file" ]] && [[ -f "$info_file" ]]; then
+    if [[ "$info_filter_enabled" == "yes" ]] && [[ -n "$info_file" ]] && [[ -f "$info_file" ]]; then
         log_substep "Applying INFO filter (threshold: ${info_threshold})"
         apply_info_filter "${tmpdir}/variants.tsv" "$info_file" "$info_threshold" "${tmpdir}/after_info.tsv"
         after_info_count=$(awk 'NR > 1' "${tmpdir}/after_info.tsv" | wc -l)
         log_info "After INFO filter: ${after_info_count} variants"
         mv "${tmpdir}/after_info.tsv" "${tmpdir}/variants.tsv"
+    elif [[ "$info_filter_enabled" != "yes" ]]; then
+        log_info "INFO threshold <= 0, skipping INFO filter"
     else
         log_info "No INFO file provided, skipping INFO filter"
     fi
     
-    # Apply MAF filter if maf_file exists
+    # Apply MAF filter if enabled and maf_file exists
     local after_maf_count="$after_info_count"
-    if [[ -f "$maf_file" ]]; then
+    if [[ "$maf_filter_enabled" == "yes" ]] && [[ -f "$maf_file" ]]; then
         log_substep "Applying MAF filter (threshold: ${maf_threshold})"
         apply_maf_filter "${tmpdir}/variants.tsv" "$maf_file" "$maf_threshold" "${tmpdir}/after_maf.tsv"
         after_maf_count=$(awk 'NR > 1' "${tmpdir}/after_maf.tsv" | wc -l)
         log_info "After MAF filter: ${after_maf_count} variants"
         mv "${tmpdir}/after_maf.tsv" "${tmpdir}/variants.tsv"
+    elif [[ "$maf_filter_enabled" != "yes" ]]; then
+        log_info "MAF threshold <= 0, skipping MAF filter"
     else
         log_info "No MAF file available, skipping MAF filter"
     fi

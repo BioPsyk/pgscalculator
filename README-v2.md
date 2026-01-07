@@ -45,8 +45,15 @@ ld_reference: /path/to/ld-reference/band_ukb_10k_hm3
 genotypes: /path/to/genotypes
 genotype_manifest: /path/to/genotype_manifest.txt
 
-info_threshold: 0.8
-maf_threshold: 0.01
+# Optional reference files for filtering (recommended if you want to apply INFO/MAF filters)
+references:
+  info_file: /path/to/info_scores.tsv   # (optional) variant INFO scores keyed by genotype variant IDs
+  maf_file:  /path/to/maf.tsv           # (optional) MAF keyed by genotype variant IDs
+
+# Variant filters used when building the inclusion list (prep-inclusion-list)
+filters:
+  info_threshold: 0.8   # set to 0 to disable INFO filtering
+  maf_threshold: 0.01   # set to 0 to disable MAF filtering (and avoid computing MAF)
 
 sbayesr:
   gamma: "0.0,0.01,0.1,1"
@@ -248,8 +255,9 @@ genofile: /path/to/genotype_manifest.tsv
 lddir: /path/to/ld_reference
 
 # Filtering thresholds
-info_threshold: 0.8
-maf_threshold: 0.01
+filters:
+  info_threshold: 0.8
+  maf_threshold: 0.01
 whichn: totalN
 
 # sbayesR parameters
