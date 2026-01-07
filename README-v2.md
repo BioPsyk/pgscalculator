@@ -47,8 +47,8 @@ genotype_manifest: /path/to/genotype_manifest.txt
 
 # Optional reference files for filtering (recommended if you want to apply INFO/MAF filters)
 references:
-  info_file: /path/to/info_scores.tsv   # (optional) variant INFO scores keyed by genotype variant IDs
-  maf_file:  /path/to/maf.tsv           # (optional) MAF keyed by genotype variant IDs
+  info_file: /path/to/info_scores.tsv   # (optional) or set to false to disable INFO filtering
+  maf_file:  /path/to/maf.tsv           # (optional) or set to false to disable MAF filtering
 
 # Variant filters used when building the inclusion list (prep-inclusion-list)
 filters:

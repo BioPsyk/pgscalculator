@@ -202,10 +202,25 @@ create_final_inclusion_list() {
     # Get reference file paths from config (optional)
     local info_file="${CFG_INFO_FILE:-}"
     local maf_file="${CFG_MAF_FILE:-}"
+
+    # Allow "false" to explicitly disable these filters via config
+    local info_forced_off="no"
+    local maf_forced_off="no"
+    if [[ -n "$info_file" ]] && [[ "${info_file,,}" == "false" ]]; then
+        info_forced_off="yes"
+        info_file=""
+    fi
+    if [[ -n "$maf_file" ]] && [[ "${maf_file,,}" == "false" ]]; then
+        maf_forced_off="yes"
+        maf_file=""
+    fi
     
     # Decide whether we need MAF at all (threshold <= 0 disables MAF filtering)
     local maf_filter_enabled="yes"
     if awk -v t="${maf_threshold}" 'BEGIN{ exit !(t <= 0) }' 2>/dev/null; then
+        maf_filter_enabled="no"
+    fi
+    if [[ "$maf_forced_off" == "yes" ]]; then
         maf_filter_enabled="no"
     fi
 
@@ -234,6 +249,9 @@ create_final_inclusion_list() {
     if awk -v t="${info_threshold}" 'BEGIN{ exit !(t <= 0) }' 2>/dev/null; then
         info_filter_enabled="no"
     fi
+    if [[ "$info_forced_off" == "yes" ]]; then
+        info_filter_enabled="no"
+    fi
 
     # Apply INFO filter if enabled and info_file provided
     local after_info_count="$input_count"
@@ -244,7 +262,11 @@ create_final_inclusion_list() {
         log_info "After INFO filter: ${after_info_count} variants"
         mv "${tmpdir}/after_info.tsv" "${tmpdir}/variants.tsv"
     elif [[ "$info_filter_enabled" != "yes" ]]; then
-        log_info "INFO threshold <= 0, skipping INFO filter"
+        if [[ "$info_forced_off" == "yes" ]]; then
+            log_info "INFO filter disabled via config (info_file: false), skipping INFO filter"
+        else
+            log_info "INFO threshold <= 0, skipping INFO filter"
+        fi
     else
         log_info "No INFO file provided, skipping INFO filter"
     fi
@@ -258,7 +280,11 @@ create_final_inclusion_list() {
         log_info "After MAF filter: ${after_maf_count} variants"
         mv "${tmpdir}/after_maf.tsv" "${tmpdir}/variants.tsv"
     elif [[ "$maf_filter_enabled" != "yes" ]]; then
-        log_info "MAF threshold <= 0, skipping MAF filter"
+        if [[ "$maf_forced_off" == "yes" ]]; then
+            log_info "MAF filter disabled via config (maf_file: false), skipping MAF filter"
+        else
+            log_info "MAF threshold <= 0, skipping MAF filter"
+        fi
     else
         log_info "No MAF file available, skipping MAF filter"
     fi

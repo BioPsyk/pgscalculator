@@ -615,8 +615,10 @@ if [[ -n "$genodir2_host" ]] && [[ -d "$genodir2_host" ]]; then
   mount_opts="${mount_opts} ${mountflag} ${genodir2_host}:${genodir2_container}"
 fi
 
-# Mount INFO file if provided
-if [[ -n "$cfg_info_file" ]] && [[ -f "$cfg_info_file" ]]; then
+# Mount INFO file if provided (or allow "false" to explicitly disable)
+if [[ -n "$cfg_info_file" ]] && [[ "${cfg_info_file,,}" == "false" ]]; then
+  echo "info_file: false" >> "${config_yaml_host}"
+elif [[ -n "$cfg_info_file" ]] && [[ -f "$cfg_info_file" ]]; then
   info_file_host=$(realpath "$cfg_info_file")
   info_file_container="/pgscalculator/references/info_scores.tsv"
   mount_opts="${mount_opts} ${mountflag} ${info_file_host}:${info_file_container}"
@@ -624,8 +626,10 @@ if [[ -n "$cfg_info_file" ]] && [[ -f "$cfg_info_file" ]]; then
   echo "info_file: ${info_file_container}" >> "${config_yaml_host}"
 fi
 
-# Mount MAF file if provided
-if [[ -n "$cfg_maf_file" ]] && [[ -f "$cfg_maf_file" ]]; then
+# Mount MAF file if provided (or allow "false" to explicitly disable)
+if [[ -n "$cfg_maf_file" ]] && [[ "${cfg_maf_file,,}" == "false" ]]; then
+  echo "maf_file: false" >> "${config_yaml_host}"
+elif [[ -n "$cfg_maf_file" ]] && [[ -f "$cfg_maf_file" ]]; then
   maf_file_host=$(realpath "$cfg_maf_file")
   maf_file_container="/pgscalculator/references/maf.tsv"
   mount_opts="${mount_opts} ${mountflag} ${maf_file_host}:${maf_file_container}"
