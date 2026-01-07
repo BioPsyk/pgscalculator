@@ -99,6 +99,9 @@ for sumstat in /path/to/sumstat_*; do
     -i "$sumstat" \
     --sbatch
 done
+
+# Note: the per-sumstat output folder name matches the input sumstat folder basename
+# (e.g. input: /path/to/sumstat_5759 -> outdir/sumstats/sumstat_5759/)
 ```
 
 ## Architecture

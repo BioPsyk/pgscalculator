@@ -241,7 +241,7 @@ if [[ "$use_sbatch" == true ]]; then
   
   # Build job name
   if [[ -n "$infold" ]]; then
-    job_name="pgs_$(basename "$infold" | sed 's/^sumstat_//')"
+    job_name="pgs_$(basename "$infold")"
   else
     job_name="pgs_${step_profile}"
   fi
@@ -345,10 +345,12 @@ else
   infold_host="${outdir_host}"
 fi
 
-# Extract sumstat name from input path
+# Extract sumstat name from input path.
+# IMPORTANT: output folder should match the input folder name exactly.
+# (e.g. input: /.../sumstat_5759  -> output: sumstats/sumstat_5759/)
 sumstat_name=""
 if [[ -n "$infold" ]]; then
-  sumstat_name=$(basename "$infold_host" | sed 's/^sumstat_//')
+  sumstat_name=$(basename "$infold_host")
 fi
 
 ################################################################################
