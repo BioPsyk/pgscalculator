@@ -861,6 +861,12 @@ mount_opts=""
 mount_opts="${mount_opts} ${mountflag} ${outdir_host}:${outdir_container}"
 mount_opts="${mount_opts} ${mountflag} ${lddir_host}:${lddir_container}"
 
+# Ensure we have a writable temp location with enough space, and bind it as /tmp
+# inside the container. Many tools (e.g., sort) spill temporary files to /tmp.
+tmpdir_host="${outdir_host}/tmp"
+mkdir -p "${tmpdir_host}"
+mount_opts="${mount_opts} ${mountflag} ${tmpdir_host}:/tmp"
+
 if [[ -n "$infold" ]]; then
   mount_opts="${mount_opts} ${mountflag} ${infold_host}:${indir_container}"
 fi
@@ -903,6 +909,10 @@ echo "Config: ${config_file_host}"
 echo "Output: ${outdir_host}"
   echo "Command: ${cli_cmd}"
 
+  # Force temp usage inside container to /tmp (which we bind to ${outdir_host}/tmp).
+  # With --cleanenv, set via SINGULARITYENV_*
+  SINGULARITYENV_TMPDIR=/tmp \
+  SINGULARITYENV_TMP=/tmp \
   singularity run \
      --contain \
      --cleanenv \
