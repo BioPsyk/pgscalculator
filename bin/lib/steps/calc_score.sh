@@ -53,17 +53,23 @@ run_calc_score() {
         specific_chr="${CFG_CHROMOSOMES#chr}"
     fi
 
-    # Check if already completed (only if not running specific chr)
+    # Check if already completed (only if not running specific chr).
+    # Be defensive: if the marker exists but no chr*.sscore outputs exist, re-run.
     if [[ -z "$specific_chr" ]] && check_step_completed "$step_dir"; then
-        log_info "Step already completed. Use --force to re-run."
-        return 0
+        if ls "${step_dir}"/chr*.sscore >/dev/null 2>&1; then
+            log_info "Step already completed. Use --force to re-run."
+            return 0
+        fi
+        log_warn "Found ${step_dir}/.completed but no chr*.sscore outputs; re-running calc-score."
     fi
     
     local genodir="${CFG_GENODIR}"
     local genofile="${CFG_GENOFILE}"
     
-    # Get score columns from config (default: 2 5 8 for ID, A1, effect)
-    local score_columns="${CFG_SCORE_COLUMNS:-2 5 9}"
+    # Get score columns from config.
+    # Default must match posteriors_mapped header: ID A1 A2 Freq Effect SE PIP
+    # plink2 --score expects: <variant_id_col> <allele_col> <score_col>
+    local score_columns="${CFG_SCORE_COLUMNS:-1 2 5}"
     
     log_info "Score columns: $score_columns"
     
