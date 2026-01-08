@@ -48,6 +48,11 @@ run_calc_score() {
     # Check that format-posteriors has been run
     require_dir "$posteriors_mapped_dir" "Run 'pgscalculator format-posteriors' first"
     
+    # Auto-detect single-chromosome runs from config (important for --sbatch-array mode where config is rewritten)
+    if [[ -z "$specific_chr" ]] && [[ -n "${CFG_CHROMOSOMES:-}" ]] && [[ "${CFG_CHROMOSOMES}" =~ ^(chr)?[0-9]+$ ]]; then
+        specific_chr="${CFG_CHROMOSOMES#chr}"
+    fi
+
     # Check if already completed (only if not running specific chr)
     if [[ -z "$specific_chr" ]] && check_step_completed "$step_dir"; then
         log_info "Step already completed. Use --force to re-run."

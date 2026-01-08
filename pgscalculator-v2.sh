@@ -342,7 +342,15 @@ if [[ "$use_sbatch_array" == true ]]; then
 
   # Build the command to run for a single array task.
   # Resolve chr using SLURM_ARRAY_TASK_ID (1-based index into chr_file).
-  run_cmd="${project_dir}/pgscalculator-v2.sh --config ${config_file_host} --steps ${steps_arg}"
+  # NOTE: In array mode, we must only run chromosome-parallel work.
+  # - posteriors: safe (calc-posteriors + format-posteriors are chr-parallel)
+  # - score: only calc-score is chr-parallel; combine-scores/finalize-output must be run once after
+  steps_arg_for_task="${steps_arg}"
+  if [[ "$step_profile" == "score" ]]; then
+    steps_arg_for_task="calc-score"
+  fi
+
+  run_cmd="${project_dir}/pgscalculator-v2.sh --config ${config_file_host} --steps ${steps_arg_for_task}"
   [[ -n "$infold" ]] && run_cmd="${run_cmd} -i ${infold}"
   [[ -n "$outdir" ]] && run_cmd="${run_cmd} -o ${outdir}"
   [[ -n "$devmode" ]] && run_cmd="${run_cmd} -d"
@@ -370,6 +378,9 @@ rc=\$?; echo \"[INFO] Finished ${step_profile} chr\${CHR} at \$(date) (exit=\$rc
   echo "Submitting SLURM job array..."
   echo "  Job name: ${job_name}"
   echo "  Step: ${step_profile}"
+  if [[ "$step_profile" == "score" ]]; then
+    echo "  Note: array mode runs 'calc-score' only. Run '--steps combine-scores' (and finalize-output) after the array completes."
+  fi
   echo "  Chromosomes: ${chr_list}"
   echo "  Array: 1-${chr_count}%${max_parallel} (max_parallel=${max_parallel})"
   echo "  Resources per task: mem=${slurm_mem}, cpus=${slurm_cpus}, time=${slurm_time}"
