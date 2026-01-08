@@ -11,7 +11,7 @@ _Created by Jesper R. Gådin, Morten Dybdahl Krebs, and Andrew Schork (IBP)_
 - **Prerequisite checks**: Helpful errors if prep/previous steps not done
 - **Reusable prep**: Run prep once, reuse across multiple sumstats
 - **SLURM integration**: `--sbatch` flag auto-submits with config settings
-- **SLURM job arrays**: `--sbatch-array [N]` runs `posteriors` or `score` as a job array (one task per chromosome) with a configurable concurrency cap
+- **SLURM job arrays**: `--sbatch-array` runs `posteriors` or `score` as a job array (one task per chromosome) with a configurable concurrency cap (set in config)
 - **Simplified CLI**: Just `--config`, `--steps`, and `-i`
 
 ## Quick Start
@@ -68,12 +68,12 @@ sbayesr:
 # Optional: SLURM settings for --sbatch / --sbatch-array
 slurm:
   account: my_account
-  # Optional: max concurrent array tasks for --sbatch-array (default: 22)
+  # Optional: default max concurrent array tasks for --sbatch-array (default: 22)
   max_parallel: 22
   prep:       { mem: 10g, cpus: 6, time: '1:00:00' }
   # Optional: per-step override for max_parallel
   posteriors: { mem: 20g, cpus: 6, time: '2:00:00', max_parallel: 22 }
-  score:      { mem: 10g, cpus: 4, time: '0:30:00' }
+  score:      { mem: 10g, cpus: 4, time: '0:30:00', max_parallel: 8 }
 ```
 
 ### Run Pipeline
@@ -90,11 +90,12 @@ slurm:
 ./pgscalculator-v2.sh --config config.yaml --steps sumstat,posteriors,score -i /path/to/sumstat_TRAIT --sbatch
 
 # Or submit chromosome-parallel steps as a SLURM job array (one task per chromosome)
-# Uses slurm.max_parallel (default 22)
+# Uses slurm.<step>.max_parallel if set; else slurm.max_parallel; else default 22
 ./pgscalculator-v2.sh --config config.yaml --steps posteriors -i /path/to/sumstat_TRAIT --sbatch-array
 
-# Override max concurrent array tasks on the CLI (e.g., 8)
-./pgscalculator-v2.sh --config config.yaml --steps posteriors -i /path/to/sumstat_TRAIT --sbatch-array 8
+# Score as a job array as well (this runs calc-score per chromosome; combine afterwards once)
+./pgscalculator-v2.sh --config config.yaml --steps score -i /path/to/sumstat_TRAIT --sbatch-array
+./pgscalculator-v2.sh --config config.yaml --steps combine-scores -i /path/to/sumstat_TRAIT
 ```
 
 ### Batch Processing Multiple Sumstats

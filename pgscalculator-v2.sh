@@ -20,7 +20,7 @@ function general_usage(){
   echo "  -o <dir>          Path to output directory (overrides config)"
   echo "  --chr <range>     Chromosomes to process (e.g., '21-22', default: 1-22)"
   echo "  --sbatch          Submit as SLURM job using sbatch settings from config"
-  echo "  --sbatch-array [N] Submit as SLURM job array (one task per chromosome)."
+  echo "  --sbatch-array     Submit as SLURM job array (one task per chromosome)."
   echo "                   Optional N sets max concurrent array tasks (default: config slurm.max_parallel or 22)."
   echo "  -d                Dev mode (verbose output)"
   echo "  -v                Show version"
@@ -78,7 +78,6 @@ chromosomes=""
 devmode=""
 use_sbatch=false
 use_sbatch_array=false
-sbatch_array_parallel=""
 
 i=0
 while [ $i -lt ${#paramarray[@]} ]; do
@@ -89,10 +88,10 @@ while [ $i -lt ${#paramarray[@]} ]; do
       ;;
     --steps)
       steps_arg="${paramarray[$((i+1))]}"
-      i=$((i+2))
+        i=$((i+2))
       ;;
     --chr)
-      chromosomes="${paramarray[$((i+1))]}"
+        chromosomes="${paramarray[$((i+1))]}"
         i=$((i+2))
       ;;
     --sbatch)
@@ -101,14 +100,7 @@ while [ $i -lt ${#paramarray[@]} ]; do
       ;;
     --sbatch-array)
       use_sbatch_array=true
-      # Optional numeric arg: max parallel tasks
-      next="${paramarray[$((i+1))]:-}"
-      if [[ -n "$next" ]] && [[ "$next" =~ ^[0-9]+$ ]]; then
-        sbatch_array_parallel="$next"
-        i=$((i+2))
-    else
-        i=$((i+1))
-    fi
+      i=$((i+1))
       ;;
     -i)
       infold="${paramarray[$((i+1))]}"
@@ -309,11 +301,8 @@ if [[ "$use_sbatch_array" == true ]]; then
   slurm_cpus="${slurm_cpus:-8}"
   slurm_time="${slurm_time:-2:00:00}"
 
-  # Determine max parallel tasks (CLI > step > global > default 22)
-  max_parallel="${sbatch_array_parallel:-}"
-  if [[ -z "$max_parallel" ]]; then
-    max_parallel="${slurm_max_parallel_step:-${slurm_max_parallel_global:-22}}"
-  fi
+  # Determine max parallel tasks (step > global > default 22)
+  max_parallel="${slurm_max_parallel_step:-${slurm_max_parallel_global:-22}}"
   if ! [[ "$max_parallel" =~ ^[0-9]+$ ]] || [[ "$max_parallel" -lt 1 ]]; then
     >&2 echo "Error: invalid max parallel value for --sbatch-array: $max_parallel"
     exit 1
@@ -396,12 +385,14 @@ rc=\$?; echo \"[INFO] Finished ${step_profile} chr\${CHR} at \$(date) (exit=\$rc
   echo "Submitted: ${array_jobid}"
 
   # Best-effort watch: report task starts/finishes + elapsed time.
+  # Important: must terminate when the array is done, even if sacct is delayed.
   if command -v squeue >/dev/null 2>&1; then
     echo ""
     echo "Watching array progress (Ctrl+C stops watching; jobs continue)..."
 
     declare -A started
     declare -A finished
+    declare -A acct_miss
     start_ts=$(date +%s)
 
     while [[ ${#finished[@]} -lt $chr_count ]]; do
@@ -442,6 +433,13 @@ rc=\$?; echo \"[INFO] Finished ${step_profile} chr\${CHR} at \$(date) (exit=\$rc
               elapsed_fmt=$(format_elapsed "$elapsed_raw")
               finished["$idx"]=1
               echo "  Finished: task=${idx} chr=${chr} state=${st} elapsed=${elapsed_fmt} time=$(date)"
+            else
+              # sacct can lag behind job completion; don't hang forever.
+              acct_miss["$idx"]=$(( ${acct_miss["$idx"]:-0} + 1 ))
+              if [[ ${acct_miss["$idx"]} -ge 3 ]]; then
+                finished["$idx"]=1
+                echo "  Finished: task=${idx} chr=${chr} (sacct not yet available) time=$(date)"
+              fi
             fi
           else
             # No sacct; mark finished when it leaves queue
@@ -450,6 +448,34 @@ rc=\$?; echo \"[INFO] Finished ${step_profile} chr\${CHR} at \$(date) (exit=\$rc
           fi
         fi
       done
+
+      # If the entire array disappeared from squeue, finish promptly.
+      # This prevents hangs if sacct is delayed for some tasks.
+      if [[ ${#sq_lines[@]} -eq 0 ]]; then
+        sleep 2
+        for ((idx=1; idx<=chr_count; idx++)); do
+          if [[ -n "${finished[$idx]:-}" ]]; then
+            continue
+          fi
+          chr=$(sed -n "${idx}p" "$chr_file" 2>/dev/null || true)
+          if command -v sacct >/dev/null 2>&1; then
+            acct_line=$(sacct -j "${array_jobid}_${idx}" --format=State,ElapsedRaw -n -P 2>/dev/null | head -n 1 || true)
+            if [[ -n "$acct_line" ]]; then
+              st="${acct_line%%|*}"
+              elapsed_raw="${acct_line##*|}"
+              elapsed_fmt=$(format_elapsed "$elapsed_raw")
+              finished["$idx"]=1
+              echo "  Finished: task=${idx} chr=${chr} state=${st} elapsed=${elapsed_fmt} time=$(date)"
+            else
+              finished["$idx"]=1
+              echo "  Finished: task=${idx} chr=${chr} (array ended; sacct unavailable) time=$(date)"
+            fi
+          else
+            finished["$idx"]=1
+            echo "  Finished: task=${idx} chr=${chr} (array ended) time=$(date)"
+          fi
+        done
+      fi
 
       sleep 15
     done
