@@ -353,17 +353,19 @@ echo \"[INFO] Starting ${step_profile} chr\${CHR} at \$(date)\"; \
 ${run_cmd} --chr \"\$CHR\"; \
 rc=\$?; echo \"[INFO] Finished ${step_profile} chr\${CHR} at \$(date) (exit=\$rc)\"; exit \$rc"
 
-  sbatch_cmd="sbatch --parsable"
-  sbatch_cmd="${sbatch_cmd} --mem=${slurm_mem}"
-  sbatch_cmd="${sbatch_cmd} --cpus-per-task=${slurm_cpus}"
-  sbatch_cmd="${sbatch_cmd} --time=${slurm_time}"
-  sbatch_cmd="${sbatch_cmd} --job-name=${job_name}"
-  sbatch_cmd="${sbatch_cmd} --output=${log_dir}/${job_name}_%A_%a.out"
-  sbatch_cmd="${sbatch_cmd} --error=${log_dir}/${job_name}_%A_%a.err"
-  sbatch_cmd="${sbatch_cmd} --array=1-${chr_count}%${max_parallel}"
-  [[ -n "$slurm_account" ]] && sbatch_cmd="${sbatch_cmd} --account=${slurm_account}"
-  [[ -n "$slurm_partition" ]] && sbatch_cmd="${sbatch_cmd} --partition=${slurm_partition}"
-  sbatch_cmd="${sbatch_cmd} --wrap=\"${task_wrap}\""
+  # Build sbatch args as an array to avoid brittle quoting + eval issues.
+  # NOTE: task_wrap intentionally contains escaped '$' so it is evaluated on the compute node, not here.
+  sbatch_args=(--parsable)
+  sbatch_args+=(--mem="${slurm_mem}")
+  sbatch_args+=(--cpus-per-task="${slurm_cpus}")
+  sbatch_args+=(--time="${slurm_time}")
+  sbatch_args+=(--job-name="${job_name}")
+  sbatch_args+=(--output="${log_dir}/${job_name}_%A_%a.out")
+  sbatch_args+=(--error="${log_dir}/${job_name}_%A_%a.err")
+  sbatch_args+=(--array="1-${chr_count}%${max_parallel}")
+  [[ -n "$slurm_account" ]] && sbatch_args+=(--account="${slurm_account}")
+  [[ -n "$slurm_partition" ]] && sbatch_args+=(--partition="${slurm_partition}")
+  sbatch_args+=(--wrap="${task_wrap}")
 
   echo "Submitting SLURM job array..."
   echo "  Job name: ${job_name}"
@@ -375,7 +377,7 @@ rc=\$?; echo \"[INFO] Finished ${step_profile} chr\${CHR} at \$(date) (exit=\$rc
   echo "  Chromosome file: ${chr_file}"
   echo ""
 
-  array_jobid=$(eval ${sbatch_cmd})
+  array_jobid=$(sbatch "${sbatch_args[@]}")
   if [[ -z "$array_jobid" ]]; then
     >&2 echo "Error: failed to submit SLURM array job"
     exit 1
@@ -582,7 +584,7 @@ infold_host=$(realpath "${infold}")
   if [[ ! -d "$infold_host" ]]; then
   >&2 echo "Error: Input directory doesn't exist: $infold_host"
   exit 1
-  fi
+fi
 else
   # For prep-only, use a placeholder
   infold_host="${outdir_host}"
