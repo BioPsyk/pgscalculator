@@ -383,7 +383,23 @@ add_beta_se() {
                 if($i == "N") n_col = i
                 if($i == "EAF") eaf_col = i
             }
-            print
+            # If B/SE columns are missing entirely, append them so downstream steps
+            # (e.g. sbayesR) always have consistent columns.
+            if (!b_col) {
+                b_col = NF + 1
+                header[b_col] = "B"
+                NF = b_col
+            }
+            if (!se_col) {
+                se_col = NF + 1
+                header[se_col] = "SE"
+                NF = se_col
+            }
+
+            # Print (possibly-augmented) header
+            out = header[1]
+            for (i=2; i<=NF; i++) out = out OFS header[i]
+            print out
             next
         }
         {

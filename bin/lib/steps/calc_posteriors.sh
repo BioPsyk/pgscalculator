@@ -125,7 +125,15 @@ process_chr_posteriors() {
     
     # Step 1: Format sumstat for sbayesR
     local sbayesr_input="${chr_workdir}/chr${chr}_sbayesr.ma"
-    format_for_sbayesr "$chr_filtered" "$sbayesr_input" "$mapfile"
+    if ! format_for_sbayesr "$chr_filtered" "$sbayesr_input" "$mapfile"; then
+        log_error "chr${chr}: failed to generate sbayesR input (.ma). Fix the filtered sumstat columns and retry."
+        return 1
+    fi
+
+    if [[ ! -f "$sbayesr_input" ]]; then
+        log_error "chr${chr}: sbayesR input file missing after generation: $sbayesr_input"
+        return 1
+    fi
     
     # Check we have variants
     local variant_count
