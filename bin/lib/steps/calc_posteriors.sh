@@ -256,21 +256,46 @@ format_for_sbayesr() {
     # Format for sbayesR (space-separated)
     echo "SNP A1 A2 freq b se p n" > "$output_file"
 
-    # Build .ma and drop obviously bad rows
+    # Build .ma and drop obviously bad rows.
+    # NOTE: keep this awk POSIX-compatible (avoid /regex/i flags).
     awk -F"$fs" -v OFS=' ' \
         -v snp="$snp_col" -v a1="$a1_col" -v a2="$a2_col" \
         -v freq="$freq_col" -v beta="$beta_col" -v se="$se_col" \
         -v p="$p_col" -v n="$n_col" '
+        function is_na(x) { return (x=="" || x=="NA" || x=="NaN" || x=="nan") }
+        function has_nan_inf(x, lx) { lx=tolower(x); return (index(lx,"nan") || index(lx,"inf")) }
+        function is_num(x) { return (x ~ /^[+-]?([0-9]*\.[0-9]+|[0-9]+)([eE][+-]?[0-9]+)?$/) }
         NR == 1 { next }
         {
-            # Guard against missing/NA fields
-            if ($snp == "" || $a1 == "" || $a2 == "" || $freq == "" || $beta == "" || $se == "" || $p == "" || $n == "") next
-            if ($snp == "NA" || $a1 == "NA" || $a2 == "NA" || $freq == "NA" || $beta == "NA" || $se == "NA" || $p == "NA" || $n == "NA") next
+            total++
 
-            # Numeric sanity (avoid inf/nan strings)
-            if ($freq ~ /nan|inf/i || $beta ~ /nan|inf/i || $se ~ /nan|inf/i || $p ~ /nan|inf/i || $n ~ /nan|inf/i) next
+            # Guard against missing/NA fields
+            if (is_na($snp) || is_na($a1) || is_na($a2) || is_na($freq) || is_na($beta) || is_na($se) || is_na($p) || is_na($n)) { dropped_na++; next }
+
+            # Avoid inf/nan strings
+            if (has_nan_inf($freq) || has_nan_inf($beta) || has_nan_inf($se) || has_nan_inf($p) || has_nan_inf($n)) { dropped_naninf++; next }
+
+            # Numeric sanity
+            if (!is_num($freq) || !is_num($beta) || !is_num($se) || !is_num($p) || !is_num($n)) { dropped_nonnum++; next }
+
+            # Range sanity
+            if ($freq <= 0 || $freq >= 1) { dropped_range++; next }
+            if ($se <= 0) { dropped_range++; next }
+            if ($p < 0 || $p > 1) { dropped_range++; next }
+            if ($n <= 0) { dropped_range++; next }
 
             print $snp, $a1, $a2, $freq, $beta, $se, $p, $n
+            kept++
+        }
+        END {
+            # Print a one-line summary to stderr (helps debug "header-only" output)
+            if (kept+0 == 0) {
+                print "format_for_sbayesr: 0 variants kept (total=" total+0 \
+                      ", dropped_na=" dropped_na+0 \
+                      ", dropped_naninf=" dropped_naninf+0 \
+                      ", dropped_nonnum=" dropped_nonnum+0 \
+                      ", dropped_range=" dropped_range+0 ")" > "/dev/stderr"
+            }
         }
     ' "$input_file" >> "$output_file"
 
