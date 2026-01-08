@@ -20,6 +20,8 @@ function general_usage(){
   echo "  -o <dir>          Path to output directory (overrides config)"
   echo "  --chr <range>     Chromosomes to process (e.g., '21-22', default: 1-22)"
   echo "  --sbatch          Submit as SLURM job using sbatch settings from config"
+  echo "  --sbatch-array [N] Submit as SLURM job array (one task per chromosome)."
+  echo "                   Optional N sets max concurrent array tasks (default: config slurm.max_parallel or 22)."
   echo "  -d                Dev mode (verbose output)"
   echo "  -v                Show version"
   echo "  -h                Show this help"
@@ -36,11 +38,12 @@ function general_usage(){
   echo "  genotype_manifest: /path/to/manifest.txt"
   echo "  outdir: /path/to/output"
  echo ""
-  echo "  # Optional: SLURM settings for --sbatch"
+  echo "  # Optional: SLURM settings for --sbatch / --sbatch-array"
   echo "  slurm:"
   echo "    account: my_account"
+  echo "    max_parallel: 22"
   echo "    prep:       { mem: 10g, cpus: 6, time: '1:00:00' }"
-  echo "    posteriors: { mem: 20g, cpus: 8, time: '2:00:00' }"
+  echo "    posteriors: { mem: 20g, cpus: 6, time: '2:00:00', max_parallel: 22 }"
   echo "    score:      { mem: 10g, cpus: 4, time: '0:30:00' }"
  echo ""
  echo "Examples:"
@@ -74,6 +77,8 @@ steps_arg=""
 chromosomes=""
 devmode=""
 use_sbatch=false
+use_sbatch_array=false
+sbatch_array_parallel=""
 
 i=0
 while [ $i -lt ${#paramarray[@]} ]; do
@@ -88,11 +93,22 @@ while [ $i -lt ${#paramarray[@]} ]; do
       ;;
     --chr)
       chromosomes="${paramarray[$((i+1))]}"
-      i=$((i+2))
+        i=$((i+2))
       ;;
     --sbatch)
       use_sbatch=true
-      i=$((i+1))
+        i=$((i+1))
+      ;;
+    --sbatch-array)
+      use_sbatch_array=true
+      # Optional numeric arg: max parallel tasks
+      next="${paramarray[$((i+1))]:-}"
+      if [[ -n "$next" ]] && [[ "$next" =~ ^[0-9]+$ ]]; then
+        sbatch_array_parallel="$next"
+        i=$((i+2))
+    else
+        i=$((i+1))
+    fi
       ;;
     -i)
       infold="${paramarray[$((i+1))]}"
@@ -148,6 +164,11 @@ if [[ -z "$steps_arg" ]]; then
   >&2 echo "Examples:"
   >&2 echo "  ./pgscalculator-v2.sh --config config.yaml --steps prep"
   >&2 echo "  ./pgscalculator-v2.sh --config config.yaml --steps sumstat,posteriors,score -i /path/to/sumstat"
+  exit 1
+fi
+
+if [[ "$use_sbatch" == true ]] && [[ "$use_sbatch_array" == true ]]; then
+  >&2 echo "Error: --sbatch and --sbatch-array are mutually exclusive"
   exit 1
 fi
 
@@ -207,6 +228,228 @@ fi
 
 if [[ -n "$chromosomes" ]]; then
   cfg_chromosomes="$chromosomes"
+fi
+
+################################################################################
+# Handle --sbatch-array: submit chromosome-parallel steps as a SLURM job array
+################################################################################
+expand_chromosome_list() {
+  local chr_spec="$1"
+  if [[ -z "$chr_spec" ]]; then
+    chr_spec="1-22"
+  fi
+  # Normalize separators
+  chr_spec=$(echo "$chr_spec" | tr ',' ' ')
+  local out=""
+  local tok
+  for tok in $chr_spec; do
+    if [[ "$tok" =~ ^[0-9]+-[0-9]+$ ]]; then
+      local start="${tok%-*}"
+      local end="${tok#*-}"
+      if [[ "$start" -le "$end" ]]; then
+        local c
+        for ((c=start; c<=end; c++)); do out="${out} ${c}"; done
+      else
+        local c
+        for ((c=start; c>=end; c--)); do out="${out} ${c}"; done
+      fi
+    else
+      out="${out} ${tok}"
+    fi
+  done
+  echo "$out" | awk '{$1=$1;print}'
+}
+
+format_elapsed() {
+  local secs="$1"
+  if [[ -z "$secs" ]] || ! [[ "$secs" =~ ^[0-9]+$ ]]; then
+    echo "NA"
+    return
+  fi
+  local h=$((secs/3600))
+  local m=$(((secs%3600)/60))
+  local s=$((secs%60))
+  printf "%02d:%02d:%02d" "$h" "$m" "$s"
+}
+
+if [[ "$use_sbatch_array" == true ]]; then
+  # For now, only support a single step per submission (e.g. posteriors OR score)
+  if [[ "$steps_arg" == *","* ]]; then
+    >&2 echo "Error: --sbatch-array currently requires a single step (e.g. --steps posteriors)"
+    exit 1
+  fi
+  if [[ "$steps_arg" != "posteriors" ]] && [[ "$steps_arg" != "score" ]]; then
+    >&2 echo "Error: --sbatch-array is only supported for --steps posteriors or --steps score"
+    exit 1
+  fi
+
+  # Need outdir for logs and chromosome list file
+  if [[ -z "$cfg_outdir" ]]; then
+    >&2 echo "Error: outdir not found in config file and -o not provided"
+    exit 1
+  fi
+  mkdir -p "${cfg_outdir}"
+
+  # Read SLURM settings from config
+  slurm_account=$(parse_yaml_nested "slurm" "account" "$config_file_host")
+  slurm_partition=$(parse_yaml_nested "slurm" "partition" "$config_file_host")
+  slurm_max_parallel_global=$(parse_yaml_nested "slurm" "max_parallel" "$config_file_host")
+
+  step_profile="$steps_arg"
+  step_settings=$(parse_yaml_nested "slurm" "$step_profile" "$config_file_host")
+
+  if [[ -n "$step_settings" ]]; then
+    slurm_mem=$(parse_inline_dict "$step_settings" "mem")
+    slurm_cpus=$(parse_inline_dict "$step_settings" "cpus")
+    slurm_time=$(parse_inline_dict "$step_settings" "time")
+    slurm_max_parallel_step=$(parse_inline_dict "$step_settings" "max_parallel")
+  fi
+
+  slurm_mem="${slurm_mem:-20g}"
+  slurm_cpus="${slurm_cpus:-8}"
+  slurm_time="${slurm_time:-2:00:00}"
+
+  # Determine max parallel tasks (CLI > step > global > default 22)
+  max_parallel="${sbatch_array_parallel:-}"
+  if [[ -z "$max_parallel" ]]; then
+    max_parallel="${slurm_max_parallel_step:-${slurm_max_parallel_global:-22}}"
+  fi
+  if ! [[ "$max_parallel" =~ ^[0-9]+$ ]] || [[ "$max_parallel" -lt 1 ]]; then
+    >&2 echo "Error: invalid max parallel value for --sbatch-array: $max_parallel"
+    exit 1
+  fi
+
+  # Build chromosome list file (robust to non-contiguous ranges)
+  chr_list=$(expand_chromosome_list "${cfg_chromosomes:-1-22}")
+  if [[ -z "$chr_list" ]]; then
+    >&2 echo "Error: failed to determine chromosomes list (cfg_chromosomes='${cfg_chromosomes}')"
+    exit 1
+  fi
+  chr_count=$(echo "$chr_list" | wc -w | awk '{print $1}')
+
+  # Build job name
+  if [[ -n "$infold" ]]; then
+    job_name="pgs_$(basename "$infold")_${step_profile}"
+  else
+    job_name="pgs_${step_profile}"
+  fi
+
+  log_dir="${cfg_outdir}/slurm_logs"
+  mkdir -p "$log_dir"
+
+  chr_file="${log_dir}/${job_name}.chromosomes.txt"
+  echo "$chr_list" | tr ' ' '\n' > "$chr_file"
+
+  # Build the command to run for a single array task.
+  # Resolve chr using SLURM_ARRAY_TASK_ID (1-based index into chr_file).
+  run_cmd="${project_dir}/pgscalculator-v2.sh --config ${config_file_host} --steps ${steps_arg}"
+  [[ -n "$infold" ]] && run_cmd="${run_cmd} -i ${infold}"
+  [[ -n "$outdir" ]] && run_cmd="${run_cmd} -o ${outdir}"
+  [[ -n "$devmode" ]] && run_cmd="${run_cmd} -d"
+
+  task_wrap="CHR=\$(sed -n \"\${SLURM_ARRAY_TASK_ID}p\" \"${chr_file}\"); \
+if [[ -z \"\$CHR\" ]]; then echo \"Error: could not resolve chromosome for task \$SLURM_ARRAY_TASK_ID\" >&2; exit 1; fi; \
+echo \"[INFO] Starting ${step_profile} chr\${CHR} at \$(date)\"; \
+${run_cmd} --chr \"\$CHR\"; \
+rc=\$?; echo \"[INFO] Finished ${step_profile} chr\${CHR} at \$(date) (exit=\$rc)\"; exit \$rc"
+
+  sbatch_cmd="sbatch --parsable"
+  sbatch_cmd="${sbatch_cmd} --mem=${slurm_mem}"
+  sbatch_cmd="${sbatch_cmd} --cpus-per-task=${slurm_cpus}"
+  sbatch_cmd="${sbatch_cmd} --time=${slurm_time}"
+  sbatch_cmd="${sbatch_cmd} --job-name=${job_name}"
+  sbatch_cmd="${sbatch_cmd} --output=${log_dir}/${job_name}_%A_%a.out"
+  sbatch_cmd="${sbatch_cmd} --error=${log_dir}/${job_name}_%A_%a.err"
+  sbatch_cmd="${sbatch_cmd} --array=1-${chr_count}%${max_parallel}"
+  [[ -n "$slurm_account" ]] && sbatch_cmd="${sbatch_cmd} --account=${slurm_account}"
+  [[ -n "$slurm_partition" ]] && sbatch_cmd="${sbatch_cmd} --partition=${slurm_partition}"
+  sbatch_cmd="${sbatch_cmd} --wrap=\"${task_wrap}\""
+
+  echo "Submitting SLURM job array..."
+  echo "  Job name: ${job_name}"
+  echo "  Step: ${step_profile}"
+  echo "  Chromosomes: ${chr_list}"
+  echo "  Array: 1-${chr_count}%${max_parallel} (max_parallel=${max_parallel})"
+  echo "  Resources per task: mem=${slurm_mem}, cpus=${slurm_cpus}, time=${slurm_time}"
+  echo "  Logs: ${log_dir}/${job_name}_<jobid>_<taskid>.out/.err"
+  echo "  Chromosome file: ${chr_file}"
+  echo ""
+
+  array_jobid=$(eval ${sbatch_cmd})
+  if [[ -z "$array_jobid" ]]; then
+    >&2 echo "Error: failed to submit SLURM array job"
+    exit 1
+  fi
+  echo "Submitted: ${array_jobid}"
+
+  # Best-effort watch: report task starts/finishes + elapsed time.
+  if command -v squeue >/dev/null 2>&1; then
+    echo ""
+    echo "Watching array progress (Ctrl+C stops watching; jobs continue)..."
+
+    declare -A started
+    declare -A finished
+    start_ts=$(date +%s)
+
+    while [[ ${#finished[@]} -lt $chr_count ]]; do
+      # Snapshot current tasks in queue
+      mapfile -t sq_lines < <(squeue -h -j "${array_jobid}" -o "%i|%T" 2>/dev/null || true)
+
+      declare -A in_queue
+      for line in "${sq_lines[@]}"; do
+        jid="${line%%|*}"
+        state="${line##*|}"
+        # jid can be like 12345_7
+        if [[ "$jid" =~ ^${array_jobid}_[0-9]+$ ]]; then
+          idx="${jid#${array_jobid}_}"
+          in_queue["$idx"]="$state"
+          if [[ -z "${started[$idx]:-}" ]] && [[ "$state" == "RUNNING" || "$state" == "COMPLETING" ]]; then
+            started["$idx"]=1
+            chr=$(sed -n "${idx}p" "$chr_file" 2>/dev/null || true)
+            echo "  Started: task=${idx} chr=${chr} state=${state} time=$(date)"
+          fi
+        fi
+      done
+
+      # Detect finished tasks (not in queue anymore)
+      for ((idx=1; idx<=chr_count; idx++)); do
+        if [[ -n "${finished[$idx]:-}" ]]; then
+          continue
+        fi
+        if [[ -z "${in_queue[$idx]:-}" ]]; then
+          # Try to fetch accounting info
+          chr=$(sed -n "${idx}p" "$chr_file" 2>/dev/null || true)
+          if command -v sacct >/dev/null 2>&1; then
+            acct_line=$(sacct -j "${array_jobid}_${idx}" --format=JobIDRaw,State,ElapsedRaw -n -P 2>/dev/null | head -n 1 || true)
+            if [[ -n "$acct_line" ]]; then
+              jidraw="${acct_line%%|*}"
+              rest="${acct_line#*|}"
+              st="${rest%%|*}"
+              elapsed_raw="${rest##*|}"
+              elapsed_fmt=$(format_elapsed "$elapsed_raw")
+              finished["$idx"]=1
+              echo "  Finished: task=${idx} chr=${chr} state=${st} elapsed=${elapsed_fmt} time=$(date)"
+            fi
+          else
+            # No sacct; mark finished when it leaves queue
+            finished["$idx"]=1
+            echo "  Finished: task=${idx} chr=${chr} (no sacct available) time=$(date)"
+          fi
+        fi
+      done
+
+      sleep 15
+    done
+
+    end_ts=$(date +%s)
+    total_elapsed=$((end_ts - start_ts))
+    echo ""
+    echo "Array completed: job=${array_jobid} total_elapsed=$(format_elapsed "$total_elapsed")"
+    exit 0
+  else
+    echo "Note: squeue not available; not watching job progress."
+    exit 0
+  fi
 fi
 
 ################################################################################

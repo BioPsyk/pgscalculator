@@ -11,6 +11,7 @@ _Created by Jesper R. Gådin, Morten Dybdahl Krebs, and Andrew Schork (IBP)_
 - **Prerequisite checks**: Helpful errors if prep/previous steps not done
 - **Reusable prep**: Run prep once, reuse across multiple sumstats
 - **SLURM integration**: `--sbatch` flag auto-submits with config settings
+- **SLURM job arrays**: `--sbatch-array [N]` runs `posteriors` or `score` as a job array (one task per chromosome) with a configurable concurrency cap
 - **Simplified CLI**: Just `--config`, `--steps`, and `-i`
 
 ## Quick Start
@@ -64,11 +65,14 @@ sbayesr:
   seed: 80851
   exclude_mhc: true
 
-# Optional: SLURM settings for --sbatch
+# Optional: SLURM settings for --sbatch / --sbatch-array
 slurm:
   account: my_account
+  # Optional: max concurrent array tasks for --sbatch-array (default: 22)
+  max_parallel: 22
   prep:       { mem: 10g, cpus: 6, time: '1:00:00' }
-  posteriors: { mem: 20g, cpus: 8, time: '2:00:00' }
+  # Optional: per-step override for max_parallel
+  posteriors: { mem: 20g, cpus: 6, time: '2:00:00', max_parallel: 22 }
   score:      { mem: 10g, cpus: 4, time: '0:30:00' }
 ```
 
@@ -84,6 +88,13 @@ slurm:
 # Or submit as SLURM jobs (uses slurm settings from config)
 ./pgscalculator-v2.sh --config config.yaml --steps prep --sbatch
 ./pgscalculator-v2.sh --config config.yaml --steps sumstat,posteriors,score -i /path/to/sumstat_TRAIT --sbatch
+
+# Or submit chromosome-parallel steps as a SLURM job array (one task per chromosome)
+# Uses slurm.max_parallel (default 22)
+./pgscalculator-v2.sh --config config.yaml --steps posteriors -i /path/to/sumstat_TRAIT --sbatch-array
+
+# Override max concurrent array tasks on the CLI (e.g., 8)
+./pgscalculator-v2.sh --config config.yaml --steps posteriors -i /path/to/sumstat_TRAIT --sbatch-array 8
 ```
 
 ### Batch Processing Multiple Sumstats
