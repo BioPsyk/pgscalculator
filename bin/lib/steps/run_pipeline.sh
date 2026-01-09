@@ -22,8 +22,22 @@ run_pipeline() {
 
 run_step_group() {
     local group="$1" sumstat_name="$2"; log_substep "Running: $group"
-    local steps="${STEP_GROUPS[$group]}"; [[ -z "$steps" ]] && return 1
-    for step in $steps; do run_single_step "$step" "$sumstat_name" || return 1; done
+    # `--steps` historically refers to step groups (prep/sumstat/posteriors/score),
+    # but the wrapper may also pass concrete step names (e.g. combine-scores,finalize-output).
+    # Use a default expansion to avoid "unbound variable" under `set -u`.
+    local steps="${STEP_GROUPS[$group]-}"
+    if [[ -n "$steps" ]]; then
+        for step in $steps; do
+            run_single_step "$step" "$sumstat_name" || return 1
+        done
+        return 0
+    fi
+
+    # Fallback: treat the token as a single step name.
+    run_single_step "$group" "$sumstat_name" || {
+        log_error "Unknown step group/step: '$group' (expected one of: ${!STEP_GROUPS[*]} or a concrete step name)"
+        return 1
+    }
 }
 
 run_single_step() {
