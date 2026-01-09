@@ -340,8 +340,12 @@ compute_maf_from_genotypes() {
             tmpdir=$(make_tmpdir "prep_inclusion_list_plink2_freq")
             
             # Compute allele frequencies
+            local plink_threads="${CFG_PLINK_THREADS:-1}"
+            if ! [[ "$plink_threads" =~ ^[0-9]+$ ]] || [[ "$plink_threads" -lt 1 ]]; then
+                plink_threads=1
+            fi
             plink2 --pfile "$geno_prefix" --freq --out "${tmpdir}/freq" \
-                --threads 1 > "${tmpdir}/plink2.log" 2>&1 || true
+                --threads "${plink_threads}" > "${tmpdir}/plink2.log" 2>&1 || true
             
             if [[ -f "${tmpdir}/freq.afreq" ]]; then
                 # Extract ID and ALT_FREQS, convert to MAF
@@ -371,8 +375,12 @@ compute_maf_from_genotypes() {
                 local tmpdir
                 tmpdir=$(make_tmpdir "prep_inclusion_list_plink2_freq")
                 
+                local plink_threads="${CFG_PLINK_THREADS:-1}"
+                if ! [[ "$plink_threads" =~ ^[0-9]+$ ]] || [[ "$plink_threads" -lt 1 ]]; then
+                    plink_threads=1
+                fi
                 plink2 --bfile "$geno_prefix" --freq --out "${tmpdir}/freq" \
-                    --threads 1 > "${tmpdir}/plink2.log" 2>&1 || true
+                    --threads "${plink_threads}" > "${tmpdir}/plink2.log" 2>&1 || true
                 
                 if [[ -f "${tmpdir}/freq.afreq" ]]; then
                     awk -F'\t' -v OFS='\t' '

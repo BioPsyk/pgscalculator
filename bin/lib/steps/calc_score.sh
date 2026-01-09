@@ -192,7 +192,12 @@ score_chr() {
     cmd+=" --extract ${extract_file}"
     cmd+=" --score ${posteriors_file} ${score_columns} header cols=+scoresums,+denom ignore-dup-ids"
     cmd+=" --out ${chr_workdir}/chr${chr}"
-    cmd+=" --threads 1"
+    local plink_threads="${CFG_PLINK_THREADS:-1}"
+    if ! [[ "$plink_threads" =~ ^[0-9]+$ ]] || [[ "$plink_threads" -lt 1 ]]; then
+        log_warn "Invalid plink.threads='${CFG_PLINK_THREADS:-}', defaulting to 1"
+        plink_threads=1
+    fi
+    cmd+=" --threads ${plink_threads}"
     
     log_debug "Running: $cmd"
     

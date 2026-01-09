@@ -65,6 +65,10 @@ sbayesr:
   seed: 80851
   exclude_mhc: true
 
+# PLINK2 settings
+plink:
+  threads: 4
+
 # Optional: SLURM settings for --sbatch / --sbatch-array
 slurm:
   account: my_account

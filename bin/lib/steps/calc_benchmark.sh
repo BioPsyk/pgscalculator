@@ -90,10 +90,15 @@ process_benchmark_chr() {
     # Extract variants
     awk -F'\t' 'NR > 1 {print $1}' "$bench_sumstat" > "${chr_workdir}/variants.txt"
     
+    local plink_threads="${CFG_PLINK_THREADS:-1}"
+    if ! [[ "$plink_threads" =~ ^[0-9]+$ ]] || [[ "$plink_threads" -lt 1 ]]; then
+        plink_threads=1
+    fi
+
     # LD pruning
     plink2 $geno_opt "$geno_prefix" --extract "${chr_workdir}/variants.txt" \
         --maf "$maf_threshold" --indep-pairwise 250 50 0.25 \
-        --out "${chr_workdir}/pruned" --threads 1 > "${chr_workdir}/prune.log" 2>&1 || return 1
+        --out "${chr_workdir}/pruned" --threads "${plink_threads}" > "${chr_workdir}/prune.log" 2>&1 || return 1
     
     [[ ! -f "${chr_workdir}/pruned.prune.in" ]] && return 0
     
@@ -103,7 +108,7 @@ process_benchmark_chr() {
     
     plink2 $geno_opt "$geno_prefix" --extract "${chr_workdir}/pruned.prune.in" \
         --score "${chr_workdir}/score_input.tsv" 1 2 3 header cols=scoresums ignore-dup-ids \
-        --out "${chr_workdir}/bench" --threads 1 > "${chr_workdir}/score.log" 2>&1 || return 1
+        --out "${chr_workdir}/bench" --threads "${plink_threads}" > "${chr_workdir}/score.log" 2>&1 || return 1
     
     [[ -f "${chr_workdir}/bench.sscore" ]] && {
         sed -i '1s/^#//' "${chr_workdir}/bench.sscore"
