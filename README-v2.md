@@ -68,12 +68,10 @@ sbayesr:
 # Optional: SLURM settings for --sbatch / --sbatch-array
 slurm:
   account: my_account
-  # Optional: default max concurrent array tasks for --sbatch-array (default: 22)
-  max_parallel: 22
   prep:       { mem: 10g, cpus: 6, time: '1:00:00' }
-  # Optional: per-step override for max_parallel
+  # Optional: per-step max concurrent array tasks for --sbatch-array (default: 22)
   posteriors: { mem: 20g, cpus: 6, time: '2:00:00', max_parallel: 22 }
-  score:      { mem: 10g, cpus: 4, time: '0:30:00', max_parallel: 8 }
+  score:      { mem: 10g, cpus: 4, time: '0:30:00', max_parallel: 22 }
 ```
 
 ### Run Pipeline
@@ -90,7 +88,7 @@ slurm:
 ./pgscalculator-v2.sh --config config.yaml --steps sumstat,posteriors,score -i /path/to/sumstat_TRAIT --sbatch
 
 # Or submit chromosome-parallel steps as a SLURM job array (one task per chromosome)
-# Uses slurm.<step>.max_parallel if set; else slurm.max_parallel; else default 22
+# Uses slurm.<step>.max_parallel (default 22)
 ./pgscalculator-v2.sh --config config.yaml --steps posteriors -i /path/to/sumstat_TRAIT --sbatch-array
 
 # Score as a job array as well (calc-score per chromosome; combine/finalize runs once after the array)

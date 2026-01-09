@@ -301,7 +301,6 @@ if [[ "$use_sbatch_array" == true ]]; then
   # Read SLURM settings from config
   slurm_account=$(parse_yaml_nested "slurm" "account" "$config_file_host")
   slurm_partition=$(parse_yaml_nested "slurm" "partition" "$config_file_host")
-  slurm_max_parallel_global=$(parse_yaml_nested "slurm" "max_parallel" "$config_file_host")
 
   # Build chromosome list file (robust to non-contiguous ranges)
   chr_list=$(expand_chromosome_list "${cfg_chromosomes:-1-22}")
@@ -443,8 +442,8 @@ if [[ "$use_sbatch_array" == true ]]; then
     slurm_cpus="${slurm_cpus:-8}"
     slurm_time="${slurm_time:-2:00:00}"
 
-    # Determine max parallel tasks (step > global > default 22)
-    max_parallel="${slurm_max_parallel_step:-${slurm_max_parallel_global:-22}}"
+    # Determine max parallel tasks (step > default 22)
+    max_parallel="${slurm_max_parallel_step:-22}"
     if ! [[ "$max_parallel" =~ ^[0-9]+$ ]] || [[ "$max_parallel" -lt 1 ]]; then
       >&2 echo "Error: invalid max parallel value for --sbatch-array: $max_parallel"
       exit 1
