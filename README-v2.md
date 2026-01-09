@@ -93,9 +93,11 @@ slurm:
 # Uses slurm.<step>.max_parallel if set; else slurm.max_parallel; else default 22
 ./pgscalculator-v2.sh --config config.yaml --steps posteriors -i /path/to/sumstat_TRAIT --sbatch-array
 
-# Score as a job array as well (this runs calc-score per chromosome; combine afterwards once)
+# Score as a job array as well (calc-score per chromosome; combine/finalize runs once after the array)
 ./pgscalculator-v2.sh --config config.yaml --steps score -i /path/to/sumstat_TRAIT --sbatch-array
-./pgscalculator-v2.sh --config config.yaml --steps combine-scores -i /path/to/sumstat_TRAIT
+
+# Run posteriors and score as two sequential arrays in one command (posteriors finishes before score starts)
+./pgscalculator-v2.sh --config config.yaml --steps posteriors,score -i /path/to/sumstat_TRAIT --sbatch-array
 ```
 
 ### Batch Processing Multiple Sumstats

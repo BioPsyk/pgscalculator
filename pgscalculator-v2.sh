@@ -265,13 +265,29 @@ format_elapsed() {
 }
 
 if [[ "$use_sbatch_array" == true ]]; then
-  # For now, only support a single step per submission (e.g. posteriors OR score)
-  if [[ "$steps_arg" == *","* ]]; then
-    >&2 echo "Error: --sbatch-array currently requires a single step (e.g. --steps posteriors)"
+  # Support: --steps posteriors, --steps score, or --steps posteriors,score
+  # (posteriors array must finish before score array starts)
+  if [[ -z "${steps_arg:-}" ]]; then
+    >&2 echo "Error: --sbatch-array requires --steps (posteriors, score, or posteriors,score)"
     exit 1
   fi
-  if [[ "$steps_arg" != "posteriors" ]] && [[ "$steps_arg" != "score" ]]; then
-    >&2 echo "Error: --sbatch-array is only supported for --steps posteriors or --steps score"
+  has_posteriors=false
+  has_score=false
+  IFS=',' read -r -a _sbatch_steps <<< "$steps_arg"
+  for _s in "${_sbatch_steps[@]}"; do
+    _s="$(echo "$_s" | awk '{$1=$1;print}')"
+    [[ -z "$_s" ]] && continue
+    if [[ "$_s" == "posteriors" ]]; then
+      has_posteriors=true
+    elif [[ "$_s" == "score" ]]; then
+      has_score=true
+    else
+      >&2 echo "Error: --sbatch-array only supports --steps posteriors, score, or posteriors,score (got: '${steps_arg}')"
+      exit 1
+    fi
+  done
+  if [[ "$has_posteriors" != true && "$has_score" != true ]]; then
+    >&2 echo "Error: --sbatch-array requires --steps to include posteriors and/or score"
     exit 1
   fi
 
@@ -287,27 +303,6 @@ if [[ "$use_sbatch_array" == true ]]; then
   slurm_partition=$(parse_yaml_nested "slurm" "partition" "$config_file_host")
   slurm_max_parallel_global=$(parse_yaml_nested "slurm" "max_parallel" "$config_file_host")
 
-  step_profile="$steps_arg"
-  step_settings=$(parse_yaml_nested "slurm" "$step_profile" "$config_file_host")
-
-  if [[ -n "$step_settings" ]]; then
-    slurm_mem=$(parse_inline_dict "$step_settings" "mem")
-    slurm_cpus=$(parse_inline_dict "$step_settings" "cpus")
-    slurm_time=$(parse_inline_dict "$step_settings" "time")
-    slurm_max_parallel_step=$(parse_inline_dict "$step_settings" "max_parallel")
-  fi
-
-  slurm_mem="${slurm_mem:-20g}"
-  slurm_cpus="${slurm_cpus:-8}"
-  slurm_time="${slurm_time:-2:00:00}"
-
-  # Determine max parallel tasks (step > global > default 22)
-  max_parallel="${slurm_max_parallel_step:-${slurm_max_parallel_global:-22}}"
-  if ! [[ "$max_parallel" =~ ^[0-9]+$ ]] || [[ "$max_parallel" -lt 1 ]]; then
-    >&2 echo "Error: invalid max parallel value for --sbatch-array: $max_parallel"
-    exit 1
-  fi
-
   # Build chromosome list file (robust to non-contiguous ranges)
   chr_list=$(expand_chromosome_list "${cfg_chromosomes:-1-22}")
   if [[ -z "$chr_list" ]]; then
@@ -316,77 +311,21 @@ if [[ "$use_sbatch_array" == true ]]; then
   fi
   chr_count=$(echo "$chr_list" | wc -w | awk '{print $1}')
 
-  # Build job name
-  if [[ -n "$infold" ]]; then
-    job_name="pgs_$(basename "$infold")_${step_profile}"
-  else
-    job_name="pgs_${step_profile}"
-  fi
-
   log_dir="${cfg_outdir}/slurm_logs"
   mkdir -p "$log_dir"
 
-  chr_file="${log_dir}/${job_name}.chromosomes.txt"
-  echo "$chr_list" | tr ' ' '\n' > "$chr_file"
+  watch_array() {
+    local array_jobid="$1"
+    local chr_file="$2"
+    local chr_count="$3"
 
-  # Build the command to run for a single array task.
-  # Resolve chr using SLURM_ARRAY_TASK_ID (1-based index into chr_file).
-  # NOTE: In array mode, we must only run chromosome-parallel work.
-  # - posteriors: safe (calc-posteriors + format-posteriors are chr-parallel)
-  # - score: only calc-score is chr-parallel; combine-scores/finalize-output must be run once after
-  steps_arg_for_task="${steps_arg}"
-  if [[ "$step_profile" == "score" ]]; then
-    steps_arg_for_task="calc-score"
-  fi
+    # Best-effort watch: report task starts/finishes + elapsed time.
+    # Important: must terminate when the array is done, even if sacct is delayed.
+    if ! command -v squeue >/dev/null 2>&1; then
+      echo "Note: squeue not available; not watching job progress."
+      return 0
+    fi
 
-  run_cmd="${project_dir}/pgscalculator-v2.sh --config ${config_file_host} --steps ${steps_arg_for_task}"
-  [[ -n "$infold" ]] && run_cmd="${run_cmd} -i ${infold}"
-  [[ -n "$outdir" ]] && run_cmd="${run_cmd} -o ${outdir}"
-  [[ -n "$devmode" ]] && run_cmd="${run_cmd} -d"
-
-  task_wrap="CHR=\$(sed -n \"\${SLURM_ARRAY_TASK_ID}p\" \"${chr_file}\"); \
-if [[ -z \"\$CHR\" ]]; then echo \"Error: could not resolve chromosome for task \$SLURM_ARRAY_TASK_ID\" >&2; exit 1; fi; \
-echo \"[INFO] Starting ${step_profile} chr\${CHR} at \$(date)\"; \
-${run_cmd} --chr \"\$CHR\"; \
-rc=\$?; echo \"[INFO] Finished ${step_profile} chr\${CHR} at \$(date) (exit=\$rc)\"; exit \$rc"
-
-  # Build sbatch args as an array to avoid brittle quoting + eval issues.
-  # NOTE: task_wrap intentionally contains escaped '$' so it is evaluated on the compute node, not here.
-  sbatch_args=(--parsable)
-  sbatch_args+=(--mem="${slurm_mem}")
-  sbatch_args+=(--cpus-per-task="${slurm_cpus}")
-  sbatch_args+=(--time="${slurm_time}")
-  sbatch_args+=(--job-name="${job_name}")
-  sbatch_args+=(--output="${log_dir}/${job_name}_%A_%a.out")
-  sbatch_args+=(--error="${log_dir}/${job_name}_%A_%a.err")
-  sbatch_args+=(--array="1-${chr_count}%${max_parallel}")
-  [[ -n "$slurm_account" ]] && sbatch_args+=(--account="${slurm_account}")
-  [[ -n "$slurm_partition" ]] && sbatch_args+=(--partition="${slurm_partition}")
-  sbatch_args+=(--wrap="${task_wrap}")
-
-  echo "Submitting SLURM job array..."
-  echo "  Job name: ${job_name}"
-  echo "  Step: ${step_profile}"
-  if [[ "$step_profile" == "score" ]]; then
-    echo "  Note: array mode runs 'calc-score' only. Run '--steps combine-scores' (and finalize-output) after the array completes."
-  fi
-  echo "  Chromosomes: ${chr_list}"
-  echo "  Array: 1-${chr_count}%${max_parallel} (max_parallel=${max_parallel})"
-  echo "  Resources per task: mem=${slurm_mem}, cpus=${slurm_cpus}, time=${slurm_time}"
-  echo "  Logs: ${log_dir}/${job_name}_<jobid>_<taskid>.out/.err"
-  echo "  Chromosome file: ${chr_file}"
-  echo ""
-
-  array_jobid=$(sbatch "${sbatch_args[@]}")
-  if [[ -z "$array_jobid" ]]; then
-    >&2 echo "Error: failed to submit SLURM array job"
-    exit 1
-  fi
-  echo "Submitted: ${array_jobid}"
-
-  # Best-effort watch: report task starts/finishes + elapsed time.
-  # Important: must terminate when the array is done, even if sacct is delayed.
-  if command -v squeue >/dev/null 2>&1; then
     echo ""
     echo "Watching array progress (Ctrl+C stops watching; jobs continue)..."
 
@@ -426,7 +365,6 @@ rc=\$?; echo \"[INFO] Finished ${step_profile} chr\${CHR} at \$(date) (exit=\$rc
           if command -v sacct >/dev/null 2>&1; then
             acct_line=$(sacct -j "${array_jobid}_${idx}" --format=JobIDRaw,State,ElapsedRaw -n -P 2>/dev/null | head -n 1 || true)
             if [[ -n "$acct_line" ]]; then
-              jidraw="${acct_line%%|*}"
               rest="${acct_line#*|}"
               st="${rest%%|*}"
               elapsed_raw="${rest##*|}"
@@ -484,11 +422,119 @@ rc=\$?; echo \"[INFO] Finished ${step_profile} chr\${CHR} at \$(date) (exit=\$rc
     total_elapsed=$((end_ts - start_ts))
     echo ""
     echo "Array completed: job=${array_jobid} total_elapsed=$(format_elapsed "$total_elapsed")"
-    exit 0
-  else
-    echo "Note: squeue not available; not watching job progress."
-    exit 0
+    return 0
+  }
+
+  submit_array_for_step() {
+    local step_profile="$1"
+
+    step_settings=$(parse_yaml_nested "slurm" "$step_profile" "$config_file_host")
+    slurm_mem=""
+    slurm_cpus=""
+    slurm_time=""
+    slurm_max_parallel_step=""
+    if [[ -n "$step_settings" ]]; then
+      slurm_mem=$(parse_inline_dict "$step_settings" "mem")
+      slurm_cpus=$(parse_inline_dict "$step_settings" "cpus")
+      slurm_time=$(parse_inline_dict "$step_settings" "time")
+      slurm_max_parallel_step=$(parse_inline_dict "$step_settings" "max_parallel")
+    fi
+    slurm_mem="${slurm_mem:-20g}"
+    slurm_cpus="${slurm_cpus:-8}"
+    slurm_time="${slurm_time:-2:00:00}"
+
+    # Determine max parallel tasks (step > global > default 22)
+    max_parallel="${slurm_max_parallel_step:-${slurm_max_parallel_global:-22}}"
+    if ! [[ "$max_parallel" =~ ^[0-9]+$ ]] || [[ "$max_parallel" -lt 1 ]]; then
+      >&2 echo "Error: invalid max parallel value for --sbatch-array: $max_parallel"
+      exit 1
+    fi
+
+    # Build job name
+    if [[ -n "$infold" ]]; then
+      job_name="pgs_$(basename "$infold")_${step_profile}"
+    else
+      job_name="pgs_${step_profile}"
+    fi
+
+    chr_file="${log_dir}/${job_name}.chromosomes.txt"
+    echo "$chr_list" | tr ' ' '\n' > "$chr_file"
+
+    # In array mode, we must only run chromosome-parallel work.
+    # - posteriors: safe (calc-posteriors + format-posteriors are chr-parallel)
+    # - score: only calc-score is chr-parallel; combine-scores/finalize-output must be run once after
+    steps_arg_for_task="${step_profile}"
+    if [[ "$step_profile" == "score" ]]; then
+      steps_arg_for_task="calc-score"
+    fi
+
+    run_cmd="${project_dir}/pgscalculator-v2.sh --config ${config_file_host} --steps ${steps_arg_for_task}"
+    [[ -n "$infold" ]] && run_cmd="${run_cmd} -i ${infold}"
+    [[ -n "$outdir" ]] && run_cmd="${run_cmd} -o ${outdir}"
+    [[ -n "$devmode" ]] && run_cmd="${run_cmd} -d"
+
+    task_wrap="CHR=\$(sed -n \"\${SLURM_ARRAY_TASK_ID}p\" \"${chr_file}\"); \
+if [[ -z \"\$CHR\" ]]; then echo \"Error: could not resolve chromosome for task \$SLURM_ARRAY_TASK_ID\" >&2; exit 1; fi; \
+echo \"[INFO] Starting ${step_profile} chr\${CHR} at \$(date)\"; \
+${run_cmd} --chr \"\$CHR\"; \
+rc=\$?; echo \"[INFO] Finished ${step_profile} chr\${CHR} at \$(date) (exit=\$rc)\"; exit \$rc"
+
+    # Build sbatch args as an array to avoid brittle quoting + eval issues.
+    # NOTE: task_wrap intentionally contains escaped '$' so it is evaluated on the compute node, not here.
+    sbatch_args=(--parsable)
+    sbatch_args+=(--mem="${slurm_mem}")
+    sbatch_args+=(--cpus-per-task="${slurm_cpus}")
+    sbatch_args+=(--time="${slurm_time}")
+    sbatch_args+=(--job-name="${job_name}")
+    sbatch_args+=(--output="${log_dir}/${job_name}_%A_%a.out")
+    sbatch_args+=(--error="${log_dir}/${job_name}_%A_%a.err")
+    sbatch_args+=(--array="1-${chr_count}%${max_parallel}")
+    [[ -n "$slurm_account" ]] && sbatch_args+=(--account="${slurm_account}")
+    [[ -n "$slurm_partition" ]] && sbatch_args+=(--partition="${slurm_partition}")
+    sbatch_args+=(--wrap="${task_wrap}")
+
+    echo "Submitting SLURM job array..."
+    echo "  Job name: ${job_name}"
+    echo "  Step: ${step_profile}"
+    if [[ "$step_profile" == "score" ]]; then
+      echo "  Note: array mode runs 'calc-score' only; combine/finalize will run once after the score array finishes."
+    fi
+    echo "  Chromosomes: ${chr_list}"
+    echo "  Array: 1-${chr_count}%${max_parallel} (max_parallel=${max_parallel})"
+    echo "  Resources per task: mem=${slurm_mem}, cpus=${slurm_cpus}, time=${slurm_time}"
+    echo "  Logs: ${log_dir}/${job_name}_<jobid>_<taskid>.out/.err"
+    echo "  Chromosome file: ${chr_file}"
+    echo ""
+
+    array_jobid=$(sbatch "${sbatch_args[@]}")
+    if [[ -z "$array_jobid" ]]; then
+      >&2 echo "Error: failed to submit SLURM array job"
+      exit 1
+    fi
+    echo "Submitted: ${array_jobid}"
+
+    watch_array "$array_jobid" "$chr_file" "$chr_count"
+    echo ""
+  }
+
+  # Always run posteriors before score if both requested
+  if [[ "$has_posteriors" == true ]]; then
+    submit_array_for_step "posteriors"
   fi
+  if [[ "$has_score" == true ]]; then
+    submit_array_for_step "score"
+
+    # After score array finishes, run the non-parallel steps once to produce final outputs.
+    follow_steps="combine-scores,finalize-output"
+    echo "Running post-array finalization: ${follow_steps}"
+    follow_cmd="${project_dir}/pgscalculator-v2.sh --config ${config_file_host} --steps ${follow_steps}"
+    [[ -n "$infold" ]] && follow_cmd="${follow_cmd} -i ${infold}"
+    [[ -n "$outdir" ]] && follow_cmd="${follow_cmd} -o ${outdir}"
+    [[ -n "$devmode" ]] && follow_cmd="${follow_cmd} -d"
+    eval "$follow_cmd"
+  fi
+
+  exit 0
 fi
 
 ################################################################################
