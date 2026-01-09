@@ -929,6 +929,10 @@ fi
 # Build mount options
 ################################################################################
 mount_opts=""
+# Bind the *host* pgscalculator code into the container so the pipeline logic
+# matches the wrapper you are running (and so fixes don't require rebuilding the SIF).
+# This intentionally overrides the image's /pgscalculator tree.
+mount_opts="${mount_opts} ${mountflag} ${project_dir}:/pgscalculator"
 mount_opts="${mount_opts} ${mountflag} ${outdir_host}:${outdir_container}"
 mount_opts="${mount_opts} ${mountflag} ${lddir_host}:${lddir_container}"
 
