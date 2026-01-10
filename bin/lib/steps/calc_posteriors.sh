@@ -278,33 +278,53 @@ format_for_sbayesr() {
 
     # Build .ma and drop obviously bad rows.
     # NOTE: keep this awk POSIX-compatible (avoid /regex/i flags).
+    #
+    # We also trim leading/trailing whitespace/CR from fields before validating.
+    # This prevents subtle cases where "NA " / "0.123\r" bypass checks and can
+    # yield malformed output rows (NF != 8) when printed with whitespace FS.
     awk -F"$fs" -v OFS=' ' \
         -v snp="$snp_col" -v a1="$a1_col" -v a2="$a2_col" \
         -v freq="$freq_col" -v beta="$beta_col" -v se="$se_col" \
         -v p="$p_col" -v n="$n_col" '
-        function is_na(x) { return (x=="" || x=="NA" || x=="NaN" || x=="nan") }
-        function has_nan_inf(x, lx) { lx=tolower(x); return (index(lx,"nan") || index(lx,"inf")) }
+        function trim(x) { gsub(/^[ \t\r]+|[ \t\r]+$/, "", x); return x }
+        function is_na(x, lx) {
+            x=trim(x); lx=tolower(x);
+            return (x=="" || lx=="na" || lx=="nan")
+        }
+        function has_nan_inf(x, lx) { lx=tolower(trim(x)); return (index(lx,"nan") || index(lx,"inf")) }
         function is_num(x) { return (x ~ /^[+-]?([0-9]*\.[0-9]+|[0-9]+)([eE][+-]?[0-9]+)?$/) }
         NR == 1 { next }
         {
             total++
 
+            snp_v = trim($snp)
+            a1_v = trim($a1)
+            a2_v = trim($a2)
+            freq_v = trim($freq)
+            beta_v = trim($beta)
+            se_v = trim($se)
+            p_v = trim($p)
+            n_v = trim($n)
+
             # Guard against missing/NA fields
-            if (is_na($snp) || is_na($a1) || is_na($a2) || is_na($freq) || is_na($beta) || is_na($se) || is_na($p) || is_na($n)) { dropped_na++; next }
+            if (is_na(snp_v) || is_na(a1_v) || is_na(a2_v) || is_na(freq_v) || is_na(beta_v) || is_na(se_v) || is_na(p_v) || is_na(n_v)) {
+                dropped_na++
+                next
+            }
 
             # Avoid inf/nan strings
-            if (has_nan_inf($freq) || has_nan_inf($beta) || has_nan_inf($se) || has_nan_inf($p) || has_nan_inf($n)) { dropped_naninf++; next }
+            if (has_nan_inf(freq_v) || has_nan_inf(beta_v) || has_nan_inf(se_v) || has_nan_inf(p_v) || has_nan_inf(n_v)) { dropped_naninf++; next }
 
             # Numeric sanity
-            if (!is_num($freq) || !is_num($beta) || !is_num($se) || !is_num($p) || !is_num($n)) { dropped_nonnum++; next }
+            if (!is_num(freq_v) || !is_num(beta_v) || !is_num(se_v) || !is_num(p_v) || !is_num(n_v)) { dropped_nonnum++; next }
 
             # Range sanity
-            if ($freq <= 0 || $freq >= 1) { dropped_range++; next }
-            if ($se <= 0) { dropped_range++; next }
-            if ($p < 0 || $p > 1) { dropped_range++; next }
-            if ($n <= 0) { dropped_range++; next }
+            if (freq_v+0 <= 0 || freq_v+0 >= 1) { dropped_range++; next }
+            if (se_v+0 <= 0) { dropped_range++; next }
+            if (p_v+0 < 0 || p_v+0 > 1) { dropped_range++; next }
+            if (n_v+0 <= 0) { dropped_range++; next }
 
-            print $snp, $a1, $a2, $freq, $beta, $se, $p, $n
+            print snp_v, a1_v, a2_v, freq_v, beta_v, se_v, p_v, n_v
             kept++
         }
         END {
@@ -325,7 +345,8 @@ format_for_sbayesr() {
     if [[ "$bad_lines" -gt 0 ]]; then
         log_error "format_for_sbayesr: generated malformed .ma (${bad_lines} data lines did not have 8 columns): $output_file"
         log_error "Example bad lines:"
-        awk 'NR<=30 && NF!=8 {print "  " $0}' "$output_file" | head -5 >&2
+        # Print the first few bad lines anywhere in the file (not just early rows)
+        awk 'NR>1 && NF!=8 {print "  " $0; n++; if(n>=5) exit}' "$output_file" >&2
         return 1
     fi
 
