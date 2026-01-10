@@ -297,6 +297,20 @@ if [[ "$use_sbatch_array" == true ]]; then
     exit 1
   fi
   mkdir -p "${cfg_outdir}"
+  outdir_host=$(realpath "${cfg_outdir}")
+
+  # In --sbatch-array mode we exit before the later "Resolve paths" block.
+  # Compute sumstat_name here so watcher sanity-checks can run.
+  if [[ -z "${infold:-}" ]]; then
+    >&2 echo "Error: --sbatch-array requires -i <sumstat_dir>"
+    exit 1
+  fi
+  infold_host=$(realpath "${infold}")
+  if [[ ! -d "$infold_host" ]]; then
+    >&2 echo "Error: Input directory doesn't exist: $infold_host"
+    exit 1
+  fi
+  sumstat_name=$(basename "$infold_host")
 
   # Read SLURM settings from config
   slurm_account=$(parse_yaml_nested "slurm" "account" "$config_file_host")
@@ -431,6 +445,34 @@ if [[ "$use_sbatch_array" == true ]]; then
       sleep 15
     done
 
+    # sacct can lag; do a final poll to resolve UNKNOWN tasks and capture failures.
+    if command -v sacct >/dev/null 2>&1; then
+      local tries=0
+      while [[ $tries -lt 12 ]]; do
+        local unknown_left=0
+        for ((idx=1; idx<=chr_count; idx++)); do
+          if [[ "${task_state[$idx]:-}" != "UNKNOWN" ]]; then
+            continue
+          fi
+          acct_line=$(sacct -j "${array_jobid}_${idx}" --format=State -n -P 2>/dev/null | head -n 1 || true)
+          if [[ -n "$acct_line" ]]; then
+            st="${acct_line%%|*}"
+            task_state["$idx"]="$st"
+            if [[ "$st" != COMPLETED* ]]; then
+              task_failed["$idx"]=1
+            fi
+          else
+            unknown_left=$((unknown_left + 1))
+          fi
+        done
+        if [[ $unknown_left -eq 0 ]]; then
+          break
+        fi
+        tries=$((tries + 1))
+        sleep 5
+      done
+    fi
+
     end_ts=$(date +%s)
     total_elapsed=$((end_ts - start_ts))
     echo ""
@@ -443,6 +485,18 @@ if [[ "$use_sbatch_array" == true ]]; then
     done
     if [[ $failed_count -gt 0 ]]; then
       echo "Array result: FAILED_TASKS=${failed_count}/${chr_count}"
+      return 1
+    fi
+
+    # Be conservative: if some tasks are still UNKNOWN (no sacct), treat as failure.
+    local unknown_count=0
+    for ((idx=1; idx<=chr_count; idx++)); do
+      if [[ "${task_state[$idx]:-}" == "UNKNOWN" ]]; then
+        unknown_count=$((unknown_count + 1))
+      fi
+    done
+    if [[ $unknown_count -gt 0 ]]; then
+      echo "Array result: UNKNOWN_TASKS=${unknown_count}/${chr_count}"
       return 1
     fi
     return 0
