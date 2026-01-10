@@ -89,7 +89,13 @@ run_calc_score() {
         local posteriors_file="${posteriors_mapped_dir}/chr${chr}.snpRes"
         
         if [[ ! -f "$posteriors_file" ]]; then
-            log_debug "No mapped posteriors for chr${chr}, skipping"
+            if [[ -n "$specific_chr" ]]; then
+                log_error "chr${chr}: missing mapped posteriors file: ${posteriors_file}"
+                log_error "Run posteriors (format-posteriors) for '${sumstat_name}' before calc-score."
+                return 1
+            fi
+            log_error "chr${chr}: missing mapped posteriors file: ${posteriors_file}"
+            ((fail_count++))
             continue
         fi
         
@@ -111,7 +117,12 @@ run_calc_score() {
     done
     
     # Mark step as completed only if all chromosomes succeeded
-    if [[ -z "$specific_chr" ]] && [[ $fail_count -eq 0 ]]; then
+    if [[ $fail_count -gt 0 ]]; then
+        log_error "calc-score failed for ${fail_count} chromosome(s)"
+        return 1
+    fi
+
+    if [[ -z "$specific_chr" ]]; then
         mark_step_completed "$step_dir"
     fi
     

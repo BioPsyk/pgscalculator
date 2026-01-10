@@ -93,11 +93,18 @@ run_format_posteriors() {
         chromosomes=$(get_chromosomes)
     fi
 
+    local fail_count=0
     for chr in $chromosomes; do
         local posterior_file="${posteriors_dir}/chr${chr}.snpRes"
         
         if [[ ! -f "$posterior_file" ]]; then
-            log_debug "No posteriors for chr${chr}, skipping"
+            if [[ -n "$specific_chr" ]]; then
+                log_error "chr${chr}: missing posteriors file: ${posterior_file}"
+                log_error "Run calc-posteriors for '${sumstat_name}' before format-posteriors."
+                return 1
+            fi
+            log_error "chr${chr}: missing posteriors file: ${posterior_file}"
+            ((fail_count++))
             continue
         fi
         
@@ -115,6 +122,11 @@ run_format_posteriors() {
         total_mapped=$((total_mapped + mapped_count))
         log_debug "chr${chr}: ${mapped_count} variants mapped"
     done
+
+    if [[ $fail_count -gt 0 ]]; then
+        log_error "format-posteriors failed for ${fail_count} chromosome(s)"
+        return 1
+    fi
     
     # Mark completion:
     # - Full runs: mark global .completed

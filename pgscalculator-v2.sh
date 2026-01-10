@@ -331,6 +331,8 @@ if [[ "$use_sbatch_array" == true ]]; then
     declare -A started
     declare -A finished
     declare -A acct_miss
+    declare -A task_state
+    declare -A task_failed
     start_ts=$(date +%s)
 
     while [[ ${#finished[@]} -lt $chr_count ]]; do
@@ -369,18 +371,24 @@ if [[ "$use_sbatch_array" == true ]]; then
               elapsed_raw="${rest##*|}"
               elapsed_fmt=$(format_elapsed "$elapsed_raw")
               finished["$idx"]=1
+              task_state["$idx"]="$st"
+              if [[ "$st" != COMPLETED* ]]; then
+                task_failed["$idx"]=1
+              fi
               echo "  Finished: task=${idx} chr=${chr} state=${st} elapsed=${elapsed_fmt} time=$(date)"
             else
               # sacct can lag behind job completion; don't hang forever.
               acct_miss["$idx"]=$(( ${acct_miss["$idx"]:-0} + 1 ))
               if [[ ${acct_miss["$idx"]} -ge 3 ]]; then
                 finished["$idx"]=1
+                task_state["$idx"]="UNKNOWN"
                 echo "  Finished: task=${idx} chr=${chr} (sacct not yet available) time=$(date)"
               fi
             fi
           else
             # No sacct; mark finished when it leaves queue
             finished["$idx"]=1
+            task_state["$idx"]="UNKNOWN"
             echo "  Finished: task=${idx} chr=${chr} (no sacct available) time=$(date)"
           fi
         fi
@@ -402,13 +410,19 @@ if [[ "$use_sbatch_array" == true ]]; then
               elapsed_raw="${acct_line##*|}"
               elapsed_fmt=$(format_elapsed "$elapsed_raw")
               finished["$idx"]=1
+              task_state["$idx"]="$st"
+              if [[ "$st" != COMPLETED* ]]; then
+                task_failed["$idx"]=1
+              fi
               echo "  Finished: task=${idx} chr=${chr} state=${st} elapsed=${elapsed_fmt} time=$(date)"
             else
               finished["$idx"]=1
+              task_state["$idx"]="UNKNOWN"
               echo "  Finished: task=${idx} chr=${chr} (array ended; sacct unavailable) time=$(date)"
             fi
           else
             finished["$idx"]=1
+            task_state["$idx"]="UNKNOWN"
             echo "  Finished: task=${idx} chr=${chr} (array ended) time=$(date)"
           fi
         done
@@ -421,6 +435,16 @@ if [[ "$use_sbatch_array" == true ]]; then
     total_elapsed=$((end_ts - start_ts))
     echo ""
     echo "Array completed: job=${array_jobid} total_elapsed=$(format_elapsed "$total_elapsed")"
+    local failed_count=0
+    for ((idx=1; idx<=chr_count; idx++)); do
+      if [[ -n "${task_failed[$idx]:-}" ]]; then
+        failed_count=$((failed_count + 1))
+      fi
+    done
+    if [[ $failed_count -gt 0 ]]; then
+      echo "Array result: FAILED_TASKS=${failed_count}/${chr_count}"
+      return 1
+    fi
     return 0
   }
 
@@ -512,7 +536,37 @@ rc=\$?; echo \"[INFO] Finished ${step_profile} chr\${CHR} at \$(date) (exit=\$rc
     fi
     echo "Submitted: ${array_jobid}"
 
-    watch_array "$array_jobid" "$chr_file" "$chr_count"
+    if ! watch_array "$array_jobid" "$chr_file" "$chr_count"; then
+      >&2 echo "Error: SLURM array job ${array_jobid} for step '${step_profile}' had failed task(s)."
+      >&2 echo "Check logs under: ${log_dir}/"
+      exit 1
+    fi
+
+    # Sanity-check expected outputs exist after a successful array.
+    # This catches cases where tasks return 0 but accidentally write nothing.
+    if [[ -n "$sumstat_name" ]]; then
+      base_sumstat_out="${outdir_host}/sumstats/${sumstat_name}/intermediates"
+      if [[ "$step_profile" == "posteriors" ]]; then
+        n_post=$(ls "${base_sumstat_out}/posteriors"/chr*.snpRes 2>/dev/null | wc -l | awk '{print $1}')
+        n_mapped=$(ls "${base_sumstat_out}/posteriors_mapped"/chr*.snpRes 2>/dev/null | wc -l | awk '{print $1}')
+        if [[ "$n_post" -lt "$chr_count" || "$n_mapped" -lt "$chr_count" ]]; then
+          >&2 echo "Error: posteriors array finished but outputs are missing."
+          >&2 echo "  Expected >=${chr_count} files in:"
+          >&2 echo "    - ${base_sumstat_out}/posteriors/chr*.snpRes   (found ${n_post})"
+          >&2 echo "    - ${base_sumstat_out}/posteriors_mapped/chr*.snpRes (found ${n_mapped})"
+          >&2 echo "Check logs under: ${log_dir}/"
+          exit 1
+        fi
+      elif [[ "$step_profile" == "score" ]]; then
+        n_scores=$(ls "${base_sumstat_out}/scores"/chr*.sscore 2>/dev/null | wc -l | awk '{print $1}')
+        if [[ "$n_scores" -lt "$chr_count" ]]; then
+          >&2 echo "Error: score array finished but outputs are missing."
+          >&2 echo "  Expected >=${chr_count} files in: ${base_sumstat_out}/scores/chr*.sscore (found ${n_scores})"
+          >&2 echo "Check logs under: ${log_dir}/"
+          exit 1
+        fi
+      fi
+    fi
     echo ""
   }
 

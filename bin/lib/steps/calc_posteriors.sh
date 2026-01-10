@@ -47,6 +47,12 @@ run_calc_posteriors() {
     # Check that filter-variants has been run
     require_dir "$filter_dir" "Run 'pgscalculator filter-variants' first"
     
+    # Auto-detect single-chromosome runs from config (important for --sbatch-array mode where config is rewritten).
+    # `run_pipeline.sh` calls this step with specific_chr="", so we must infer it here.
+    if [[ -z "$specific_chr" ]] && [[ -n "${CFG_CHROMOSOMES:-}" ]] && [[ "${CFG_CHROMOSOMES}" =~ ^(chr)?[0-9]+$ ]]; then
+        specific_chr="${CFG_CHROMOSOMES#chr}"
+    fi
+
     # Check if already completed (only if not running specific chr)
     if [[ -z "$specific_chr" ]] && check_step_completed "$step_dir"; then
         log_info "Step already completed. Use --force to re-run."
@@ -78,7 +84,13 @@ run_calc_posteriors() {
         local chr_filtered="${filter_dir}/chr${chr}_filtered.tsv"
         
         if [[ ! -f "$chr_filtered" ]]; then
-            log_warn "No filtered sumstat for chr${chr}, skipping"
+            if [[ -n "$specific_chr" ]]; then
+                log_error "chr${chr}: missing filtered sumstat: ${chr_filtered}"
+                log_error "Run sumstat (filter-variants) for '${sumstat_name}' before calc-posteriors."
+                return 1
+            fi
+            log_error "chr${chr}: missing filtered sumstat: ${chr_filtered}"
+            ((fail_count++))
             continue
         fi
         
@@ -100,8 +112,16 @@ run_calc_posteriors() {
     done
     
     # Mark step as completed only if all chromosomes succeeded
-    if [[ -z "$specific_chr" ]] && [[ $fail_count -eq 0 ]]; then
+    if [[ $fail_count -gt 0 ]]; then
+        log_error "calc-posteriors failed for ${fail_count} chromosome(s)"
+        return 1
+    fi
+
+    if [[ -z "$specific_chr" ]]; then
         mark_step_completed "$step_dir"
+    else
+        date '+%Y-%m-%d %H:%M:%S' > "${step_dir}/.completed_chr${specific_chr}"
+        log_debug "Marked chr${specific_chr} as completed: ${step_dir}/.completed_chr${specific_chr}"
     fi
     
     log_info "Completed: ${success_count} chromosomes, Failed: ${fail_count}"
