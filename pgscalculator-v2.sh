@@ -20,8 +20,9 @@ function general_usage(){
   echo "  -o <dir>          Path to output directory (overrides config)"
   echo "  --chr <range>     Chromosomes to process (e.g., '21-22', default: 1-22)"
   echo "  --sbatch          Submit as SLURM job using sbatch settings from config"
-  echo "  --sbatch-array     Submit as SLURM job array (one task per chromosome)."
-  echo "                   Optional N sets max concurrent array tasks (default: config slurm.max_parallel or 22)."
+  echo "                   For per-sumstat steps (sumstat/posteriors/score), this submits a"
+  echo "                   lightweight *driver job* that runs sumstat and launches/monitors"
+  echo "                   chromosome-parallel arrays for posteriors/score."
   echo "  -d                Dev mode (verbose output)"
   echo "  -v                Show version"
   echo "  -h                Show this help"
@@ -77,7 +78,7 @@ steps_arg=""
 chromosomes=""
 devmode=""
 use_sbatch=false
-use_sbatch_array=false
+driver_run=false
 
 i=0
 while [ $i -lt ${#paramarray[@]} ]; do
@@ -98,8 +99,9 @@ while [ $i -lt ${#paramarray[@]} ]; do
       use_sbatch=true
         i=$((i+1))
       ;;
-    --sbatch-array)
-      use_sbatch_array=true
+    --_driver-run)
+      # Internal flag: run inside a driver job; orchestrates arrays, does not submit itself.
+      driver_run=true
       i=$((i+1))
       ;;
     -i)
@@ -159,10 +161,7 @@ if [[ -z "$steps_arg" ]]; then
   exit 1
 fi
 
-if [[ "$use_sbatch" == true ]] && [[ "$use_sbatch_array" == true ]]; then
-  >&2 echo "Error: --sbatch and --sbatch-array are mutually exclusive"
-  exit 1
-fi
+# (legacy) no-op: --sbatch-array removed; keep block absent
 
 config_file_host=$(realpath "$config_file")
 
@@ -264,30 +263,41 @@ format_elapsed() {
   printf "%02d:%02d:%02d" "$h" "$m" "$s"
 }
 
-if [[ "$use_sbatch_array" == true ]]; then
-  # Support: --steps posteriors, --steps score, or --steps posteriors,score
-  # (posteriors array must finish before score array starts)
+if [[ "$driver_run" == true ]]; then
+  # Support: any combination of:
+  #   --steps sumstat
+  #   --steps posteriors
+  #   --steps score
+  #   --steps sumstat,posteriors,score
+  # Order is enforced: sumstat -> posteriors -> score
   if [[ -z "${steps_arg:-}" ]]; then
-    >&2 echo "Error: --sbatch-array requires --steps (posteriors, score, or posteriors,score)"
+    >&2 echo "Error: --_driver-run requires --steps (sumstat, posteriors, score, or combinations thereof)"
     exit 1
   fi
+  has_sumstat=false
   has_posteriors=false
   has_score=false
   IFS=',' read -r -a _sbatch_steps <<< "$steps_arg"
   for _s in "${_sbatch_steps[@]}"; do
     _s="$(echo "$_s" | awk '{$1=$1;print}')"
     [[ -z "$_s" ]] && continue
-    if [[ "$_s" == "posteriors" ]]; then
+    if [[ "$_s" == "prep" ]]; then
+      >&2 echo "Error: prep must be run on its own (do not include prep in driver jobs)"
+      exit 1
+    fi
+    if [[ "$_s" == "sumstat" ]]; then
+      has_sumstat=true
+    elif [[ "$_s" == "posteriors" ]]; then
       has_posteriors=true
     elif [[ "$_s" == "score" ]]; then
       has_score=true
     else
-      >&2 echo "Error: --sbatch-array only supports --steps posteriors, score, or posteriors,score (got: '${steps_arg}')"
+      >&2 echo "Error: driver mode only supports --steps sumstat, posteriors, score (or combinations) (got: '${steps_arg}')"
       exit 1
     fi
   done
-  if [[ "$has_posteriors" != true && "$has_score" != true ]]; then
-    >&2 echo "Error: --sbatch-array requires --steps to include posteriors and/or score"
+  if [[ "$has_sumstat" != true && "$has_posteriors" != true && "$has_score" != true ]]; then
+    >&2 echo "Error: --sbatch-array requires --steps to include sumstat and/or posteriors and/or score"
     exit 1
   fi
 
@@ -504,6 +514,63 @@ if [[ "$use_sbatch_array" == true ]]; then
     return 0
   }
 
+  watch_job() {
+    local jobid="$1"
+    local label="${2:-job}"
+
+    if ! command -v squeue >/dev/null 2>&1; then
+      echo "Note: squeue not available; not watching ${label}."
+      return 0
+    fi
+
+    echo ""
+    echo "Watching ${label} (Ctrl+C stops watching; job continues)..."
+    local started=0
+    local start_ts
+    start_ts=$(date +%s)
+
+    while true; do
+      st=$(squeue -h -j "${jobid}" -o "%T" 2>/dev/null | head -n 1 || true)
+      if [[ -n "$st" ]]; then
+        if [[ $started -eq 0 ]]; then
+          started=1
+          echo "  Started: job=${jobid} state=${st} time=$(date)"
+        fi
+        sleep 10
+        continue
+      fi
+      break
+    done
+
+    # Final accounting (best effort)
+    local final_state="UNKNOWN"
+    local elapsed_fmt="NA"
+    if command -v sacct >/dev/null 2>&1; then
+      # sacct can lag; try a few times
+      local tries=0
+      while [[ $tries -lt 12 ]]; do
+        acct_line=$(sacct -j "${jobid}" --format=State,ElapsedRaw -n -P 2>/dev/null | head -n 1 || true)
+        if [[ -n "$acct_line" ]]; then
+          final_state="${acct_line%%|*}"
+          elapsed_raw="${acct_line##*|}"
+          elapsed_fmt=$(format_elapsed "$elapsed_raw")
+          break
+        fi
+        tries=$((tries + 1))
+        sleep 5
+      done
+    fi
+
+    end_ts=$(date +%s)
+    total_elapsed=$((end_ts - start_ts))
+    echo "  Finished: job=${jobid} state=${final_state} elapsed=${elapsed_fmt} total_elapsed=$(format_elapsed "$total_elapsed") time=$(date)"
+
+    if [[ "$final_state" == COMPLETED* ]]; then
+      return 0
+    fi
+    return 1
+  }
+
   submit_array_for_step() {
     local step_profile="$1"
 
@@ -525,7 +592,7 @@ if [[ "$use_sbatch_array" == true ]]; then
     # Determine max parallel tasks (step > default 22)
     max_parallel="${slurm_max_parallel_step:-22}"
     if ! [[ "$max_parallel" =~ ^[0-9]+$ ]] || [[ "$max_parallel" -lt 1 ]]; then
-      >&2 echo "Error: invalid max parallel value for --sbatch-array: $max_parallel"
+      >&2 echo "Error: invalid max_parallel for ${step_profile}: $max_parallel"
       exit 1
     fi
 
@@ -624,6 +691,17 @@ rc=\$?; echo \"[INFO] Finished ${step_profile} chr\${CHR} at \$(date) (exit=\$rc
   }
 
   # Always run posteriors before score if both requested
+  # In driver mode, we run sumstat directly (within this driver job), then launch arrays.
+  run_base="${project_dir}/pgscalculator-v2.sh --config ${config_file_host}"
+  [[ -n "$infold" ]] && run_base="${run_base} -i ${infold}"
+  [[ -n "$outdir" ]] && run_base="${run_base} -o ${outdir}"
+  [[ -n "$chromosomes" ]] && run_base="${run_base} --chr ${chromosomes}"
+  [[ -n "$devmode" ]] && run_base="${run_base} -d"
+
+  if [[ "$has_sumstat" == true ]]; then
+    echo "Running sumstat inside driver job..."
+    eval "${run_base} --steps sumstat"
+  fi
   if [[ "$has_posteriors" == true ]]; then
     submit_array_for_step "posteriors"
   fi
@@ -650,75 +728,146 @@ if [[ "$use_sbatch" == true ]]; then
   # Read SLURM settings from config
   slurm_account=$(parse_yaml_nested "slurm" "account" "$config_file_host")
   slurm_partition=$(parse_yaml_nested "slurm" "partition" "$config_file_host")
-  
-  # Determine which step profile to use
-  step_profile="default"
-  if [[ -n "$steps_arg" ]]; then
-    # Use first step as profile (prep, posteriors, score, etc.)
-    step_profile=$(echo "$steps_arg" | cut -d',' -f1)
+
+  # Enforce: prep must be run on its own
+  if [[ -z "${steps_arg:-}" ]]; then
+    >&2 echo "Error: --sbatch requires --steps"
+    exit 1
   fi
-  
-  # Get step-specific settings
+  IFS=',' read -r -a _steps_list <<< "$steps_arg"
+  has_prep=false
+  has_nonprep=false
+  for _s in "${_steps_list[@]}"; do
+    _s="$(echo "$_s" | awk '{$1=$1;print}')"
+    [[ -z "$_s" ]] && continue
+    if [[ "$_s" == "prep" ]]; then
+      has_prep=true
+    else
+      has_nonprep=true
+    fi
+  done
+  if [[ "$has_prep" == true && "$has_nonprep" == true ]]; then
+    >&2 echo "Error: prep must be run on its own. Run:"
+    >&2 echo "  --steps prep --sbatch"
+    >&2 echo "and then separately:"
+    >&2 echo "  --steps sumstat,posteriors,score --sbatch -i <sumstat_dir>"
+    exit 1
+  fi
+
+  # Determine outdir + log directory
+  if [[ -z "${cfg_outdir:-}" ]]; then
+    >&2 echo "Error: outdir not found in config file and -o not provided"
+    exit 1
+  fi
+  mkdir -p "${cfg_outdir}"
+  outdir_host=$(realpath "${cfg_outdir}")
+
+  if [[ "$has_prep" == true ]]; then
+    # Prep job (shared across sumstats)
+    step_profile="prep"
+    step_settings=$(parse_yaml_nested "slurm" "$step_profile" "$config_file_host")
+    slurm_mem=""
+    slurm_cpus=""
+    slurm_time=""
+    if [[ -n "$step_settings" ]]; then
+      slurm_mem=$(parse_inline_dict "$step_settings" "mem")
+      slurm_cpus=$(parse_inline_dict "$step_settings" "cpus")
+      slurm_time=$(parse_inline_dict "$step_settings" "time")
+    fi
+    slurm_mem="${slurm_mem:-10g}"
+    slurm_cpus="${slurm_cpus:-2}"
+    slurm_time="${slurm_time:-2:00:00}"
+
+    job_name="pgs_prep"
+    log_dir="${outdir_host}/prep/logs/slurm"
+    mkdir -p "$log_dir"
+
+    run_cmd="${project_dir}/pgscalculator-v2.sh --config ${config_file_host} --steps prep"
+    [[ -n "$outdir" ]] && run_cmd="${run_cmd} -o ${outdir}"
+    [[ -n "$devmode" ]] && run_cmd="${run_cmd} -d"
+
+    sbatch_args=(--parsable)
+    sbatch_args+=(--mem="${slurm_mem}")
+    sbatch_args+=(--cpus-per-task="${slurm_cpus}")
+    sbatch_args+=(--time="${slurm_time}")
+    sbatch_args+=(--job-name="${job_name}")
+    sbatch_args+=(--output="${log_dir}/${job_name}_%j.out")
+    sbatch_args+=(--error="${log_dir}/${job_name}_%j.err")
+    [[ -n "$slurm_account" ]] && sbatch_args+=(--account="${slurm_account}")
+    [[ -n "$slurm_partition" ]] && sbatch_args+=(--partition="${slurm_partition}")
+    sbatch_args+=(--wrap="${run_cmd}")
+
+    echo "Submitting SLURM job..."
+    echo "  Job name: ${job_name}"
+    echo "  Resources: mem=${slurm_mem}, cpus=${slurm_cpus}, time=${slurm_time}"
+    echo "  Command: ${run_cmd}"
+    echo ""
+
+    jobid=$(sbatch "${sbatch_args[@]}")
+    echo "Submitted: ${jobid}"
+    echo "Driver log: ${log_dir}/${job_name}_${jobid}.out"
+    echo "Driver err: ${log_dir}/${job_name}_${jobid}.err"
+    exit 0
+  fi
+
+  # Per-sumstat driver job
+  if [[ -z "${infold:-}" ]]; then
+    >&2 echo "Error: -i (sumstat input) is required for per-sumstat steps when using --sbatch"
+    exit 1
+  fi
+  infold_host=$(realpath "${infold}")
+  if [[ ! -d "$infold_host" ]]; then
+    >&2 echo "Error: Input directory doesn't exist: $infold_host"
+    exit 1
+  fi
+  sumstat_name=$(basename "$infold_host")
+
+  # Driver resources: default tiny; configurable via slurm.driver
+  step_profile="driver"
   step_settings=$(parse_yaml_nested "slurm" "$step_profile" "$config_file_host")
-  
-  # Parse settings or use defaults
+  slurm_mem=""
+  slurm_cpus=""
+  slurm_time=""
   if [[ -n "$step_settings" ]]; then
     slurm_mem=$(parse_inline_dict "$step_settings" "mem")
     slurm_cpus=$(parse_inline_dict "$step_settings" "cpus")
     slurm_time=$(parse_inline_dict "$step_settings" "time")
   fi
-  
-  # Apply defaults if not set
-  slurm_mem="${slurm_mem:-20g}"
-  slurm_cpus="${slurm_cpus:-8}"
+  slurm_mem="${slurm_mem:-1g}"
+  slurm_cpus="${slurm_cpus:-1}"
   slurm_time="${slurm_time:-2:00:00}"
-  
-  # Build job name
-  if [[ -n "$infold" ]]; then
-    job_name="pgs_$(basename "$infold")"
-  else
-    job_name="pgs_${step_profile}"
-  fi
-  
-  # Build the command to run (same command without --sbatch)
-  run_cmd="${project_dir}/pgscalculator-v2.sh --config ${config_file_host} --steps ${steps_arg}"
-  [[ -n "$infold" ]] && run_cmd="${run_cmd} -i ${infold}"
+
+  job_name="pgs_${sumstat_name}_driver"
+  log_dir="${outdir_host}/sumstats/${sumstat_name}/logs/slurm"
+  mkdir -p "$log_dir"
+
+  run_cmd="${project_dir}/pgscalculator-v2.sh --config ${config_file_host} --steps ${steps_arg} -i ${infold} --_driver-run"
   [[ -n "$outdir" ]] && run_cmd="${run_cmd} -o ${outdir}"
   [[ -n "$chromosomes" ]] && run_cmd="${run_cmd} --chr ${chromosomes}"
   [[ -n "$devmode" ]] && run_cmd="${run_cmd} -d"
-  
-  # Determine output directory for logs
-  if [[ -n "${infold:-}" ]]; then
-    infold_host=$(realpath "${infold}")
-    sumstat_name_for_logs=$(basename "$infold_host")
-    log_dir="${cfg_outdir}/sumstats/${sumstat_name_for_logs}/logs/slurm"
-  else
-    log_dir="${cfg_outdir:-./}/logs/slurm"
-  fi
-  mkdir -p "$log_dir"
-  
-  # Build sbatch command
-  sbatch_cmd="sbatch"
-  sbatch_cmd="${sbatch_cmd} --mem=${slurm_mem}"
-  sbatch_cmd="${sbatch_cmd} --cpus-per-task=${slurm_cpus}"
-  sbatch_cmd="${sbatch_cmd} --time=${slurm_time}"
-  sbatch_cmd="${sbatch_cmd} --job-name=${job_name}"
-  sbatch_cmd="${sbatch_cmd} --output=${log_dir}/${job_name}.out"
-  sbatch_cmd="${sbatch_cmd} --error=${log_dir}/${job_name}.err"
-  [[ -n "$slurm_account" ]] && sbatch_cmd="${sbatch_cmd} --account=${slurm_account}"
-  [[ -n "$slurm_partition" ]] && sbatch_cmd="${sbatch_cmd} --partition=${slurm_partition}"
-  sbatch_cmd="${sbatch_cmd} --wrap=\"${run_cmd}\""
-  
-  echo "Submitting SLURM job..."
+
+  sbatch_args=(--parsable)
+  sbatch_args+=(--mem="${slurm_mem}")
+  sbatch_args+=(--cpus-per-task="${slurm_cpus}")
+  sbatch_args+=(--time="${slurm_time}")
+  sbatch_args+=(--job-name="${job_name}")
+  sbatch_args+=(--output="${log_dir}/${job_name}_%j.out")
+  sbatch_args+=(--error="${log_dir}/${job_name}_%j.err")
+  [[ -n "$slurm_account" ]] && sbatch_args+=(--account="${slurm_account}")
+  [[ -n "$slurm_partition" ]] && sbatch_args+=(--partition="${slurm_partition}")
+  sbatch_args+=(--wrap="${run_cmd}")
+
+  echo "Submitting SLURM driver job..."
   echo "  Job name: ${job_name}"
   echo "  Resources: mem=${slurm_mem}, cpus=${slurm_cpus}, time=${slurm_time}"
-  echo "  Logs: ${log_dir}/${job_name}.out"
   echo "  Command: ${run_cmd}"
   echo ""
-  
-  # Submit and exit
-  eval ${sbatch_cmd}
-  exit $?
+
+  jobid=$(sbatch "${sbatch_args[@]}")
+  echo "Submitted: ${jobid}"
+  echo "Driver log: ${log_dir}/${job_name}_${jobid}.out"
+  echo "Driver err: ${log_dir}/${job_name}_${jobid}.err"
+  exit 0
 fi
 
 ################################################################################
