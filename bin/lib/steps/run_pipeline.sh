@@ -8,6 +8,12 @@ STEP_GROUP_ORDER=("prep" "sumstat" "posteriors" "score")
 run_pipeline() {
     local sumstat_name="$1" steps_arg="$2" run_all="$3" skip_prep="$4"
     log_step "Running pipeline for: $sumstat_name"
+    # Expose current sumstat name to steps (for tmp/log containment and details reporting)
+    if [[ -n "$sumstat_name" ]]; then
+        export CFG_SUMSTAT_NAME="$sumstat_name"
+    else
+        unset CFG_SUMSTAT_NAME || true
+    fi
     # Ensure legacy output layout is migrated into intermediates/
     local sumstat_dir
     sumstat_dir=$(get_sumstat_dir "${CFG_OUTDIR}" "$sumstat_name")

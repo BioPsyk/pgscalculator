@@ -358,7 +358,13 @@ make_tmpdir() {
     local base=""
 
     if [[ -n "${CFG_OUTDIR:-}" ]]; then
-        base="${CFG_OUTDIR}/tmp"
+        # If we're running a sumstat-specific pipeline, keep tmp contained within that sumstat folder.
+        # This helps avoid collisions and keeps large temporary spill files (sort/plink/etc) co-located.
+        if [[ -n "${CFG_SUMSTAT_NAME:-}" ]]; then
+            base="${CFG_OUTDIR}/sumstats/${CFG_SUMSTAT_NAME}/tmp"
+        else
+            base="${CFG_OUTDIR}/tmp"
+        fi
         mkdir -p "$base" 2>/dev/null || true
         # If we can write to base, use it; else fall back to system mktemp
         if [[ -d "$base" ]] && [[ -w "$base" ]]; then

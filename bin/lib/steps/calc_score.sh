@@ -89,13 +89,10 @@ run_calc_score() {
         local posteriors_file="${posteriors_mapped_dir}/chr${chr}.snpRes"
         
         if [[ ! -f "$posteriors_file" ]]; then
-            if [[ -n "$specific_chr" ]]; then
-                log_error "chr${chr}: missing mapped posteriors file: ${posteriors_file}"
-                log_error "Run posteriors (format-posteriors) for '${sumstat_name}' before calc-score."
-                return 1
-            fi
-            log_error "chr${chr}: missing mapped posteriors file: ${posteriors_file}"
+            log_warn "chr${chr}: missing mapped posteriors file: ${posteriors_file} (writing empty score and continuing)"
             ((fail_count++))
+            create_empty_score "${step_dir}/chr${chr}.sscore"
+            echo "mapped_posteriors_missing" > "${step_dir}/FAILED_chr${chr}"
             continue
         fi
         
@@ -118,8 +115,7 @@ run_calc_score() {
     
     # Mark step as completed only if all chromosomes succeeded
     if [[ $fail_count -gt 0 ]]; then
-        log_error "calc-score failed for ${fail_count} chromosome(s)"
-        return 1
+        log_warn "calc-score had issues for ${fail_count} chromosome(s) (placeholders written; see ${step_dir}/FAILED_chr*)"
     fi
 
     if [[ -z "$specific_chr" ]]; then
@@ -257,7 +253,7 @@ create_empty_score() {
     local output_file="$1"
     
     # Create minimal empty score file with standard header
-    echo -e "FID\tIID\tALLELE_CT\tNAMED_ALLELE_DOSAGE_SUM\tSCORE1_SUM" > "$output_file"
+    echo -e "FID\tIID\tALLELE_CT\tNAMED_ALLELE_DOSAGE_SUM\tSCORE1_SUM\tN_VARIANTS" > "$output_file"
 }
 
 

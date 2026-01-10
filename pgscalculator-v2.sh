@@ -324,7 +324,9 @@ if [[ "$use_sbatch_array" == true ]]; then
   fi
   chr_count=$(echo "$chr_list" | wc -w | awk '{print $1}')
 
-  log_dir="${cfg_outdir}/slurm_logs"
+  # Keep SLURM logs contained within the sumstat folder to avoid collisions across runs.
+  # (prep is shared; sumstat/posteriors/score are per-sumstat)
+  log_dir="${outdir_host}/sumstats/${sumstat_name}/logs/slurm"
   mkdir -p "$log_dir"
 
   watch_array() {
@@ -591,9 +593,8 @@ rc=\$?; echo \"[INFO] Finished ${step_profile} chr\${CHR} at \$(date) (exit=\$rc
     echo "Submitted: ${array_jobid}"
 
     if ! watch_array "$array_jobid" "$chr_file" "$chr_count"; then
-      >&2 echo "Error: SLURM array job ${array_jobid} for step '${step_profile}' had failed task(s)."
-      >&2 echo "Check logs under: ${log_dir}/"
-      exit 1
+      >&2 echo "Warning: SLURM array job ${array_jobid} for step '${step_profile}' had failed/unknown task(s)."
+      >&2 echo "Continuing (placeholders will propagate); check logs under: ${log_dir}/"
     fi
 
     # Sanity-check expected outputs exist after a successful array.
@@ -604,20 +605,18 @@ rc=\$?; echo \"[INFO] Finished ${step_profile} chr\${CHR} at \$(date) (exit=\$rc
         n_post=$(ls "${base_sumstat_out}/posteriors"/chr*.snpRes 2>/dev/null | wc -l | awk '{print $1}')
         n_mapped=$(ls "${base_sumstat_out}/posteriors_mapped"/chr*.snpRes 2>/dev/null | wc -l | awk '{print $1}')
         if [[ "$n_post" -lt "$chr_count" || "$n_mapped" -lt "$chr_count" ]]; then
-          >&2 echo "Error: posteriors array finished but outputs are missing."
+          >&2 echo "Warning: posteriors array finished but outputs are missing (continuing)."
           >&2 echo "  Expected >=${chr_count} files in:"
           >&2 echo "    - ${base_sumstat_out}/posteriors/chr*.snpRes   (found ${n_post})"
           >&2 echo "    - ${base_sumstat_out}/posteriors_mapped/chr*.snpRes (found ${n_mapped})"
           >&2 echo "Check logs under: ${log_dir}/"
-          exit 1
         fi
       elif [[ "$step_profile" == "score" ]]; then
         n_scores=$(ls "${base_sumstat_out}/scores"/chr*.sscore 2>/dev/null | wc -l | awk '{print $1}')
         if [[ "$n_scores" -lt "$chr_count" ]]; then
-          >&2 echo "Error: score array finished but outputs are missing."
+          >&2 echo "Warning: score array finished but outputs are missing (continuing)."
           >&2 echo "  Expected >=${chr_count} files in: ${base_sumstat_out}/scores/chr*.sscore (found ${n_scores})"
           >&2 echo "Check logs under: ${log_dir}/"
-          exit 1
         fi
       fi
     fi
@@ -689,7 +688,13 @@ if [[ "$use_sbatch" == true ]]; then
   [[ -n "$devmode" ]] && run_cmd="${run_cmd} -d"
   
   # Determine output directory for logs
-  log_dir="${cfg_outdir:-./}"
+  if [[ -n "${infold:-}" ]]; then
+    infold_host=$(realpath "${infold}")
+    sumstat_name_for_logs=$(basename "$infold_host")
+    log_dir="${cfg_outdir}/sumstats/${sumstat_name_for_logs}/logs/slurm"
+  else
+    log_dir="${cfg_outdir:-./}/logs/slurm"
+  fi
   mkdir -p "$log_dir"
   
   # Build sbatch command
@@ -1046,7 +1051,12 @@ mount_opts="${mount_opts} ${mountflag} ${lddir_host}:${lddir_container}"
 
 # Ensure we have a writable temp location with enough space, and bind it as /tmp
 # inside the container. Many tools (e.g., sort) spill temporary files to /tmp.
-tmpdir_host="${outdir_host}/tmp"
+# For sumstat-specific runs, keep tmp inside the sumstat folder for containment.
+if [[ -n "${sumstat_name:-}" ]]; then
+  tmpdir_host="${outdir_host}/sumstats/${sumstat_name}/tmp"
+else
+  tmpdir_host="${outdir_host}/tmp"
+fi
 mkdir -p "${tmpdir_host}"
 mount_opts="${mount_opts} ${mountflag} ${tmpdir_host}:/tmp"
 

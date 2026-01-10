@@ -84,13 +84,11 @@ run_calc_posteriors() {
         local chr_filtered="${filter_dir}/chr${chr}_filtered.tsv"
         
         if [[ ! -f "$chr_filtered" ]]; then
-            if [[ -n "$specific_chr" ]]; then
-                log_error "chr${chr}: missing filtered sumstat: ${chr_filtered}"
-                log_error "Run sumstat (filter-variants) for '${sumstat_name}' before calc-posteriors."
-                return 1
-            fi
-            log_error "chr${chr}: missing filtered sumstat: ${chr_filtered}"
+            log_warn "chr${chr}: missing filtered sumstat: ${chr_filtered} (writing empty posteriors and continuing)"
             ((fail_count++))
+            mkdir -p "${step_dir}/work_chr${chr}" 2>/dev/null || true
+            echo "filtered_sumstat_missing" > "${step_dir}/work_chr${chr}/FAILED"
+            echo "SNP A1 A2 b se pval Freq N effect pj" > "${step_dir}/chr${chr}.snpRes"
             continue
         fi
         
@@ -111,10 +109,11 @@ run_calc_posteriors() {
         fi
     done
     
-    # Mark step as completed only if all chromosomes succeeded
+    # Mark completion even if some chromosomes failed; failures are tracked via:
+    # - ${step_dir}/work_chr*/FAILED markers
+    # - empty chr*.snpRes placeholders
     if [[ $fail_count -gt 0 ]]; then
-        log_error "calc-posteriors failed for ${fail_count} chromosome(s)"
-        return 1
+        log_warn "calc-posteriors had issues for ${fail_count} chromosome(s) (placeholders written; see ${step_dir}/work_chr*/FAILED)"
     fi
 
     if [[ -z "$specific_chr" ]]; then
@@ -142,17 +141,23 @@ process_chr_posteriors() {
     
     local chr_workdir="${step_dir}/work_chr${chr}"
     mkdir -p "$chr_workdir"
+    local failed_marker="${chr_workdir}/FAILED"
     
     # Step 1: Format sumstat for sbayesR
     local sbayesr_input="${chr_workdir}/chr${chr}_sbayesr.ma"
     if ! format_for_sbayesr "$chr_filtered" "$sbayesr_input" "$mapfile"; then
-        log_error "chr${chr}: failed to generate sbayesR input (.ma). Fix the filtered sumstat columns and retry."
-        return 1
+        log_warn "chr${chr}: failed to generate sbayesR input (.ma); writing empty posteriors and continuing."
+        echo "format_for_sbayesr_failed" > "$failed_marker"
+        # Empty output placeholder (keeps downstream steps runnable)
+        echo "SNP A1 A2 b se pval Freq N effect pj" > "${step_dir}/chr${chr}.snpRes"
+        return 0
     fi
 
     if [[ ! -f "$sbayesr_input" ]]; then
-        log_error "chr${chr}: sbayesR input file missing after generation: $sbayesr_input"
-        return 1
+        log_warn "chr${chr}: sbayesR input file missing after generation; writing empty posteriors and continuing."
+        echo "ma_missing" > "$failed_marker"
+        echo "SNP A1 A2 b se pval Freq N effect pj" > "${step_dir}/chr${chr}.snpRes"
+        return 0
     fi
     
     # Check we have variants
@@ -176,8 +181,10 @@ process_chr_posteriors() {
     ld_info=$(find_ld_file "$lddir" "$chr" "info")
     
     if [[ -z "$ld_bin" ]] || [[ -z "$ld_info" ]]; then
-        log_error "Could not find LD reference files for chr${chr}"
-        return 1
+        log_warn "chr${chr}: Could not find LD reference files; writing empty posteriors and continuing."
+        echo "ldref_missing" > "$failed_marker"
+        echo "SNP A1 A2 b se pval Freq N effect pj" > "${step_dir}/chr${chr}.snpRes"
+        return 0
     fi
     
     # Get LD prefix (remove .bin extension)
@@ -210,12 +217,16 @@ process_chr_posteriors() {
             log_debug "chr${chr}: sbayesR completed successfully"
             return 0
         else
-            log_error "chr${chr}: sbayesR did not produce output file"
-            return 1
+            log_warn "chr${chr}: sbayesR did not produce output; writing empty posteriors and continuing."
+            echo "sbayesr_no_output" > "$failed_marker"
+            echo "SNP A1 A2 b se pval Freq N effect pj" > "${step_dir}/chr${chr}.snpRes"
+            return 0
         fi
     else
-        log_error "chr${chr}: sbayesR failed. Check ${chr_workdir}/sbayesr.log"
-        return 1
+        log_warn "chr${chr}: sbayesR failed; writing empty posteriors and continuing. Check ${chr_workdir}/sbayesr.log"
+        echo "sbayesr_failed" > "$failed_marker"
+        echo "SNP A1 A2 b se pval Freq N effect pj" > "${step_dir}/chr${chr}.snpRes"
+        return 0
     fi
 }
 
