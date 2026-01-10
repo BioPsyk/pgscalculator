@@ -807,6 +807,7 @@ if [[ "$use_sbatch" == true ]]; then
     echo "Submitted: ${jobid}"
     echo "Driver log: ${log_dir}/${job_name}_${jobid}.out"
     echo "Driver err: ${log_dir}/${job_name}_${jobid}.err"
+    echo "Watch: tail -f ${log_dir}/${job_name}_${jobid}.out"
     exit 0
   fi
 
@@ -867,6 +868,7 @@ if [[ "$use_sbatch" == true ]]; then
   echo "Submitted: ${jobid}"
   echo "Driver log: ${log_dir}/${job_name}_${jobid}.out"
   echo "Driver err: ${log_dir}/${job_name}_${jobid}.err"
+  echo "Watch: tail -f ${log_dir}/${job_name}_${jobid}.out"
   exit 0
 fi
 
