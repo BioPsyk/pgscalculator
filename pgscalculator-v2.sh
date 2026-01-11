@@ -738,6 +738,15 @@ rc=\$?; echo \"[INFO] Finished ${step_profile} chr\${CHR} at \$(date) (exit=\$rc
   if [[ "$has_sumstat" == true ]]; then
     echo "Running sumstat inside driver job..."
     eval "${run_base} --steps sumstat"
+
+    # Gate downstream arrays on the expected sumstat outputs existing.
+    # This prevents submitting 22 tasks that all fail immediately due to missing inputs.
+    if ! check_sumstat_exists "$outdir_host" "$sumstat_name" >/dev/null; then
+      >&2 echo "Error: sumstat step finished but expected outputs are missing."
+      >&2 echo "Missing:"
+      check_sumstat_exists "$outdir_host" "$sumstat_name" || true
+      exit 1
+    fi
   fi
   if [[ "$has_posteriors" == true ]]; then
     submit_array_for_step "posteriors"
