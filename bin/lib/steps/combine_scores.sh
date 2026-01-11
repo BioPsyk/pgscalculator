@@ -58,8 +58,15 @@ run_combine_scores() {
     done
     
     if [[ ${#score_files[@]} -eq 0 ]]; then
-        log_error "No score files found in ${scores_dir}"
-        exit 1
+        # Continue-on-failure behavior: if scoring produced no per-chromosome outputs,
+        # still write an empty scores.tsv.gz so downstream steps (finalize-output) can run.
+        log_warn "No score files found in ${scores_dir}; writing empty scores.tsv.gz (header-only)."
+        local empty_merged="${step_dir}/merged.sscore"
+        echo -e "IID\tSCORE_SUM\tALLELE_CT\tN_VARIANTS" > "$empty_merged"
+        create_final_scores "$empty_merged" "${sumstat_dir}/scores.tsv.gz"
+        mark_step_completed "$step_dir"
+        log_info "Wrote empty scores file: ${sumstat_dir}/scores.tsv.gz"
+        return 0
     fi
     
     log_info "Found ${#score_files[@]} chromosome score files"

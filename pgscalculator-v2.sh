@@ -10,7 +10,7 @@
 function general_usage(){
  echo "Usage:"
   echo "  ./pgscalculator-v2.sh --config <file> --steps <steps> [options]"
-  echo ""
+ echo ""
   echo "Required:"
   echo "  --config <file>   Path to config.yaml with all settings"
   echo "  --steps <list>    Steps to run: prep, sumstat, posteriors, score"
@@ -88,7 +88,7 @@ while [ $i -lt ${#paramarray[@]} ]; do
         i=$((i+2))
       ;;
     --steps)
-      steps_arg="${paramarray[$((i+1))]}"
+        steps_arg="${paramarray[$((i+1))]}"
         i=$((i+2))
       ;;
     --chr)
@@ -315,7 +315,7 @@ if [[ "$driver_run" == true ]]; then
     >&2 echo "Error: --sbatch-array requires -i <sumstat_dir>"
     exit 1
   fi
-  infold_host=$(realpath "${infold}")
+infold_host=$(realpath "${infold}")
   if [[ ! -d "$infold_host" ]]; then
     >&2 echo "Error: Input directory doesn't exist: $infold_host"
     exit 1
@@ -603,8 +603,45 @@ if [[ "$driver_run" == true ]]; then
       job_name="pgs_${step_profile}"
     fi
 
+    # Determine chromosomes for this array.
+    # Default: config chromosomes (chr_list). For scoring, only run chromosomes that produced
+    # non-empty mapped posteriors (so we don't waste time scoring empty chromosomes).
+    step_chr_list="$chr_list"
+    step_chr_count="$chr_count"
+    if [[ "$step_profile" == "score" && -n "${sumstat_name:-}" ]]; then
+      mapped_new="${outdir_host}/sumstats/${sumstat_name}/intermediates/posteriors_mapped"
+      mapped_old="${outdir_host}/sumstats/${sumstat_name}/posteriors_mapped"
+      mapped_dir=""
+      if [[ -d "$mapped_new" ]]; then
+        mapped_dir="$mapped_new"
+      elif [[ -d "$mapped_old" ]]; then
+        mapped_dir="$mapped_old"
+      fi
+
+      if [[ -n "$mapped_dir" ]]; then
+        map_chrs=()
+        for f in "${mapped_dir}"/chr*.snpRes; do
+          [[ -f "$f" ]] || continue
+          nlines=$(wc -l < "$f" 2>/dev/null || echo 0)
+          if [[ "$nlines" -gt 1 ]]; then
+            chr="${f##*/}"
+            chr="${chr#chr}"
+            chr="${chr%.snpRes}"
+            map_chrs+=("$chr")
+          fi
+        done
+        if [[ ${#map_chrs[@]} -gt 0 ]]; then
+          step_chr_list=$(printf '%s\n' "${map_chrs[@]}" | sort -n | tr '\n' ' ' | awk '{$1=$1;print}')
+          step_chr_count=$(echo "$step_chr_list" | wc -w | awk '{print $1}')
+        else
+          >&2 echo "Warning: no non-empty mapped posteriors found; skipping score array."
+          return 0
+        fi
+      fi
+    fi
+
     chr_file="${log_dir}/${job_name}.chromosomes.txt"
-    echo "$chr_list" | tr ' ' '\n' > "$chr_file"
+    echo "$step_chr_list" | tr ' ' '\n' > "$chr_file"
 
     # In array mode, we must only run chromosome-parallel work.
     # - posteriors: safe (calc-posteriors + format-posteriors are chr-parallel)
@@ -634,7 +671,7 @@ rc=\$?; echo \"[INFO] Finished ${step_profile} chr\${CHR} at \$(date) (exit=\$rc
     sbatch_args+=(--job-name="${job_name}")
     sbatch_args+=(--output="${log_dir}/${job_name}_%A_%a.out")
     sbatch_args+=(--error="${log_dir}/${job_name}_%A_%a.err")
-    sbatch_args+=(--array="1-${chr_count}%${max_parallel}")
+    sbatch_args+=(--array="1-${step_chr_count}%${max_parallel}")
     [[ -n "$slurm_account" ]] && sbatch_args+=(--account="${slurm_account}")
     [[ -n "$slurm_partition" ]] && sbatch_args+=(--partition="${slurm_partition}")
     sbatch_args+=(--wrap="${task_wrap}")
@@ -645,8 +682,8 @@ rc=\$?; echo \"[INFO] Finished ${step_profile} chr\${CHR} at \$(date) (exit=\$rc
     if [[ "$step_profile" == "score" ]]; then
       echo "  Note: array mode runs 'calc-score' only; combine/finalize will run once after the score array finishes."
     fi
-    echo "  Chromosomes: ${chr_list}"
-    echo "  Array: 1-${chr_count}%${max_parallel} (max_parallel=${max_parallel})"
+    echo "  Chromosomes: ${step_chr_list}"
+    echo "  Array: 1-${step_chr_count}%${max_parallel} (max_parallel=${max_parallel})"
     echo "  Resources per task: mem=${slurm_mem}, cpus=${slurm_cpus}, time=${slurm_time}"
     echo "  Logs: ${log_dir}/${job_name}_<jobid>_<taskid>.out/.err"
     echo "  Chromosome file: ${chr_file}"
@@ -659,7 +696,7 @@ rc=\$?; echo \"[INFO] Finished ${step_profile} chr\${CHR} at \$(date) (exit=\$rc
     fi
     echo "Submitted: ${array_jobid}"
 
-    if ! watch_array "$array_jobid" "$chr_file" "$chr_count"; then
+    if ! watch_array "$array_jobid" "$chr_file" "$step_chr_count"; then
       >&2 echo "Warning: SLURM array job ${array_jobid} for step '${step_profile}' had failed/unknown task(s)."
       >&2 echo "Continuing (placeholders will propagate); check logs under: ${log_dir}/"
     fi
@@ -671,18 +708,18 @@ rc=\$?; echo \"[INFO] Finished ${step_profile} chr\${CHR} at \$(date) (exit=\$rc
       if [[ "$step_profile" == "posteriors" ]]; then
         n_post=$(ls "${base_sumstat_out}/posteriors"/chr*.snpRes 2>/dev/null | wc -l | awk '{print $1}')
         n_mapped=$(ls "${base_sumstat_out}/posteriors_mapped"/chr*.snpRes 2>/dev/null | wc -l | awk '{print $1}')
-        if [[ "$n_post" -lt "$chr_count" || "$n_mapped" -lt "$chr_count" ]]; then
+        if [[ "$n_post" -lt "$step_chr_count" || "$n_mapped" -lt "$step_chr_count" ]]; then
           >&2 echo "Warning: posteriors array finished but outputs are missing (continuing)."
-          >&2 echo "  Expected >=${chr_count} files in:"
+          >&2 echo "  Expected >=${step_chr_count} files in:"
           >&2 echo "    - ${base_sumstat_out}/posteriors/chr*.snpRes   (found ${n_post})"
           >&2 echo "    - ${base_sumstat_out}/posteriors_mapped/chr*.snpRes (found ${n_mapped})"
           >&2 echo "Check logs under: ${log_dir}/"
         fi
       elif [[ "$step_profile" == "score" ]]; then
         n_scores=$(ls "${base_sumstat_out}/scores"/chr*.sscore 2>/dev/null | wc -l | awk '{print $1}')
-        if [[ "$n_scores" -lt "$chr_count" ]]; then
+        if [[ "$n_scores" -lt "$step_chr_count" ]]; then
           >&2 echo "Warning: score array finished but outputs are missing (continuing)."
-          >&2 echo "  Expected >=${chr_count} files in: ${base_sumstat_out}/scores/chr*.sscore (found ${n_scores})"
+          >&2 echo "  Expected >=${step_chr_count} files in: ${base_sumstat_out}/scores/chr*.sscore (found ${n_scores})"
           >&2 echo "Check logs under: ${log_dir}/"
         fi
       fi
@@ -818,9 +855,9 @@ if [[ "$use_sbatch" == true ]]; then
   fi
   infold_host=$(realpath "${infold}")
   if [[ ! -d "$infold_host" ]]; then
-    >&2 echo "Error: Input directory doesn't exist: $infold_host"
-    exit 1
-  fi
+  >&2 echo "Error: Input directory doesn't exist: $infold_host"
+  exit 1
+fi
   sumstat_name=$(basename "$infold_host")
 
   # Driver resources: default tiny; configurable via slurm.driver
@@ -883,8 +920,8 @@ fi
 
 if [[ ! -d "$cfg_ld_reference" ]]; then
   >&2 echo "Error: LD reference directory not found: $cfg_ld_reference"
-  exit 1
-fi
+    exit 1
+  fi
 
 # Genotypes required for scoring
 if [[ -z "$cfg_genotypes" ]] || [[ -z "$cfg_genotype_manifest" ]]; then
@@ -941,7 +978,7 @@ fi
 # (e.g. input: /.../sumstat_5759  -> output: sumstats/sumstat_5759/)
 sumstat_name=""
 if [[ -n "$infold" ]]; then
-  sumstat_name=$(basename "$infold_host")
+    sumstat_name=$(basename "$infold_host")
 fi
 
 ################################################################################
