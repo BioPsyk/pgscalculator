@@ -1,0 +1,51 @@
+# Local smoke test config (v2.1+)
+#
+# Reuses the same reference paths as `test-v2/test_scenarios.sh`.
+#
+# NOTE: the sumstat input folder is passed via `-i $SUMSTAT_DIR` to the wrapper,
+# not configured here.
+
+ld_reference: /faststorage/project/ibp_migration_opengdk/PROJECT_pgscalculator/pgscalculator/references/ld-sbayesr/ukb/band_ukb_10k_hm3
+genotypes: /faststorage/project/ibp_migration_opengdk/PROJECT_pgscalculator/pgscalculator/references/genotypes_test/plink2
+genotype_manifest: /faststorage/project/ibp_migration_opengdk/PROJECT_pgscalculator/pgscalculator/references/genotypes_test/mapfiles/plink2_genodir_genofiles.txt
+
+# Outdir is inside this test folder for easy cleanup.
+outdir: /faststorage/project/ibp_pipeline_pgscalculator/pgscalculator/test-v2-2026-01-11/out
+
+whichn: totalN
+chromosomes: 21-22
+
+filters:
+  info_threshold: 0.8
+  maf_threshold: 0.01
+
+# Explicitly disable optional reference filters (newer config behavior).
+references:
+  info_file: false
+  maf_file: false
+
+plink:
+  threads: 4
+
+sbayesr:
+  gamma: "0.0,0.01,0.1,1"
+  pi: "0.95,0.02,0.02,0.01"
+  burn_in: 2000
+  chain_length: 10000
+  threads: 4
+  seed: 12345
+  exclude_mhc: true
+
+score_columns: 1 2 5
+
+slurm:
+  account: ibp_pipeline_pgscalculator
+  partition: normal
+
+  # Lightweight driver job; arrays use the step-specific resources below.
+  driver: { mem: 1g, cpus: 1, time: '02:00:00' }
+
+  prep: { mem: 16g, cpus: 4, time: '02:00:00' }
+  posteriors: { mem: 20g, cpus: 6, time: '04:00:00', max_parallel: 2 }
+  score: { mem: 10g, cpus: 4, time: '01:00:00', max_parallel: 2 }
+
