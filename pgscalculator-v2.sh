@@ -983,6 +983,8 @@ check_sumstat_exists() {
   local formatted_old="${outdir}/sumstats/${sumstat}/formatted/sumstat_formatted.tsv.gz"
   local filtered_new="${outdir}/sumstats/${sumstat}/intermediates/filtered/sumstat_filtered.tsv.gz"
   local filtered_old="${outdir}/sumstats/${sumstat}/filtered/sumstat_filtered.tsv.gz"
+  local filtered_chr_new_glob="${outdir}/sumstats/${sumstat}/intermediates/filtered/chr*_filtered.tsv"
+  local filtered_chr_old_glob="${outdir}/sumstats/${sumstat}/filtered/chr*_filtered.tsv"
   
   if [[ ! -f "$formatted_new" && ! -f "$formatted_old" ]]; then
     echo "  - Formatted sumstat (expected): ${formatted_new}"
@@ -991,9 +993,14 @@ check_sumstat_exists() {
   fi
   
   if [[ ! -f "$filtered_new" && ! -f "$filtered_old" ]]; then
-    echo "  - Filtered sumstat (expected): ${filtered_new}"
-    echo "    (legacy accepted): ${filtered_old}"
-    return 1
+    # Some workflows may only need per-chromosome filtered files (chrN_filtered.tsv).
+    # Accept those as an alternative prereq for posteriors.
+    if ! compgen -G "$filtered_chr_new_glob" >/dev/null 2>&1 && ! compgen -G "$filtered_chr_old_glob" >/dev/null 2>&1; then
+      echo "  - Filtered sumstat (expected): ${filtered_new}"
+      echo "    (legacy accepted): ${filtered_old}"
+      echo "    (alt accepted): ${filtered_chr_new_glob}"
+      return 1
+    fi
   fi
   return 0
 }
