@@ -6,8 +6,8 @@ It reuses the same **genotypes** and **LD reference** paths as the existing `tes
 
 ### Paths you may want to override
 
-- **Sumstat input folder**: set `SUMSTAT_DIR` when running the scripts.
-  - Example (as used recently): `/faststorage/project/ibp_data_open/cleansumstats/version_1.12.0/sumstat_5759`
+- **Sumstat input folder**: defaults to `sumstat_5759`, override by setting `SUMSTAT_DIR`.
+  - Default: `/faststorage/project/ibp_data_open/cleansumstats/version_1.12.0/sumstat_5759`
 
 ### Run (interactive, no SLURM)
 
