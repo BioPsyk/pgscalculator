@@ -7,11 +7,11 @@ PGS_DIR="$(dirname "$SCRIPT_DIR")"
 WRAPPER="${PGS_DIR}/pgscalculator-v2.sh"
 CONFIG="${SCRIPT_DIR}/config.yaml"
 
-DEFAULT_SUMSTAT_DIR="/faststorage/project/ibp_data_open/cleansumstats/version_1.12.0/sumstat_5759"
+DEFAULT_SUMSTAT_DIR="/faststorage/project/ibp_pipeline_cleansumstats/raw_library/sumstat_clean_library/version_1.12.0/sumstat_5759"
 SUMSTAT_DIR="${SUMSTAT_DIR:-$DEFAULT_SUMSTAT_DIR}"
 if [[ -z "$SUMSTAT_DIR" ]]; then
   >&2 echo "Error: set SUMSTAT_DIR to a cleansumstats output folder, e.g.:"
-  >&2 echo "  export SUMSTAT_DIR=/faststorage/project/ibp_data_open/cleansumstats/version_1.12.0/sumstat_5759"
+  >&2 echo "  export SUMSTAT_DIR=/faststorage/project/ibp_pipeline_cleansumstats/raw_library/sumstat_clean_library/version_1.12.0/sumstat_5759"
   exit 1
 fi
 if [[ ! -d "$SUMSTAT_DIR" ]]; then

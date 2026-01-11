@@ -10,7 +10,7 @@ genotypes: /faststorage/project/ibp_migration_opengdk/PROJECT_pgscalculator/pgsc
 genotype_manifest: /faststorage/project/ibp_migration_opengdk/PROJECT_pgscalculator/pgscalculator/references/genotypes_test/mapfiles/plink2_genodir_genofiles.txt
 
 # Outdir is inside this test folder for easy cleanup.
-outdir: /faststorage/project/ibp_pipeline_pgscalculator/pgscalculator/test-v2-2026-01-11/out
+outdir: /faststorage/project/ibp_pipeline_pgscalculator/pgscalculator/tests/smoke/v2.1-2026-01-11/out
 
 whichn: totalN
 chromosomes: 21-22
