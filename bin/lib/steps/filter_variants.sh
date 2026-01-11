@@ -87,6 +87,32 @@ run_filter_variants() {
     # Step 2: Derive N/EAF/B/SE on the filtered subset (much faster than on full sumstat)
     log_substep "Deriving N/EAF/B/SE statistics"
     derive_stats "${step_dir}/sumstat_filtered_raw.tsv" "${step_dir}/sumstat_filtered.tsv" "$metadata_file" "$which_n" "$prep_dir"
+
+    # If derivation produced an empty file (or failed to write), keep pipeline moving by
+    # writing a header-only placeholder. Downstream chromosome steps will then produce
+    # empty/placeholder outputs with clear failure markers instead of hard failing.
+    if [[ ! -s "${step_dir}/sumstat_filtered.tsv" ]]; then
+        log_warn "Derived filtered sumstat is empty: ${step_dir}/sumstat_filtered.tsv"
+        log_warn "Writing header-only placeholder outputs (0 variants) so downstream steps can continue."
+
+        # Start from the formatted header and ensure required columns exist.
+        gzip -cd "$formatted_sumstat" 2>/dev/null | head -n 1 | awk -F'\t' -v OFS='\t' '
+            {
+                for (i=1; i<=NF; i++) have[$i]=1
+                out=$0
+                if (!have["N"]) out = out OFS "N"
+                if (!have["EAF"]) out = out OFS "EAF"
+                if (!have["B"] && !have["BETA"]) out = out OFS "B"
+                if (!have["SE"]) out = out OFS "SE"
+                print out
+            }
+        ' > "${step_dir}/sumstat_filtered.tsv"
+
+        # Also create per-chromosome header-only files expected by posteriors.
+        for chr in $(get_chromosomes); do
+            cp "${step_dir}/sumstat_filtered.tsv" "${step_dir}/chr${chr}_filtered.tsv"
+        done
+    fi
     
     # Clean up intermediate file
     rm -f "${step_dir}/sumstat_filtered_raw.tsv"
@@ -345,7 +371,8 @@ filter_bad_values() {
             
             # Check B/BETA
             if (b_col) {
-                if ($b_col == "NA" || $b_col == "" || $b_col == 0) valid = 0
+                # Note: beta can legitimately be 0; only drop missing values here.
+                if ($b_col == "NA" || $b_col == "") valid = 0
             }
             
             # Check SE
