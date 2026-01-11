@@ -94,10 +94,19 @@ run_filter_variants() {
     
     # Step 2: Derive N/EAF/B/SE on the filtered subset (much faster than on full sumstat)
     log_substep "Deriving N/EAF/B/SE statistics"
-    derive_stats "${step_dir}/sumstat_filtered_raw.tsv" "${step_dir}/sumstat_filtered.tsv" "$metadata_file" "$which_n" "$prep_dir"
+    # Write atomically so we never leave a 0-byte file behind if a command is interrupted.
+    local tmp_filtered
+    tmp_filtered="$(mktemp "${step_dir}/sumstat_filtered.tsv.tmp.XXXXXX")"
+    derive_stats "${step_dir}/sumstat_filtered_raw.tsv" "$tmp_filtered" "$metadata_file" "$which_n" "$prep_dir" "$step_dir"
+    mv -f "$tmp_filtered" "${step_dir}/sumstat_filtered.tsv"
+
     # If derivation yields 0 variants, hard-exit (whole-file step).
-    if [[ ! -s "${step_dir}/sumstat_filtered.tsv" ]]; then
-        log_error "Filtered sumstat derivation produced an empty file: ${step_dir}/sumstat_filtered.tsv"
+    local n_lines
+    n_lines=$(wc -l < "${step_dir}/sumstat_filtered.tsv" | awk '{print $1}')
+    if [[ "$n_lines" -le 1 ]]; then
+        log_error "Filtered sumstat derivation produced 0 variants (lines=${n_lines})."
+        log_error "Input (after inclusion list) was: ${step_dir}/sumstat_filtered_raw.tsv"
+        log_error "Output is: ${step_dir}/sumstat_filtered.tsv"
         log_error "Hard exiting: there is nothing to process in downstream steps."
         exit 1
     fi
@@ -178,9 +187,15 @@ derive_stats() {
     local metadata_file="$3"
     local which_n="$4"
     local prep_dir="$5"
+    local step_dir="$6"
     
     local tmpdir
     tmpdir=$(make_tmpdir "filter_variants")
+
+    # Track removed lines during filtering so we can quickly see what removed too much.
+    # Format: LINE<TAB>CHR:POS:EA:OA<TAB>REASON
+    local removed_tmp="${tmpdir}/removed_lines.tsv"
+    echo -e "LINE\tVARIANT\tREASON" > "$removed_tmp"
     
     # Step 1: Add/fix N (effective or total based on config)
     add_sample_size "$input" "${tmpdir}/step1.tsv" "$metadata_file" "$which_n"
@@ -190,14 +205,31 @@ derive_stats() {
     force_eaf "${tmpdir}/step1.tsv" "${tmpdir}/step2.tsv" "$ldref_eaf_file"
     
     # Step 3: Filter bad values (first pass - remove NA/invalid before derivation)
-    filter_bad_values "${tmpdir}/step2.tsv" "${tmpdir}/step3.tsv"
+    filter_bad_values "${tmpdir}/step2.tsv" "${tmpdir}/step3.tsv" "$removed_tmp" "pass1"
     
     # Step 4: Derive B and SE if missing (from Z, N, EAF)
     add_beta_se "${tmpdir}/step3.tsv" "${tmpdir}/step4.tsv"
     
     # Step 5: Filter bad values (second pass - ensure derived values are valid)
-    filter_bad_values "${tmpdir}/step4.tsv" "$output"
+    filter_bad_values "${tmpdir}/step4.tsv" "$output" "$removed_tmp" "pass2"
     
+    # Persist removal details + counts into the filtered step directory (kept with sumstat outputs).
+    if [[ -n "${step_dir:-}" ]]; then
+        local removed_out="${step_dir}/removed_lines.tsv.gz"
+        local removed_counts="${step_dir}/removed_reason_counts.tsv"
+        gzip -c "$removed_tmp" > "$removed_out"
+        awk -F'\t' '
+            NR==1{next}
+            { c[$3]++ }
+            END{
+                print "REASON\tN"
+                for (r in c) print r "\t" c[r]
+            }
+        ' "$removed_tmp" | sort -t$'\t' -k2,2nr > "$removed_counts"
+        log_debug "Wrote removed lines: ${removed_out}"
+        log_debug "Wrote removed reason counts: ${removed_counts}"
+    fi
+
     # Clean up
     rm -rf "$tmpdir"
     
@@ -342,6 +374,8 @@ force_eaf() {
 filter_bad_values() {
     local input="$1"
     local output="$2"
+    local removed_file="${3:-}"
+    local pass_tag="${4:-filter}"
     
     awk -F'\t' -v OFS='\t' '
         NR == 1 {
@@ -350,33 +384,54 @@ filter_bad_values() {
                 if($i == "B" || $i == "BETA") b_col = i
                 if($i == "SE") se_col = i
                 if($i == "EAF") eaf_col = i
+                if($i == "CHR" || $i == "chr" || $i == "#CHR") chr_col = i
+                if($i == "POS" || $i == "BP" || $i == "pos" || $i == "Position") pos_col = i
+                if($i == "EffectAllele" || $i == "A1") ea_col = i
+                if($i == "OtherAllele" || $i == "A2") oa_col = i
             }
             print
             next
         }
         {
             valid = 1
+            reason = ""
+
+            # Build identifier string: chr:pos:EA:OA (best-effort)
+            chr = (chr_col ? $chr_col : "NA")
+            pos = (pos_col ? $pos_col : "NA")
+            ea  = (ea_col  ? $ea_col  : "NA")
+            oa  = (oa_col  ? $oa_col  : "NA")
+            vid = chr ":" pos ":" ea ":" oa
             
             # Check B/BETA
             if (b_col) {
                 # Match v1 behavior: treat B==0 as invalid for downstream posterior models.
-                if ($b_col == "NA" || $b_col == "" || $b_col == 0) valid = 0
+                if ($b_col == "NA" || $b_col == "") { valid = 0; reason = "beta_missing" }
+                else if (($b_col + 0) == 0) { valid = 0; reason = "beta_zero" }
             }
             
             # Check SE
             if (se_col) {
-                if ($se_col == "NA" || $se_col == "" || $se_col == 0) valid = 0
+                if (valid && ($se_col == "NA" || $se_col == "")) { valid = 0; reason = "se_missing" }
+                else if (valid && (($se_col + 0) == 0)) { valid = 0; reason = "se_zero" }
             }
             
             # Check EAF
             if (eaf_col) {
-                if ($eaf_col == "NA" || $eaf_col == "" || 
-                    $eaf_col == 0 || $eaf_col == 1) valid = 0
+                if (valid && ($eaf_col == "NA" || $eaf_col == "")) { valid = 0; reason = "eaf_missing" }
+                else if (valid && (($eaf_col + 0) == 0 || ($eaf_col + 0) == 1)) { valid = 0; reason = "eaf_boundary" }
             }
             
-            if (valid) print
+            if (valid) {
+                print
+            } else {
+                # Best-effort logging of removed rows (appends). Include pass tag in reason for attribution.
+                if (removed_file != "") {
+                    print NR, vid, (pass_tag ":" reason) >> removed_file
+                }
+            }
         }
-    ' "$input" > "$output"
+    ' -v removed_file="$removed_file" -v pass_tag="$pass_tag" "$input" > "$output"
 }
 
 add_beta_se() {
