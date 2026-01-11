@@ -2,7 +2,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PGS_DIR="$(dirname "$SCRIPT_DIR")"
+PGS_DIR="$(dirname "$(dirname "$(dirname "$SCRIPT_DIR")")")"
 
 WRAPPER="${PGS_DIR}/pgscalculator-v2.sh"
 CONFIG="${SCRIPT_DIR}/config.yaml"
