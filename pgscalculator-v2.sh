@@ -263,6 +263,92 @@ format_elapsed() {
   printf "%02d:%02d:%02d" "$h" "$m" "$s"
 }
 
+################################################################################
+# Prerequisite checking helpers (must be defined before driver mode runs)
+################################################################################
+check_prep_exists() {
+  local outdir="$1"
+  local missing=""
+
+  # Check for genotype prep outputs
+  if [[ ! -d "${outdir}/prep/genotypes" ]] || [[ -z "$(ls -A "${outdir}/prep/genotypes" 2>/dev/null)" ]]; then
+    missing="${missing}  - Genotype prep: ${outdir}/prep/genotypes/\n"
+  fi
+
+  # Check for inclusion list (v2.1)
+  if [[ ! -f "${outdir}/prep/inclusion_list/variant_inclusion_list.tsv" ]]; then
+    missing="${missing}  - Inclusion list: ${outdir}/prep/inclusion_list/variant_inclusion_list.tsv\n"
+  fi
+  if [[ ! -f "${outdir}/prep/inclusion_list/.rsid_index" ]]; then
+    missing="${missing}  - Inclusion index: ${outdir}/prep/inclusion_list/.rsid_index\n"
+  fi
+  if [[ ! -f "${outdir}/prep/variant_map.tsv" ]]; then
+    missing="${missing}  - Variant map: ${outdir}/prep/variant_map.tsv\n"
+  fi
+
+  if [[ -n "$missing" ]]; then
+    echo "$missing"
+    return 1
+  fi
+  return 0
+}
+
+check_sumstat_exists() {
+  local outdir="$1"
+  local sumstat="$2"
+
+  # Prefer v2.1 intermediates/, but accept legacy locations for backwards compatibility.
+  local formatted_new="${outdir}/sumstats/${sumstat}/intermediates/formatted/sumstat_formatted.tsv.gz"
+  local formatted_old="${outdir}/sumstats/${sumstat}/formatted/sumstat_formatted.tsv.gz"
+  local filtered_new="${outdir}/sumstats/${sumstat}/intermediates/filtered/sumstat_filtered.tsv.gz"
+  local filtered_old="${outdir}/sumstats/${sumstat}/filtered/sumstat_filtered.tsv.gz"
+  local filtered_chr_new_glob="${outdir}/sumstats/${sumstat}/intermediates/filtered/chr*_filtered.tsv"
+  local filtered_chr_old_glob="${outdir}/sumstats/${sumstat}/filtered/chr*_filtered.tsv"
+
+  if [[ ! -f "$formatted_new" && ! -f "$formatted_old" ]]; then
+    echo "  - Formatted sumstat (expected): ${formatted_new}"
+    echo "    (legacy accepted): ${formatted_old}"
+    return 1
+  fi
+
+  if [[ ! -f "$filtered_new" && ! -f "$filtered_old" ]]; then
+    # Some workflows may only need per-chromosome filtered files (chrN_filtered.tsv).
+    # Accept those as an alternative prereq for posteriors.
+    if ! compgen -G "$filtered_chr_new_glob" >/dev/null 2>&1 && ! compgen -G "$filtered_chr_old_glob" >/dev/null 2>&1; then
+      echo "  - Filtered sumstat (expected): ${filtered_new}"
+      echo "    (legacy accepted): ${filtered_old}"
+      echo "    (alt accepted): ${filtered_chr_new_glob}"
+      return 1
+    fi
+  fi
+  return 0
+}
+
+check_posteriors_exists() {
+  local outdir="$1"
+  local sumstat="$2"
+
+  local post_new="${outdir}/sumstats/${sumstat}/intermediates/posteriors"
+  local post_old="${outdir}/sumstats/${sumstat}/posteriors"
+  local mapped_new="${outdir}/sumstats/${sumstat}/intermediates/posteriors_mapped"
+  local mapped_old="${outdir}/sumstats/${sumstat}/posteriors_mapped"
+
+  # calc-posteriors output
+  if [[ ( ! -d "$post_new" || -z "$(ls -A "$post_new" 2>/dev/null)" ) && ( ! -d "$post_old" || -z "$(ls -A "$post_old" 2>/dev/null)" ) ]]; then
+    echo "  - Posteriors (expected): ${post_new}/"
+    echo "    (legacy accepted): ${post_old}/"
+    return 1
+  fi
+
+  # format-posteriors output (required for scoring)
+  if [[ ( ! -d "$mapped_new" || -z "$(ls -A "$mapped_new" 2>/dev/null)" ) && ( ! -d "$mapped_old" || -z "$(ls -A "$mapped_old" 2>/dev/null)" ) ]]; then
+    echo "  - Posteriors mapped (expected): ${mapped_new}/"
+    echo "    (legacy accepted): ${mapped_old}/"
+    return 1
+  fi
+  return 0
+}
+
 if [[ "$driver_run" == true ]]; then
   # Support: any combination of:
   #   --steps sumstat
@@ -993,88 +1079,6 @@ fi
 ################################################################################
 # Prerequisite checking
 ################################################################################
-check_prep_exists() {
-  local outdir="$1"
-  local missing=""
-  
-  # Check for genotype prep outputs
-  if [[ ! -d "${outdir}/prep/genotypes" ]] || [[ -z "$(ls -A "${outdir}/prep/genotypes" 2>/dev/null)" ]]; then
-    missing="${missing}  - Genotype prep: ${outdir}/prep/genotypes/\n"
-  fi
-  
-  # Check for inclusion list (v2.1)
-  if [[ ! -f "${outdir}/prep/inclusion_list/variant_inclusion_list.tsv" ]]; then
-    missing="${missing}  - Inclusion list: ${outdir}/prep/inclusion_list/variant_inclusion_list.tsv\n"
-  fi
-  if [[ ! -f "${outdir}/prep/inclusion_list/.rsid_index" ]]; then
-    missing="${missing}  - Inclusion index: ${outdir}/prep/inclusion_list/.rsid_index\n"
-  fi
-  if [[ ! -f "${outdir}/prep/variant_map.tsv" ]]; then
-    missing="${missing}  - Variant map: ${outdir}/prep/variant_map.tsv\n"
-  fi
-  
-  if [[ -n "$missing" ]]; then
-    echo "$missing"
-    return 1
-  fi
-  return 0
-}
-
-check_sumstat_exists() {
-  local outdir="$1"
-  local sumstat="$2"
-  
-  # Prefer v2.1 intermediates/, but accept legacy locations for backwards compatibility.
-  local formatted_new="${outdir}/sumstats/${sumstat}/intermediates/formatted/sumstat_formatted.tsv.gz"
-  local formatted_old="${outdir}/sumstats/${sumstat}/formatted/sumstat_formatted.tsv.gz"
-  local filtered_new="${outdir}/sumstats/${sumstat}/intermediates/filtered/sumstat_filtered.tsv.gz"
-  local filtered_old="${outdir}/sumstats/${sumstat}/filtered/sumstat_filtered.tsv.gz"
-  local filtered_chr_new_glob="${outdir}/sumstats/${sumstat}/intermediates/filtered/chr*_filtered.tsv"
-  local filtered_chr_old_glob="${outdir}/sumstats/${sumstat}/filtered/chr*_filtered.tsv"
-  
-  if [[ ! -f "$formatted_new" && ! -f "$formatted_old" ]]; then
-    echo "  - Formatted sumstat (expected): ${formatted_new}"
-    echo "    (legacy accepted): ${formatted_old}"
-    return 1
-  fi
-  
-  if [[ ! -f "$filtered_new" && ! -f "$filtered_old" ]]; then
-    # Some workflows may only need per-chromosome filtered files (chrN_filtered.tsv).
-    # Accept those as an alternative prereq for posteriors.
-    if ! compgen -G "$filtered_chr_new_glob" >/dev/null 2>&1 && ! compgen -G "$filtered_chr_old_glob" >/dev/null 2>&1; then
-      echo "  - Filtered sumstat (expected): ${filtered_new}"
-      echo "    (legacy accepted): ${filtered_old}"
-      echo "    (alt accepted): ${filtered_chr_new_glob}"
-      return 1
-    fi
-  fi
-  return 0
-}
-
-check_posteriors_exists() {
-  local outdir="$1"
-  local sumstat="$2"
-  
-  local post_new="${outdir}/sumstats/${sumstat}/intermediates/posteriors"
-  local post_old="${outdir}/sumstats/${sumstat}/posteriors"
-  local mapped_new="${outdir}/sumstats/${sumstat}/intermediates/posteriors_mapped"
-  local mapped_old="${outdir}/sumstats/${sumstat}/posteriors_mapped"
-  
-  # calc-posteriors output
-  if [[ ( ! -d "$post_new" || -z "$(ls -A "$post_new" 2>/dev/null)" ) && ( ! -d "$post_old" || -z "$(ls -A "$post_old" 2>/dev/null)" ) ]]; then
-    echo "  - Posteriors (expected): ${post_new}/"
-    echo "    (legacy accepted): ${post_old}/"
-    return 1
-  fi
-  
-  # format-posteriors output (required for scoring)
-  if [[ ( ! -d "$mapped_new" || -z "$(ls -A "$mapped_new" 2>/dev/null)" ) && ( ! -d "$mapped_old" || -z "$(ls -A "$mapped_old" 2>/dev/null)" ) ]]; then
-    echo "  - Posteriors mapped (expected): ${mapped_new}/"
-    echo "    (legacy accepted): ${mapped_old}/"
-    return 1
-  fi
-  return 0
-}
 
 # Check prerequisites based on requested steps
 if [[ "$steps_arg" != "prep" ]]; then
