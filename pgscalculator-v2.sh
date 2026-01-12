@@ -24,6 +24,8 @@ function general_usage(){
   echo "                   lightweight *driver job* that runs sumstat and launches/monitors"
   echo "                   chromosome-parallel arrays for posteriors/score."
   echo "  -d                Dev mode (verbose output)"
+  echo "  --cleanup         After a successful run/driver job, remove per-run work/ and tmp/ folders"
+  echo "                   (Default for now: keep work/tmp, which is useful during development)"
   echo "  -v                Show version"
   echo "  -h                Show this help"
   echo ""
@@ -79,6 +81,7 @@ chromosomes=""
 devmode=""
 use_sbatch=false
 driver_run=false
+do_cleanup=false
 
 i=0
 while [ $i -lt ${#paramarray[@]} ]; do
@@ -102,6 +105,10 @@ while [ $i -lt ${#paramarray[@]} ]; do
     --_driver-run)
       # Internal flag: run inside a driver job; orchestrates arrays, does not submit itself.
       driver_run=true
+      i=$((i+1))
+      ;;
+    --cleanup)
+      do_cleanup=true
       i=$((i+1))
       ;;
     -i)
@@ -263,6 +270,21 @@ format_elapsed() {
   printf "%02d:%02d:%02d" "$h" "$m" "$s"
 }
 
+cleanup_work_and_tmp() {
+  local outdir="$1"
+  local sumstat="${2:-}"
+
+  # Always safe to remove prep tmp if present.
+  rm -rf "${outdir}/prep/tmp" 2>/dev/null || true
+
+  if [[ -n "$sumstat" ]]; then
+    rm -rf "${outdir}/sumstats/${sumstat}/tmp" 2>/dev/null || true
+    rm -rf "${outdir}/sumstats/${sumstat}/work" 2>/dev/null || true
+    # Best-effort: if legacy intermediates exists, remove it too (it should have been migrated).
+    rm -rf "${outdir}/sumstats/${sumstat}/intermediates" 2>/dev/null || true
+  fi
+}
+
 ################################################################################
 # Prerequisite checking helpers (must be defined before driver mode runs)
 ################################################################################
@@ -297,26 +319,31 @@ check_sumstat_exists() {
   local outdir="$1"
   local sumstat="$2"
 
-  # Prefer v2.1 intermediates/, but accept legacy locations for backwards compatibility.
-  local formatted_new="${outdir}/sumstats/${sumstat}/intermediates/formatted/sumstat_formatted.tsv.gz"
-  local formatted_old="${outdir}/sumstats/${sumstat}/formatted/sumstat_formatted.tsv.gz"
-  local filtered_new="${outdir}/sumstats/${sumstat}/intermediates/filtered/sumstat_filtered.tsv.gz"
-  local filtered_old="${outdir}/sumstats/${sumstat}/filtered/sumstat_filtered.tsv.gz"
-  local filtered_chr_new_glob="${outdir}/sumstats/${sumstat}/intermediates/filtered/chr*_filtered.tsv"
-  local filtered_chr_old_glob="${outdir}/sumstats/${sumstat}/filtered/chr*_filtered.tsv"
+  # Prefer v2.1+ work/, but accept legacy locations for backwards compatibility.
+  local formatted_new="${outdir}/sumstats/${sumstat}/work/formatted/sumstat_formatted.tsv.gz"
+  local formatted_old="${outdir}/sumstats/${sumstat}/intermediates/formatted/sumstat_formatted.tsv.gz"
+  local formatted_legacy="${outdir}/sumstats/${sumstat}/formatted/sumstat_formatted.tsv.gz"
+  local filtered_new="${outdir}/sumstats/${sumstat}/work/filtered/sumstat_filtered.tsv.gz"
+  local filtered_old="${outdir}/sumstats/${sumstat}/intermediates/filtered/sumstat_filtered.tsv.gz"
+  local filtered_legacy="${outdir}/sumstats/${sumstat}/filtered/sumstat_filtered.tsv.gz"
+  local filtered_chr_new_glob="${outdir}/sumstats/${sumstat}/work/filtered/chr*_filtered.tsv"
+  local filtered_chr_old_glob="${outdir}/sumstats/${sumstat}/intermediates/filtered/chr*_filtered.tsv"
+  local filtered_chr_legacy_glob="${outdir}/sumstats/${sumstat}/filtered/chr*_filtered.tsv"
 
-  if [[ ! -f "$formatted_new" && ! -f "$formatted_old" ]]; then
+  if [[ ! -f "$formatted_new" && ! -f "$formatted_old" && ! -f "$formatted_legacy" ]]; then
     echo "  - Formatted sumstat (expected): ${formatted_new}"
     echo "    (legacy accepted): ${formatted_old}"
+    echo "    (older legacy accepted): ${formatted_legacy}"
     return 1
   fi
 
-  if [[ ! -f "$filtered_new" && ! -f "$filtered_old" ]]; then
+  if [[ ! -f "$filtered_new" && ! -f "$filtered_old" && ! -f "$filtered_legacy" ]]; then
     # Some workflows may only need per-chromosome filtered files (chrN_filtered.tsv).
     # Accept those as an alternative prereq for posteriors.
-    if ! compgen -G "$filtered_chr_new_glob" >/dev/null 2>&1 && ! compgen -G "$filtered_chr_old_glob" >/dev/null 2>&1; then
+    if ! compgen -G "$filtered_chr_new_glob" >/dev/null 2>&1 && ! compgen -G "$filtered_chr_old_glob" >/dev/null 2>&1 && ! compgen -G "$filtered_chr_legacy_glob" >/dev/null 2>&1; then
       echo "  - Filtered sumstat (expected): ${filtered_new}"
       echo "    (legacy accepted): ${filtered_old}"
+      echo "    (older legacy accepted): ${filtered_legacy}"
       echo "    (alt accepted): ${filtered_chr_new_glob}"
       return 1
     fi
@@ -328,22 +355,26 @@ check_posteriors_exists() {
   local outdir="$1"
   local sumstat="$2"
 
-  local post_new="${outdir}/sumstats/${sumstat}/intermediates/posteriors"
-  local post_old="${outdir}/sumstats/${sumstat}/posteriors"
-  local mapped_new="${outdir}/sumstats/${sumstat}/intermediates/posteriors_mapped"
-  local mapped_old="${outdir}/sumstats/${sumstat}/posteriors_mapped"
+  local post_new="${outdir}/sumstats/${sumstat}/work/posteriors"
+  local post_old="${outdir}/sumstats/${sumstat}/intermediates/posteriors"
+  local post_legacy="${outdir}/sumstats/${sumstat}/posteriors"
+  local mapped_new="${outdir}/sumstats/${sumstat}/work/posteriors_mapped"
+  local mapped_old="${outdir}/sumstats/${sumstat}/intermediates/posteriors_mapped"
+  local mapped_legacy="${outdir}/sumstats/${sumstat}/posteriors_mapped"
 
   # calc-posteriors output
-  if [[ ( ! -d "$post_new" || -z "$(ls -A "$post_new" 2>/dev/null)" ) && ( ! -d "$post_old" || -z "$(ls -A "$post_old" 2>/dev/null)" ) ]]; then
+  if [[ ( ! -d "$post_new" || -z "$(ls -A "$post_new" 2>/dev/null)" ) && ( ! -d "$post_old" || -z "$(ls -A "$post_old" 2>/dev/null)" ) && ( ! -d "$post_legacy" || -z "$(ls -A "$post_legacy" 2>/dev/null)" ) ]]; then
     echo "  - Posteriors (expected): ${post_new}/"
     echo "    (legacy accepted): ${post_old}/"
+    echo "    (older legacy accepted): ${post_legacy}/"
     return 1
   fi
 
   # format-posteriors output (required for scoring)
-  if [[ ( ! -d "$mapped_new" || -z "$(ls -A "$mapped_new" 2>/dev/null)" ) && ( ! -d "$mapped_old" || -z "$(ls -A "$mapped_old" 2>/dev/null)" ) ]]; then
+  if [[ ( ! -d "$mapped_new" || -z "$(ls -A "$mapped_new" 2>/dev/null)" ) && ( ! -d "$mapped_old" || -z "$(ls -A "$mapped_old" 2>/dev/null)" ) && ( ! -d "$mapped_legacy" || -z "$(ls -A "$mapped_legacy" 2>/dev/null)" ) ]]; then
     echo "  - Posteriors mapped (expected): ${mapped_new}/"
     echo "    (legacy accepted): ${mapped_old}/"
+    echo "    (older legacy accepted): ${mapped_legacy}/"
     return 1
   fi
   return 0
@@ -695,8 +726,9 @@ infold_host=$(realpath "${infold}")
     step_chr_list="$chr_list"
     step_chr_count="$chr_count"
     if [[ "$step_profile" == "score" && -n "${sumstat_name:-}" ]]; then
-      mapped_new="${outdir_host}/sumstats/${sumstat_name}/intermediates/posteriors_mapped"
-      mapped_old="${outdir_host}/sumstats/${sumstat_name}/posteriors_mapped"
+      mapped_new="${outdir_host}/sumstats/${sumstat_name}/work/posteriors_mapped"
+      mapped_old="${outdir_host}/sumstats/${sumstat_name}/intermediates/posteriors_mapped"
+      mapped_legacy="${outdir_host}/sumstats/${sumstat_name}/posteriors_mapped"
       mapped_dir=""
       if [[ -d "$mapped_new" ]]; then
         mapped_dir="$mapped_new"
@@ -790,7 +822,7 @@ rc=\$?; echo \"[INFO] Finished ${step_profile} chr\${CHR} at \$(date) (exit=\$rc
     # Sanity-check expected outputs exist after a successful array.
     # This catches cases where tasks return 0 but accidentally write nothing.
     if [[ -n "$sumstat_name" ]]; then
-      base_sumstat_out="${outdir_host}/sumstats/${sumstat_name}/intermediates"
+      base_sumstat_out="${outdir_host}/sumstats/${sumstat_name}/work"
       if [[ "$step_profile" == "posteriors" ]]; then
         n_post=$(ls "${base_sumstat_out}/posteriors"/chr*.snpRes 2>/dev/null | wc -l | awk '{print $1}')
         n_mapped=$(ls "${base_sumstat_out}/posteriors_mapped"/chr*.snpRes 2>/dev/null | wc -l | awk '{print $1}')
@@ -848,6 +880,12 @@ rc=\$?; echo \"[INFO] Finished ${step_profile} chr\${CHR} at \$(date) (exit=\$rc
     [[ -n "$outdir" ]] && follow_cmd="${follow_cmd} -o ${outdir}"
     [[ -n "$devmode" ]] && follow_cmd="${follow_cmd} -d"
     eval "$follow_cmd"
+  fi
+
+  # Optional cleanup (default is to keep work/tmp during development)
+  if [[ "$do_cleanup" == true ]]; then
+    echo "Cleanup enabled: removing work/ and tmp/ for ${sumstat_name}"
+    cleanup_work_and_tmp "$outdir_host" "$sumstat_name"
   fi
 
   exit 0
@@ -917,6 +955,7 @@ if [[ "$use_sbatch" == true ]]; then
     run_cmd="${project_dir}/pgscalculator-v2.sh --config ${config_file_host} --steps prep"
     [[ -n "$outdir" ]] && run_cmd="${run_cmd} -o ${outdir}"
     [[ -n "$devmode" ]] && run_cmd="${run_cmd} -d"
+    [[ "$do_cleanup" == true ]] && run_cmd="${run_cmd} --cleanup"
 
     sbatch_args=(--parsable)
     sbatch_args+=(--mem="${slurm_mem}")
@@ -978,6 +1017,7 @@ fi
   [[ -n "$outdir" ]] && run_cmd="${run_cmd} -o ${outdir}"
   [[ -n "$chromosomes" ]] && run_cmd="${run_cmd} --chr ${chromosomes}"
   [[ -n "$devmode" ]] && run_cmd="${run_cmd} -d"
+  [[ "$do_cleanup" == true ]] && run_cmd="${run_cmd} --cleanup"
 
   sbatch_args=(--parsable)
   sbatch_args+=(--mem="${slurm_mem}")

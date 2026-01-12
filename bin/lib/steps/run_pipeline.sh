@@ -14,7 +14,7 @@ run_pipeline() {
     else
         unset CFG_SUMSTAT_NAME || true
     fi
-    # Ensure legacy output layout is migrated into intermediates/
+    # Ensure legacy output layouts are migrated into work/ (old intermediates/ is migrated too)
     local sumstat_dir
     sumstat_dir=$(get_sumstat_dir "${CFG_OUTDIR}" "$sumstat_name")
     migrate_sumstat_all_step_dirs "$sumstat_dir"
