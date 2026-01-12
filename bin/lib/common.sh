@@ -242,38 +242,22 @@ get_sumstat_work_dir() {
     echo "${sumstat_dir}/work"
 }
 
-# Get the intermediates directory within a sumstat run directory (legacy name)
-get_sumstat_intermediates_dir() {
-    local sumstat_dir="$1"
-    echo "${sumstat_dir}/intermediates"
-}
-
 # Migrate step directories into sumstat_dir/work/<step> for v2.1+ output structure.
 # Handles:
 # - legacy: sumstat_dir/<step>
-# - legacy: sumstat_dir/intermediates/<step>  (old name)
 migrate_sumstat_step_dir() {
     local sumstat_dir="$1"
     local step="$2"
 
-    local work_dir inter_dir
+    local work_dir
     work_dir=$(get_sumstat_work_dir "$sumstat_dir")
-    inter_dir=$(get_sumstat_intermediates_dir "$sumstat_dir")
     ensure_dir "$work_dir"
 
     local legacy_root="${sumstat_dir}/${step}"
-    local legacy_inter="${inter_dir}/${step}"
     local new_dir="${work_dir}/${step}"
 
-    if [[ -d "$legacy_inter" ]] && [[ ! -d "$new_dir" ]]; then
-        mv "$legacy_inter" "$new_dir"
-    elif [[ -d "$legacy_root" ]] && [[ ! -d "$new_dir" ]]; then
+    if [[ -d "$legacy_root" ]] && [[ ! -d "$new_dir" ]]; then
         mv "$legacy_root" "$new_dir"
-    fi
-
-    # If intermediates/ becomes empty, remove it (best-effort).
-    if [[ -d "$inter_dir" ]] && [[ -z "$(ls -A "$inter_dir" 2>/dev/null)" ]]; then
-        rmdir "$inter_dir" 2>/dev/null || true
     fi
 }
 

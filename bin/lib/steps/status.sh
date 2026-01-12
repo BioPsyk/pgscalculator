@@ -41,15 +41,8 @@ show_status() {
 show_one_sumstat() {
     local outdir="$1" name="$2"
     local sd="${outdir}/sumstats/${name}"
-    # Prefer new work/ layout, but accept legacy intermediates/ if present.
     local work="${sd}/work"
-    local inter="${sd}/intermediates"
-    local base=""
-    if [[ -d "$work" ]]; then
-        base="$work"
-    else
-        base="$inter"
-    fi
+    local base="$work"
     echo "=== Sumstat: ${name} ==="
     [[ ! -d "$sd" ]] && { echo "  Not started"; echo ""; return; }
     for step in formatted filtered posteriors posteriors_mapped scores scores_combined; do

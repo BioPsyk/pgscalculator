@@ -280,8 +280,6 @@ cleanup_work_and_tmp() {
   if [[ -n "$sumstat" ]]; then
     rm -rf "${outdir}/sumstats/${sumstat}/tmp" 2>/dev/null || true
     rm -rf "${outdir}/sumstats/${sumstat}/work" 2>/dev/null || true
-    # Best-effort: if legacy intermediates exists, remove it too (it should have been migrated).
-    rm -rf "${outdir}/sumstats/${sumstat}/intermediates" 2>/dev/null || true
   fi
 }
 
@@ -319,30 +317,25 @@ check_sumstat_exists() {
   local outdir="$1"
   local sumstat="$2"
 
-  # Prefer v2.1+ work/, but accept legacy locations for backwards compatibility.
+  # Prefer v2.1+ work/, but accept older legacy locations for backwards compatibility.
   local formatted_new="${outdir}/sumstats/${sumstat}/work/formatted/sumstat_formatted.tsv.gz"
-  local formatted_old="${outdir}/sumstats/${sumstat}/intermediates/formatted/sumstat_formatted.tsv.gz"
   local formatted_legacy="${outdir}/sumstats/${sumstat}/formatted/sumstat_formatted.tsv.gz"
   local filtered_new="${outdir}/sumstats/${sumstat}/work/filtered/sumstat_filtered.tsv.gz"
-  local filtered_old="${outdir}/sumstats/${sumstat}/intermediates/filtered/sumstat_filtered.tsv.gz"
   local filtered_legacy="${outdir}/sumstats/${sumstat}/filtered/sumstat_filtered.tsv.gz"
   local filtered_chr_new_glob="${outdir}/sumstats/${sumstat}/work/filtered/chr*_filtered.tsv"
-  local filtered_chr_old_glob="${outdir}/sumstats/${sumstat}/intermediates/filtered/chr*_filtered.tsv"
   local filtered_chr_legacy_glob="${outdir}/sumstats/${sumstat}/filtered/chr*_filtered.tsv"
 
-  if [[ ! -f "$formatted_new" && ! -f "$formatted_old" && ! -f "$formatted_legacy" ]]; then
+  if [[ ! -f "$formatted_new" && ! -f "$formatted_legacy" ]]; then
     echo "  - Formatted sumstat (expected): ${formatted_new}"
-    echo "    (legacy accepted): ${formatted_old}"
     echo "    (older legacy accepted): ${formatted_legacy}"
     return 1
   fi
 
-  if [[ ! -f "$filtered_new" && ! -f "$filtered_old" && ! -f "$filtered_legacy" ]]; then
+  if [[ ! -f "$filtered_new" && ! -f "$filtered_legacy" ]]; then
     # Some workflows may only need per-chromosome filtered files (chrN_filtered.tsv).
     # Accept those as an alternative prereq for posteriors.
-    if ! compgen -G "$filtered_chr_new_glob" >/dev/null 2>&1 && ! compgen -G "$filtered_chr_old_glob" >/dev/null 2>&1 && ! compgen -G "$filtered_chr_legacy_glob" >/dev/null 2>&1; then
+    if ! compgen -G "$filtered_chr_new_glob" >/dev/null 2>&1 && ! compgen -G "$filtered_chr_legacy_glob" >/dev/null 2>&1; then
       echo "  - Filtered sumstat (expected): ${filtered_new}"
-      echo "    (legacy accepted): ${filtered_old}"
       echo "    (older legacy accepted): ${filtered_legacy}"
       echo "    (alt accepted): ${filtered_chr_new_glob}"
       return 1
@@ -356,24 +349,20 @@ check_posteriors_exists() {
   local sumstat="$2"
 
   local post_new="${outdir}/sumstats/${sumstat}/work/posteriors"
-  local post_old="${outdir}/sumstats/${sumstat}/intermediates/posteriors"
   local post_legacy="${outdir}/sumstats/${sumstat}/posteriors"
   local mapped_new="${outdir}/sumstats/${sumstat}/work/posteriors_mapped"
-  local mapped_old="${outdir}/sumstats/${sumstat}/intermediates/posteriors_mapped"
   local mapped_legacy="${outdir}/sumstats/${sumstat}/posteriors_mapped"
 
   # calc-posteriors output
-  if [[ ( ! -d "$post_new" || -z "$(ls -A "$post_new" 2>/dev/null)" ) && ( ! -d "$post_old" || -z "$(ls -A "$post_old" 2>/dev/null)" ) && ( ! -d "$post_legacy" || -z "$(ls -A "$post_legacy" 2>/dev/null)" ) ]]; then
+  if [[ ( ! -d "$post_new" || -z "$(ls -A "$post_new" 2>/dev/null)" ) && ( ! -d "$post_legacy" || -z "$(ls -A "$post_legacy" 2>/dev/null)" ) ]]; then
     echo "  - Posteriors (expected): ${post_new}/"
-    echo "    (legacy accepted): ${post_old}/"
     echo "    (older legacy accepted): ${post_legacy}/"
     return 1
   fi
 
   # format-posteriors output (required for scoring)
-  if [[ ( ! -d "$mapped_new" || -z "$(ls -A "$mapped_new" 2>/dev/null)" ) && ( ! -d "$mapped_old" || -z "$(ls -A "$mapped_old" 2>/dev/null)" ) && ( ! -d "$mapped_legacy" || -z "$(ls -A "$mapped_legacy" 2>/dev/null)" ) ]]; then
+  if [[ ( ! -d "$mapped_new" || -z "$(ls -A "$mapped_new" 2>/dev/null)" ) && ( ! -d "$mapped_legacy" || -z "$(ls -A "$mapped_legacy" 2>/dev/null)" ) ]]; then
     echo "  - Posteriors mapped (expected): ${mapped_new}/"
-    echo "    (legacy accepted): ${mapped_old}/"
     echo "    (older legacy accepted): ${mapped_legacy}/"
     return 1
   fi
@@ -727,7 +716,6 @@ infold_host=$(realpath "${infold}")
     step_chr_count="$chr_count"
     if [[ "$step_profile" == "score" && -n "${sumstat_name:-}" ]]; then
       mapped_new="${outdir_host}/sumstats/${sumstat_name}/work/posteriors_mapped"
-      mapped_old="${outdir_host}/sumstats/${sumstat_name}/intermediates/posteriors_mapped"
       mapped_legacy="${outdir_host}/sumstats/${sumstat_name}/posteriors_mapped"
       mapped_dir=""
       if [[ -d "$mapped_new" ]]; then
