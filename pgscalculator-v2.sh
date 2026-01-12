@@ -450,6 +450,18 @@ infold_host=$(realpath "${infold}")
     local chr_file="$2"
     local chr_count="$3"
 
+    is_terminal_state() {
+      local st="$1"
+      case "$st" in
+        COMPLETED*|FAILED*|CANCELLED*|TIMEOUT*|OUT_OF_MEMORY*|NODE_FAIL*|PREEMPTED*|BOOT_FAIL*|DEADLINE*|SPECIAL_EXIT*)
+          return 0
+          ;;
+        *)
+          return 1
+          ;;
+      esac
+    }
+
     # Best-effort watch: report task starts/finishes + elapsed time.
     # Important: must terminate when the array is done, even if sacct is delayed.
     if ! command -v squeue >/dev/null 2>&1; then
@@ -506,12 +518,14 @@ infold_host=$(realpath "${infold}")
               st="${rest%%|*}"
               elapsed_raw="${rest##*|}"
               elapsed_fmt=$(format_elapsed "$elapsed_raw")
-              finished["$idx"]=1
               task_state["$idx"]="$st"
-              if [[ "$st" != COMPLETED* ]]; then
-                task_failed["$idx"]=1
+              if is_terminal_state "$st"; then
+                finished["$idx"]=1
+                if [[ "$st" != COMPLETED* ]]; then
+                  task_failed["$idx"]=1
+                fi
+                echo "  Finished: task=${idx} chr=${chr} state=${st} elapsed=${elapsed_fmt} time=$(date)"
               fi
-              echo "  Finished: task=${idx} chr=${chr} state=${st} elapsed=${elapsed_fmt} time=$(date)"
             fi
           else
             # No sacct; mark finished when it leaves queue
@@ -537,12 +551,14 @@ infold_host=$(realpath "${infold}")
               st="${acct_line%%|*}"
               elapsed_raw="${acct_line##*|}"
               elapsed_fmt=$(format_elapsed "$elapsed_raw")
-              finished["$idx"]=1
               task_state["$idx"]="$st"
-              if [[ "$st" != COMPLETED* ]]; then
-                task_failed["$idx"]=1
+              if is_terminal_state "$st"; then
+                finished["$idx"]=1
+                if [[ "$st" != COMPLETED* ]]; then
+                  task_failed["$idx"]=1
+                fi
+                echo "  Finished: task=${idx} chr=${chr} state=${st} elapsed=${elapsed_fmt} time=$(date)"
               fi
-              echo "  Finished: task=${idx} chr=${chr} state=${st} elapsed=${elapsed_fmt} time=$(date)"
             fi
           else
             finished["$idx"]=1
