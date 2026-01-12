@@ -462,22 +462,26 @@ infold_host=$(realpath "${infold}")
 
     declare -A started
     declare -A finished
-    declare -A acct_miss
     declare -A task_state
     declare -A task_failed
     start_ts=$(date +%s)
 
     while [[ ${#finished[@]} -lt $chr_count ]]; do
-      # Snapshot current tasks in queue
-      mapfile -t sq_lines < <(squeue -h -j "${array_jobid}" -o "%i|%T" 2>/dev/null || true)
+      # Snapshot current tasks in queue.
+      # IMPORTANT: squeue can show arrays as a single aggregated line (e.g. 123_[1-22]).
+      # Use %A (array job id) and %a (task id) to get per-task rows when available.
+      mapfile -t sq_lines < <(squeue -h --array -j "${array_jobid}" -o "%A|%a|%T" 2>/dev/null || squeue -h -j "${array_jobid}" -o "%A|%a|%T" 2>/dev/null || true)
 
       declare -A in_queue
       for line in "${sq_lines[@]}"; do
         jid="${line%%|*}"
-        state="${line##*|}"
-        # jid can be like 12345_7
-        if [[ "$jid" =~ ^${array_jobid}_[0-9]+$ ]]; then
-          idx="${jid#${array_jobid}_}"
+        rest="${line#*|}"
+        tid="${rest%%|*}"
+        state="${rest##*|}"
+
+        # tid can be numeric (single task) or a range/list (aggregated). We only act on numeric rows.
+        if [[ "$jid" == "$array_jobid" ]] && [[ "$tid" =~ ^[0-9]+$ ]]; then
+          idx="$tid"
           in_queue["$idx"]="$state"
           if [[ -z "${started[$idx]:-}" ]] && [[ "$state" == "RUNNING" || "$state" == "COMPLETING" ]]; then
             started["$idx"]=1
@@ -508,14 +512,6 @@ infold_host=$(realpath "${infold}")
                 task_failed["$idx"]=1
               fi
               echo "  Finished: task=${idx} chr=${chr} state=${st} elapsed=${elapsed_fmt} time=$(date)"
-            else
-              # sacct can lag behind job completion; don't hang forever.
-              acct_miss["$idx"]=$(( ${acct_miss["$idx"]:-0} + 1 ))
-              if [[ ${acct_miss["$idx"]} -ge 3 ]]; then
-                finished["$idx"]=1
-                task_state["$idx"]="UNKNOWN"
-                echo "  Finished: task=${idx} chr=${chr} (sacct not yet available) time=$(date)"
-              fi
             fi
           else
             # No sacct; mark finished when it leaves queue
@@ -547,10 +543,6 @@ infold_host=$(realpath "${infold}")
                 task_failed["$idx"]=1
               fi
               echo "  Finished: task=${idx} chr=${chr} state=${st} elapsed=${elapsed_fmt} time=$(date)"
-            else
-              finished["$idx"]=1
-              task_state["$idx"]="UNKNOWN"
-              echo "  Finished: task=${idx} chr=${chr} (array ended; sacct unavailable) time=$(date)"
             fi
           else
             finished["$idx"]=1
@@ -606,7 +598,7 @@ infold_host=$(realpath "${infold}")
       return 1
     fi
 
-    # Be conservative: if some tasks are still UNKNOWN (no sacct), treat as failure.
+    # If some tasks are still UNKNOWN (no sacct), fall back to parent array job state.
     local unknown_count=0
     for ((idx=1; idx<=chr_count; idx++)); do
       if [[ "${task_state[$idx]:-}" == "UNKNOWN" ]]; then
@@ -614,7 +606,13 @@ infold_host=$(realpath "${infold}")
       fi
     done
     if [[ $unknown_count -gt 0 ]]; then
-      echo "Array result: UNKNOWN_TASKS=${unknown_count}/${chr_count}"
+      parent_state=$(sacct -j "${array_jobid}" --format=State -n -P 2>/dev/null | head -n 1 || true)
+      parent_state="${parent_state%%|*}"
+      echo "Array result: UNKNOWN_TASKS=${unknown_count}/${chr_count} (parent_state=${parent_state:-UNKNOWN})"
+      if [[ "$parent_state" == COMPLETED* ]]; then
+        >&2 echo "Warning: some task states are UNKNOWN due to accounting lag; treating array as successful because parent job is COMPLETED."
+        return 0
+      fi
       return 1
     fi
     return 0
