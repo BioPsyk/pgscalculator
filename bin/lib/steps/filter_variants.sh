@@ -394,8 +394,24 @@ add_sample_size() {
     local output="$2"
     local metadata_file="$3"
     local which_n="$4"
-    
-    awk -F'\t' -v OFS='\t' -v which_n="$which_n" '
+
+    # Prefer metadata-derived N when the sumstat file doesn't include N/CaseN/ControlN.
+    # cleaned_metadata.yaml is produced by cleansumstats and includes:
+    # - stats_TotalN
+    # - stats_EffectiveN
+    local default_n=""
+    if [[ -f "$metadata_file" ]]; then
+        case "$which_n" in
+            effectiveN)
+                default_n=$(awk -F': ' '$1=="stats_EffectiveN"{print $2; exit}' "$metadata_file" | tr -d '[:space:]')
+                ;;
+            totalN|*)
+                default_n=$(awk -F': ' '$1=="stats_TotalN"{print $2; exit}' "$metadata_file" | tr -d '[:space:]')
+                ;;
+        esac
+    fi
+
+    awk -F'\t' -v OFS='\t' -v which_n="$which_n" -v default_n="$default_n" '
         NR == 1 {
             for(i=1; i<=NF; i++) {
                 header[i] = $i
@@ -403,21 +419,34 @@ add_sample_size() {
                 if($i == "CaseN") case_col = i
                 if($i == "ControlN") ctrl_col = i
             }
-            print
+
+            # Ensure an N column exists for downstream steps (e.g., derivations).
+            if (!n_col) {
+                n_col = NF + 1
+                header[n_col] = "N"
+                NF = n_col
+            }
+
+            # Print (possibly-augmented) header
+            out = header[1]
+            for (i=2; i<=NF; i++) out = out OFS header[i]
+            print out
             next
         }
         {
-            if (n_col && $n_col != "NA" && $n_col != "") {
-                # N already exists
+            if ($n_col != "NA" && $n_col != "") {
+                # N already present
                 print
             } else if (which_n == "effectiveN" && case_col && ctrl_col) {
                 # Calculate effective N: 4 * (cases * controls) / (cases + controls)
                 if ($case_col != "NA" && $ctrl_col != "NA" && $case_col > 0 && $ctrl_col > 0) {
                     eff_n = 4 * ($case_col * $ctrl_col) / ($case_col + $ctrl_col)
-                    if (n_col) {
-                        $n_col = eff_n
-                    }
+                    $n_col = eff_n
                 }
+                print
+            } else if (default_n != "" && default_n != "NA" && default_n + 0 > 0) {
+                # Fallback: fill N from metadata
+                $n_col = default_n
                 print
             } else {
                 # Keep as is
@@ -623,7 +652,32 @@ add_beta_se() {
             next
         }
         {
-            # Try to derive B and SE if missing but Z, N, EAF available
+            # 1) Universal derivation when SE is missing but B and Z exist:
+            #    SE = |B / Z| (when Z != 0)
+            # This covers common cleansumstats outputs that provide B and Z but not SE.
+            if (z_col && b_col && ($se_col == "NA" || $se_col == "") ) {
+                z = $z_col
+                b = $b_col
+                if (z != "NA" && b != "NA" && (z + 0) != 0) {
+                    derived_se_bz = (b + 0) / (z + 0)
+                    if (derived_se_bz < 0) derived_se_bz = -derived_se_bz
+                    if (derived_se_bz > 0) {
+                        $se_col = derived_se_bz
+                    }
+                }
+            }
+
+            # 2) If B is missing but Z and SE exist:
+            #    B = Z * SE
+            if (z_col && se_col && ($b_col == "NA" || $b_col == "") ) {
+                z = $z_col
+                se = $se_col
+                if (z != "NA" && se != "NA" && (se + 0) > 0) {
+                    $b_col = (z + 0) * (se + 0)
+                }
+            }
+
+            # 3) Original derivation for cases where B/SE missing but Z, N, EAF available
             if (z_col && n_col && eaf_col) {
                 z = $z_col
                 n = $n_col
