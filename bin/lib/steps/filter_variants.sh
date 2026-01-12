@@ -192,32 +192,118 @@ derive_stats() {
     local tmpdir
     tmpdir=$(make_tmpdir "filter_variants")
 
+    # We now persist a per-substep audit file so users can see where variants disappear.
+    # This is intentionally in the sumstat's filtered/ folder (not tmp), so it survives failures.
+    local audit_file=""
+    if [[ -n "${step_dir:-}" ]]; then
+        audit_file="${step_dir}/filter_variants_steps.tsv"
+        {
+            echo -e "STEP\tN_BEFORE\tN_AFTER\tDESC"
+        } > "$audit_file"
+    fi
+
+    count_variants_tsv() {
+        local f="$1"
+        if [[ ! -s "$f" ]]; then
+            echo 0
+            return
+        fi
+        local n
+        n=$(wc -l < "$f" | awk '{print $1}')
+        if [[ "$n" -le 1 ]]; then
+            echo 0
+        else
+            echo $((n - 1))
+        fi
+    }
+
+    # Count missing values for one column name (best-effort; returns 0 if col missing)
+    count_missing_col() {
+        local f="$1"
+        local colname="$2"
+        awk -F'\t' -v colname="$colname" '
+            NR==1{
+                for(i=1;i<=NF;i++) if($i==colname){c=i; break}
+                next
+            }
+            c{
+                v=$c
+                if(v=="" || v=="NA") m++
+            }
+            END{ print (m+0) }
+        ' "$f"
+    }
+
+    audit_row() {
+        local step="$1"
+        local before="$2"
+        local after="$3"
+        local desc="$4"
+        [[ -n "$audit_file" ]] && echo -e "${step}\t${before}\t${after}\t${desc}" >> "$audit_file"
+    }
+
     # Track removed lines during filtering so we can quickly see what removed too much.
     # Format: LINE<TAB>CHR:POS:EA:OA<TAB>REASON
-    local removed_tmp="${tmpdir}/removed_lines.tsv"
-    echo -e "LINE\tVARIANT\tREASON" > "$removed_tmp"
+    # We keep pass1/pass2 separate so you can diagnose pre- vs post-derivation issues.
+    local removed1_tmp="${tmpdir}/removed_lines_pass1.tsv"
+    local removed2_tmp="${tmpdir}/removed_lines_pass2.tsv"
+    echo -e "LINE\tVARIANT\tREASON" > "$removed1_tmp"
+    echo -e "LINE\tVARIANT\tREASON" > "$removed2_tmp"
     
     # Step 1: Add/fix N (effective or total based on config)
+    local n0
+    n0=$(count_variants_tsv "$input")
     add_sample_size "$input" "${tmpdir}/step1.tsv" "$metadata_file" "$which_n"
+    local n1
+    n1=$(count_variants_tsv "${tmpdir}/step1.tsv")
+    local n_missing_1
+    n_missing_1=$(count_missing_col "${tmpdir}/step1.tsv" "N")
+    audit_row "add_sample_size" "$n0" "$n1" "ensure N column (missing_N=${n_missing_1})"
     
     # Step 2: Force EAF column (use ldref_eaf as fallback, preferred over EAF_1KG)
     local ldref_eaf_file="${prep_dir}/references/ldref_eaf.tsv"
     force_eaf "${tmpdir}/step1.tsv" "${tmpdir}/step2.tsv" "$ldref_eaf_file"
+    local n2
+    n2=$(count_variants_tsv "${tmpdir}/step2.tsv")
+    local eaf_missing_2
+    eaf_missing_2=$(count_missing_col "${tmpdir}/step2.tsv" "EAF")
+    audit_row "force_eaf" "$n1" "$n2" "fill EAF (missing_EAF=${eaf_missing_2})"
     
     # Step 3: Filter bad values (first pass - remove NA/invalid before derivation)
-    filter_bad_values "${tmpdir}/step2.tsv" "${tmpdir}/step3.tsv" "$removed_tmp" "pass1"
+    filter_bad_values "${tmpdir}/step2.tsv" "${tmpdir}/step3.tsv" "$removed1_tmp" "pass1"
+    local n3
+    n3=$(count_variants_tsv "${tmpdir}/step3.tsv")
+    audit_row "filter_bad_values_pass1" "$n2" "$n3" "drop obviously invalid rows before derivation (see removed_lines_pass1.tsv.gz)"
     
     # Step 4: Derive B and SE if missing (from Z, N, EAF)
     add_beta_se "${tmpdir}/step3.tsv" "${tmpdir}/step4.tsv"
+    local n4
+    n4=$(count_variants_tsv "${tmpdir}/step4.tsv")
+    local b_missing_4
+    local se_missing_4
+    b_missing_4=$(count_missing_col "${tmpdir}/step4.tsv" "B")
+    se_missing_4=$(count_missing_col "${tmpdir}/step4.tsv" "SE")
+    audit_row "add_beta_se" "$n3" "$n4" "derive B/SE if missing (missing_B=${b_missing_4}, missing_SE=${se_missing_4})"
     
     # Step 5: Filter bad values (second pass - ensure derived values are valid)
-    filter_bad_values "${tmpdir}/step4.tsv" "$output" "$removed_tmp" "pass2"
+    filter_bad_values "${tmpdir}/step4.tsv" "$output" "$removed2_tmp" "pass2"
+    local n5
+    n5=$(count_variants_tsv "$output")
+    audit_row "filter_bad_values_pass2" "$n4" "$n5" "final validity filter after derivation (see removed_lines_pass2.tsv.gz)"
     
     # Persist removal details + counts into the filtered step directory (kept with sumstat outputs).
     if [[ -n "${step_dir:-}" ]]; then
+        local removed_out1="${step_dir}/removed_lines_pass1.tsv.gz"
+        local removed_out2="${step_dir}/removed_lines_pass2.tsv.gz"
+        local removed_counts1="${step_dir}/removed_reason_counts_pass1.tsv"
+        local removed_counts2="${step_dir}/removed_reason_counts_pass2.tsv"
         local removed_out="${step_dir}/removed_lines.tsv.gz"
         local removed_counts="${step_dir}/removed_reason_counts.tsv"
-        gzip -c "$removed_tmp" > "$removed_out"
+
+        gzip -c "$removed1_tmp" > "$removed_out1"
+        gzip -c "$removed2_tmp" > "$removed_out2"
+        cat "$removed1_tmp" <(tail -n +2 "$removed2_tmp") | gzip -c > "$removed_out"
+
         awk -F'\t' '
             NR==1{next}
             { c[$3]++ }
@@ -225,9 +311,27 @@ derive_stats() {
                 print "REASON\tN"
                 for (r in c) print r "\t" c[r]
             }
-        ' "$removed_tmp" | sort -t$'\t' -k2,2nr > "$removed_counts"
-        log_debug "Wrote removed lines: ${removed_out}"
-        log_debug "Wrote removed reason counts: ${removed_counts}"
+        ' "$removed1_tmp" | sort -t$'\t' -k2,2nr > "$removed_counts1"
+        awk -F'\t' '
+            NR==1{next}
+            { c[$3]++ }
+            END{
+                print "REASON\tN"
+                for (r in c) print r "\t" c[r]
+            }
+        ' "$removed2_tmp" | sort -t$'\t' -k2,2nr > "$removed_counts2"
+        awk -F'\t' '
+            NR==1{next}
+            { c[$3]++ }
+            END{
+                print "REASON\tN"
+                for (r in c) print r "\t" c[r]
+            }
+        ' <(cat "$removed1_tmp" <(tail -n +2 "$removed2_tmp")) | sort -t$'\t' -k2,2nr > "$removed_counts"
+
+        log_debug "Wrote audit: ${audit_file}"
+        log_debug "Wrote removed lines: ${removed_out} (+ pass1/pass2)"
+        log_debug "Wrote removed reason counts: ${removed_counts} (+ pass1/pass2)"
     fi
 
     # Clean up
