@@ -377,7 +377,7 @@ filter_bad_values() {
     local removed_file="${3:-}"
     local pass_tag="${4:-filter}"
     
-    awk -F'\t' -v OFS='\t' '
+    awk -F'\t' -v OFS='\t' -v removed_file="$removed_file" -v pass_tag="$pass_tag" '
         NR == 1 {
             for(i=1; i<=NF; i++) {
                 header[i] = $i
@@ -431,7 +431,7 @@ filter_bad_values() {
                 }
             }
         }
-    ' -v removed_file="$removed_file" -v pass_tag="$pass_tag" "$input" > "$output"
+    ' "$input" > "$output"
 }
 
 add_beta_se() {
