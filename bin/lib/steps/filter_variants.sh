@@ -363,14 +363,16 @@ derive_stats() {
         local removed_out="${step_dir}/removed_lines.tsv.gz"
         local removed_counts="${step_dir}/removed_reason_counts.tsv"
         gzip -c "$removed_tmp" > "$removed_out"
-        awk -F'\t' '
-            NR==1{next}
-            { c[$3]++ }
-            END{
-                print "REASON\tN"
-                for (r in c) print r "\t" c[r]
-            }
-        ' "$removed_tmp" | sort -t$'\t' -k2,2nr > "$removed_counts"
+        {
+            echo -e "REASON\tN"
+            awk -F'\t' '
+                NR==1{next}
+                { c[$3]++ }
+                END{
+                    for (r in c) print r "\t" c[r]
+                }
+            ' "$removed_tmp" | sort -t$'\t' -k2,2nr
+        } > "$removed_counts"
 
         log_debug "Wrote audit: ${audit_file}"
         log_debug "Wrote changes: ${changes_file}"
