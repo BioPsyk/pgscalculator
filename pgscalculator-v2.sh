@@ -1200,9 +1200,19 @@ fi
 ################################################################################
 # Generate container config.yaml
 ################################################################################
-# Use a different filename to avoid overwriting user's original config
-config_yaml_host="${outdir_host}/config_container.yaml"
-config_yaml_container="${outdir_container}/config_container.yaml"
+# Use a unique filename to avoid collisions between concurrent runs / SLURM array tasks.
+# IMPORTANT: array tasks run in parallel and may pass different --chr values; if they share the same
+# config_container.yaml path, they can overwrite each other and end up running the wrong chromosome.
+config_base_dir=""
+if [[ -n "${sumstat_name:-}" ]]; then
+  config_base_dir="${outdir_host}/sumstats/${sumstat_name}/tmp"
+else
+  config_base_dir="${outdir_host}/prep/tmp"
+fi
+mkdir -p "$config_base_dir" 2>/dev/null || true
+config_yaml_host="$(mktemp "${config_base_dir}/config_container.XXXXXX.yaml")"
+# Map host outdir path -> container outdir path
+config_yaml_container="${outdir_container}${config_yaml_host#${outdir_host}}"
 
 # Copy original config and update paths for container
 cat > "${config_yaml_host}" << EOF
