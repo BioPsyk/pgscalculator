@@ -1361,3 +1361,14 @@ echo "Output: ${outdir_host}"
   ${mount_opts} \
      "${runimage}" \
      ${cli_cmd}
+
+exit_code=$?
+
+# Optional cleanup for local (non-driver) runs.
+# For driver jobs, cleanup happens inside the driver block after arrays/finalization.
+if [[ "$exit_code" -eq 0 ]] && [[ "$driver_run" != true ]] && [[ "$do_cleanup" == true ]]; then
+  echo "Cleanup enabled: removing work/ and tmp/ for ${sumstat_name:-"(no sumstat)"}"
+  cleanup_work_and_tmp "$outdir_host" "${sumstat_name:-}"
+fi
+
+exit "$exit_code"
