@@ -206,7 +206,7 @@ get_step_dir() {
     local sumstat_name="${3:-}"
     
     if [[ -n "$sumstat_name" ]]; then
-        # Sumstat step directories live under intermediates/
+        # Sumstat step directories live under intermediates/ (per-sumstat containment)
         echo "${outdir}/sumstats/${sumstat_name}/intermediates/${step_name}"
     else
         echo "${outdir}/prep/${step_name}"
@@ -363,7 +363,8 @@ make_tmpdir() {
         if [[ -n "${CFG_SUMSTAT_NAME:-}" ]]; then
             base="${CFG_OUTDIR}/sumstats/${CFG_SUMSTAT_NAME}/tmp"
         else
-            base="${CFG_OUTDIR}/tmp"
+            # For prep (and other non-sumstat commands), keep tmp contained within prep/.
+            base="${CFG_OUTDIR}/prep/tmp"
         fi
         mkdir -p "$base" 2>/dev/null || true
         # If we can write to base, use it; else fall back to system mktemp

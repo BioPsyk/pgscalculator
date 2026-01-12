@@ -49,9 +49,9 @@ run_step_group() {
 run_single_step() {
     local step="$1" sumstat_name="$2"; log_info "Step: $step"
     case "$step" in
-        prep-genotypes) source "${STEPS_DIR}/prep_genotypes.sh"; run_prep_genotypes;;
-        prep-ldref) source "${STEPS_DIR}/prep_ldref.sh"; run_prep_ldref;;
-        prep-inclusion-list) source "${STEPS_DIR}/prep_inclusion_list.sh"; run_prep_inclusion_list;;
+        prep-genotypes) export CFG_STEP_GROUP="prep"; source "${STEPS_DIR}/prep_genotypes.sh"; run_prep_genotypes;;
+        prep-ldref) export CFG_STEP_GROUP="prep"; source "${STEPS_DIR}/prep_ldref.sh"; run_prep_ldref;;
+        prep-inclusion-list) export CFG_STEP_GROUP="prep"; source "${STEPS_DIR}/prep_inclusion_list.sh"; run_prep_inclusion_list;;
         format-sumstat) source "${STEPS_DIR}/format_sumstat.sh"; run_format_sumstat "$sumstat_name";;
         filter-variants) source "${STEPS_DIR}/filter_variants.sh"; run_filter_variants "$sumstat_name";;
         calc-posteriors) source "${STEPS_DIR}/calc_posteriors.sh"; run_calc_posteriors "$sumstat_name" "";;
