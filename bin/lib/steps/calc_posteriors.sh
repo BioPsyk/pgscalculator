@@ -235,7 +235,7 @@ format_for_sbayesr() {
     local output_file="$2"
     local mapfile="$3"
     
-    # sbayesR .ma format: SNP A1 A2 freq b se p n
+    # sbayesR .ma format: SNP A1 A2 freq b se p N
     # Use the mapfile to determine column mapping
     
     # Get header from input
@@ -285,7 +285,10 @@ format_for_sbayesr() {
     fi
 
     # Format for sbayesR (space-separated)
-    echo "SNP A1 A2 freq b se p n" > "$output_file"
+    # IMPORTANT: GCTB expects the sample-size column header to be "N" (uppercase).
+    # If we emit "n", GCTB may ignore it and (with --impute-n) derive a per-SNP N,
+    # triggering its internal N-outlier filter and dropping large numbers of SNPs.
+    echo "SNP A1 A2 freq b se p N" > "$output_file"
 
     # Build .ma and drop obviously bad rows.
     # NOTE: keep this awk POSIX-compatible (avoid /regex/i flags).

@@ -476,14 +476,40 @@ force_eaf() {
                 }
             }
         }')
+
+        # Fast-path: if EAF exists and has no missing values, don't build an in-memory RSID map.
+        # This avoids large awk associative arrays (can OOM on small-memory nodes).
+        local has_missing_eaf
+        has_missing_eaf=$(
+            awk -F'\t' '
+                NR==1{
+                    for(i=1;i<=NF;i++){
+                        if($i=="EAF"){e=i; break}
+                    }
+                    next
+                }
+                e{
+                    if($e=="" || $e=="NA"){ print 1; exit }
+                }
+                END{ if(!e) print 1; else if(NR==1) print 0; else print 0 }
+            ' "$input"
+        )
+        if [[ "$has_missing_eaf" -eq 0 ]]; then
+            log_debug "EAF present and complete; skipping ldref EAF mapping."
+            cp -f "$input" "$output"
+            return 0
+        fi
         
         awk -F'\t' -v OFS='\t' -v snp_col="$snp_col" '
-            # Load LD reference EAF (RSID -> A2Freq)
+            # Load LD reference EAF (RSID -> A2Freq), and optionally allele columns for alignment.
             ARGIND == 1 && FNR > 1 {
                 # ldref_eaf format: RSID, A1, A2, A2Freq
                 ldref_eaf[$1] = $4
-                ldref_a1[$1] = $2
-                ldref_a2[$1] = $3
+                # Store allele columns only if we have an effect allele column to align against.
+                if (need_align) {
+                    ldref_a1[$1] = $2
+                    ldref_a2[$1] = $3
+                }
                 next
             }
             # Process sumstat
@@ -494,6 +520,7 @@ force_eaf() {
                     if($i == "EAF_1KG") eaf_1kg_col = i
                     if($i == "A1" || $i == "EffectAllele") a1_col = i
                 }
+                need_align = (a1_col ? 1 : 0)
                 print
                 next
             }

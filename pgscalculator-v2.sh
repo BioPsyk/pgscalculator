@@ -288,6 +288,12 @@ cleanup_work_and_tmp() {
 ################################################################################
 check_prep_exists() {
   local outdir="$1"
+  # Optional: validate that prep outputs exist for the chromosomes requested by the current config.
+  # This prevents re-using a previously "successful" prep run from a different chromosome subset.
+  local chr_spec="${2:-${cfg_chromosomes:-1-22}}"
+  local chr_list=""
+  chr_list=$(expand_chromosome_list "$chr_spec")
+
   local missing=""
 
   # Check for genotype prep outputs
@@ -304,6 +310,22 @@ check_prep_exists() {
   fi
   if [[ ! -f "${outdir}/prep/variant_map.tsv" ]]; then
     missing="${missing}  - Variant map: ${outdir}/prep/variant_map.tsv\n"
+  fi
+
+  # Chromosome-specific prep artifacts (must exist for all requested chromosomes)
+  if [[ -n "$chr_list" ]]; then
+    local chr=""
+    for chr in $chr_list; do
+      if [[ ! -f "${outdir}/prep/genotypes/chr${chr}_pvar_fmt" ]]; then
+        missing="${missing}  - Genotype pvar (chr${chr}): ${outdir}/prep/genotypes/chr${chr}_pvar_fmt\n"
+      fi
+      if [[ ! -f "${outdir}/prep/ldref/chr${chr}_ld_rsids" ]]; then
+        missing="${missing}  - LD ref rsids (chr${chr}): ${outdir}/prep/ldref/chr${chr}_ld_rsids\n"
+      fi
+      if [[ ! -f "${outdir}/prep/inclusion_list/chr${chr}_variant_map" ]]; then
+        missing="${missing}  - Inclusion variant map (chr${chr}): ${outdir}/prep/inclusion_list/chr${chr}_variant_map\n"
+      fi
+    done
   fi
 
   if [[ -n "$missing" ]]; then
@@ -734,8 +756,8 @@ infold_host=$(realpath "${infold}")
       mapped_dir=""
       if [[ -d "$mapped_new" ]]; then
         mapped_dir="$mapped_new"
-      elif [[ -d "$mapped_old" ]]; then
-        mapped_dir="$mapped_old"
+      elif [[ -d "$mapped_legacy" ]]; then
+        mapped_dir="$mapped_legacy"
       fi
 
       if [[ -n "$mapped_dir" ]]; then

@@ -105,16 +105,42 @@ combine_posteriors() {
     local posteriors_dir="$1"
     local output_file="$2"
     
-    # Header for combined posteriors
+    # The mapped posterior files are written as TSVs with header:
+    #   ID  A1  A2  Freq  Effect  SE  PIP
+    # We enrich them with GENO_ID using the rsid->genoid mapping produced during mapping.
+    # This makes the combined file stable for downstream consumers (augmented sumstat join).
     echo -e "RSID\tGENO_ID\tA1\tA2\tFREQ\tEFFECT\tSE\tPIP" > "$output_file"
     
     local total_variants=0
+
+    local rsid_to_genoid="${posteriors_dir}/rsid_to_genoid.tsv"
+    if [[ ! -f "$rsid_to_genoid" ]]; then
+        log_warn "rsid_to_genoid.tsv not found at: ${rsid_to_genoid}; GENO_ID will be NA in posteriors_combined.tsv"
+    fi
     
     for chr in $(get_chromosomes); do
         local posterior_file="${posteriors_dir}/chr${chr}.snpRes"
         if [[ -f "$posterior_file" ]]; then
-            # Append without header
-            tail -n +2 "$posterior_file" >> "$output_file"
+            # Append without header, and inject GENO_ID as 2nd column
+            # Input columns:  ID, A1, A2, Freq, Effect, SE, PIP
+            # Output columns: RSID, GENO_ID, A1, A2, FREQ, EFFECT, SE, PIP
+            awk -F'\t' -v OFS='\t' -v mapfile="$rsid_to_genoid" '
+                BEGIN {
+                    if (mapfile != "" ) {
+                        while ((getline < mapfile) > 0) {
+                            # mapfile format: RSID \t GENO_ID
+                            rsid2gid[$1] = $2
+                        }
+                        close(mapfile)
+                    }
+                }
+                NR==1 { next } # skip header
+                {
+                    rsid = $1
+                    gid = (rsid in rsid2gid) ? rsid2gid[rsid] : "NA"
+                    print rsid, gid, $2, $3, $4, $5, $6, $7
+                }
+            ' "$posterior_file" >> "$output_file"
             local chr_count
             chr_count=$(tail -n +2 "$posterior_file" | wc -l)
             total_variants=$((total_variants + chr_count))

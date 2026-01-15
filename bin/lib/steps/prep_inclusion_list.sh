@@ -224,10 +224,14 @@ create_final_inclusion_list() {
         maf_filter_enabled="no"
     fi
 
-    # If MAF filtering enabled and no MAF file provided, compute from genotypes
+    # If MAF filtering enabled and no MAF file provided, compute from genotypes.
+    # IMPORTANT: compute MAF only for the variants present in variant_map.tsv (typically ~1-2M),
+    # not for the full genotype panel (tens of millions). Computing full-panel MAF then loading
+    # it into awk (GENO_ID -> MAF) is memory-prohibitive and can OOM.
     if [[ "$maf_filter_enabled" == "yes" ]] && ( [[ -z "$maf_file" ]] || [[ ! -f "$maf_file" ]] ); then
         log_substep "Computing MAF from genotypes"
-        compute_maf_from_genotypes "$prep_dir" "$ref_dir"
+        local variant_map="${prep_dir}/variant_map.tsv"
+        compute_maf_from_genotypes "$prep_dir" "$ref_dir" "$variant_map"
         maf_file="${ref_dir}/maf_computed.tsv"
     fi
     
@@ -313,6 +317,7 @@ create_final_inclusion_list() {
 compute_maf_from_genotypes() {
     local prep_dir="$1"
     local ref_dir="$2"
+    local variant_map="${3:-}"
     
     local geno_dir="${CFG_GENODIR}"
     local geno_file="${CFG_GENOFILE}"
@@ -330,22 +335,44 @@ compute_maf_from_genotypes() {
     local total_variants=0
     
     for chr in $(get_chromosomes); do
+        # Optional: restrict MAF computation to variants in the combined variant map.
+        # variant_map format: chrpos, pvar_a1, pvar_a2, pvar_snpid, ld_a1, ld_a2, ld_rsid
+        local tmpdir
+        tmpdir=$(make_tmpdir "prep_inclusion_list_plink2_freq")
+        local extract_ids=""
+        if [[ -n "$variant_map" ]] && [[ -f "$variant_map" ]]; then
+            extract_ids="${tmpdir}/chr${chr}.extract_ids.txt"
+            awk -F'\t' -v c="$chr" '
+                NR==1{next}
+                {
+                    split($1,a,":")
+                    if (a[1]==c) print $4
+                }
+            ' "$variant_map" | LC_ALL=C sort -u > "$extract_ids"
+            # If no variants for this chromosome, skip plink entirely
+            if [[ ! -s "$extract_ids" ]]; then
+                rm -rf "$tmpdir"
+                continue
+            fi
+        fi
+
         # Get genotype file for this chromosome
         local pgen
         pgen=$(get_geno_files_for_chr "$geno_file" "$geno_dir" "$chr" "pgen")
         
         if [[ -n "$pgen" ]] && [[ -f "$pgen" ]]; then
             local geno_prefix="${pgen%.pgen}"
-            local tmpdir
-            tmpdir=$(make_tmpdir "prep_inclusion_list_plink2_freq")
             
             # Compute allele frequencies
             local plink_threads="${CFG_PLINK_THREADS:-1}"
             if ! [[ "$plink_threads" =~ ^[0-9]+$ ]] || [[ "$plink_threads" -lt 1 ]]; then
                 plink_threads=1
             fi
-            plink2 --pfile "$geno_prefix" --freq --out "${tmpdir}/freq" \
-                --threads "${plink_threads}" > "${tmpdir}/plink2.log" 2>&1 || true
+            local plink_cmd=(plink2 --pfile "$geno_prefix" --freq --out "${tmpdir}/freq" --threads "${plink_threads}")
+            if [[ -n "$extract_ids" ]]; then
+                plink_cmd+=(--extract "$extract_ids")
+            fi
+            "${plink_cmd[@]}" > "${tmpdir}/plink2.log" 2>&1 || true
             
             if [[ -f "${tmpdir}/freq.afreq" ]]; then
                 # Extract ID and ALT_FREQS, convert to MAF
@@ -372,15 +399,16 @@ compute_maf_from_genotypes() {
             
             if [[ -n "$bed" ]] && [[ -f "$bed" ]]; then
                 local geno_prefix="${bed%.bed}"
-                local tmpdir
-                tmpdir=$(make_tmpdir "prep_inclusion_list_plink2_freq")
                 
                 local plink_threads="${CFG_PLINK_THREADS:-1}"
                 if ! [[ "$plink_threads" =~ ^[0-9]+$ ]] || [[ "$plink_threads" -lt 1 ]]; then
                     plink_threads=1
                 fi
-                plink2 --bfile "$geno_prefix" --freq --out "${tmpdir}/freq" \
-                    --threads "${plink_threads}" > "${tmpdir}/plink2.log" 2>&1 || true
+                local plink_cmd=(plink2 --bfile "$geno_prefix" --freq --out "${tmpdir}/freq" --threads "${plink_threads}")
+                if [[ -n "$extract_ids" ]]; then
+                    plink_cmd+=(--extract "$extract_ids")
+                fi
+                "${plink_cmd[@]}" > "${tmpdir}/plink2.log" 2>&1 || true
                 
                 if [[ -f "${tmpdir}/freq.afreq" ]]; then
                     awk -F'\t' -v OFS='\t' '
@@ -397,6 +425,9 @@ compute_maf_from_genotypes() {
                     total_variants=$((total_variants + chr_count))
                 fi
                 
+                rm -rf "$tmpdir"
+            else
+                # No genotype files for this chromosome: clean up tempdir created earlier
                 rm -rf "$tmpdir"
             fi
         fi

@@ -34,8 +34,11 @@ sbayesr:
   burn_in: 2000
   chain_length: 10000
   threads: 4
-  seed: 12345
+  # Match legacy run seed for best comparability
+  seed: 80851
   exclude_mhc: true
+  unscale_genotype: true
+  impute_n: true
 
 score_columns: 1 2 5
 
@@ -44,7 +47,8 @@ slurm:
   partition: normal
 
   # Lightweight driver job; arrays use the step-specific resources below.
-  driver: { mem: 1g, cpus: 1, time: '02:00:00' }
+  # 2g avoids OOM when force_eaf needs to load ldref_eaf.tsv (when EAF missing).
+  driver: { mem: 2g, cpus: 1, time: '02:00:00' }
 
   prep: { mem: 16g, cpus: 4, time: '02:00:00' }
   posteriors: { mem: 20g, cpus: 6, time: '04:00:00', max_parallel: 2 }
