@@ -130,6 +130,7 @@ parse_config() {
     # Simple YAML parser - handles basic key: value pairs
     # Does not support complex YAML features like arrays, multiline, etc.
     local current_section=""
+    local current_subsection=""
     
     while IFS= read -r line || [[ -n "$line" ]]; do
         # Skip comments and empty lines
@@ -139,6 +140,13 @@ parse_config() {
         # Check for section (key with nested values)
         if [[ "$line" =~ ^([a-zA-Z_][a-zA-Z0-9_]*):$ ]]; then
             current_section="${BASH_REMATCH[1]}"
+            current_subsection=""
+            continue
+        fi
+
+        # Check for indented subsection (e.g., "  inclusion_list:")
+        if [[ "$line" =~ ^[[:space:]]{2}([a-zA-Z_][a-zA-Z0-9_]*):$ ]]; then
+            current_subsection="${BASH_REMATCH[1]}"
             continue
         fi
         
@@ -152,7 +160,9 @@ parse_config() {
             value="${value%\'}"
             value="${value#\'}"
             
-            if [[ -n "$current_section" ]]; then
+            if [[ -n "$current_section" && -n "$current_subsection" ]]; then
+                local var_name="${prefix}_${current_section}_${current_subsection}_${key}"
+            elif [[ -n "$current_section" ]]; then
                 local var_name="${prefix}_${current_section}_${key}"
             else
                 local var_name="${prefix}_${key}"

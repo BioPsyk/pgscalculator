@@ -66,4 +66,11 @@ srun --mem=20g --ntasks 1 --cpus-per-task 22 --time=1:00:00 --account ibp_pipeli
 - See [Use Docker](docs/using-docker.md)
 - See [FAQ](docs/FAQ.md)
 
+## Variant ID mapping (internal)
+The pipeline maintains an internal variant map that links **sumstat**, **genotype**, and **LD reference** identifiers. The map uses a single `chr` and `pos` plus per-source SNP IDs and allele pairs (`sumstat_effect/other`, `geno_a1/a2`, `ldref_a1/a2`). The prep step builds a union map for genotype + LD reference; the sumstat step adds sumstat columns for the current input. The final map is written as `variant_map.tsv.gz` for audit and back-tracing.
+
+This map is then used for all ID conversions:
+- **Posterior calculation**: sumstat SNP IDs are mapped to LD-reference SNP IDs using the map.
+- **Scoring**: posteriors are mapped from LD-reference SNP IDs to genotype SNP IDs before plink scoring.
+
 

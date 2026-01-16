@@ -11,7 +11,6 @@
 check_prep_inclusion_list_deps() {
     require_command "awk" "awk is required for text processing"
     require_command "sort" "sort is required for sorting"
-    require_command "join" "join is required for file merging"
     
     # Check config variables
     validate_required_config "CFG" "OUTDIR"
@@ -53,15 +52,6 @@ run_prep_inclusion_list() {
         return 0
     fi
     
-    # Get filter thresholds from config (with defaults)
-    # Preferred (v2.1): filters.info_threshold / filters.maf_threshold
-    # Backwards compatible: info_threshold / maf_threshold
-    local info_threshold="${CFG_FILTERS_INFO_THRESHOLD:-${CFG_INFO_THRESHOLD:-0.8}}"
-    local maf_threshold="${CFG_FILTERS_MAF_THRESHOLD:-${CFG_MAF_THRESHOLD:-0.01}}"
-    
-    log_info "INFO threshold: ${info_threshold}"
-    log_info "MAF threshold: ${maf_threshold}"
-    
     local geno_dir="${prep_dir}/genotypes"
     local ldref_dir="${prep_dir}/ldref"
     
@@ -76,9 +66,9 @@ run_prep_inclusion_list() {
     log_substep "Combining chromosome variant maps"
     combine_variant_maps "$step_dir" "$prep_dir"
     
-    # Step 3: Create final inclusion list (variants present in both genotypes and LD ref)
+    # Step 3: Create final inclusion list (derived from mapfile)
     log_substep "Creating final variant inclusion list"
-    create_final_inclusion_list "$step_dir" "$prep_dir" "$info_threshold" "$maf_threshold"
+    create_final_inclusion_list "$step_dir" "$prep_dir"
     
     # Mark step as completed
     mark_step_completed "$step_dir"
@@ -106,62 +96,70 @@ create_chr_variant_map() {
     local ld_rsids="${ldref_dir}/chr${chr}_ld_rsids"
     local out_map="${step_dir}/chr${chr}_variant_map"
     
-    # Check if input files exist
-    if [[ ! -f "$pvar_fmt" ]]; then
-        log_debug "No genotype data for chr${chr}, skipping"
-        return 0
-    fi
-    
-    if [[ ! -f "$ld_rsids" ]]; then
-        log_debug "No LD reference data for chr${chr}, skipping"
+    if [[ ! -f "$pvar_fmt" ]] && [[ ! -f "$ld_rsids" ]]; then
+        log_debug "No genotype or LD reference data for chr${chr}, skipping"
         return 0
     fi
     
     log_debug "Creating variant map for chr${chr}"
     
-    # Sort files for join
-    LC_ALL=C sort -k1,1 "$pvar_fmt" > "${step_dir}/chr${chr}_pvar_sorted.tmp"
-    LC_ALL=C sort -k1,1 "$ld_rsids" > "${step_dir}/chr${chr}_ld_sorted.tmp"
-    
-    # Join on chr:pos (column 1)
-    # pvar_fmt: chr:pos, pvar_a1, pvar_a2, pvar_snpid
-    # ld_rsids: chr:pos, ld_a1, ld_a2, ld_rsid
-    # Output: chr:pos, pvar_a1, pvar_a2, pvar_snpid, ld_a1, ld_a2, ld_rsid
-    LC_ALL=C join -t$'\t' -1 1 -2 1 \
-        -o 1.1,1.2,1.3,1.4,2.2,2.3,2.4 \
-        "${step_dir}/chr${chr}_pvar_sorted.tmp" \
-        "${step_dir}/chr${chr}_ld_sorted.tmp" \
-        > "${step_dir}/chr${chr}_joined.tmp"
-    
-    # Filter for allele concordance (allow strand flips)
     awk -F'\t' -v OFS='\t' '
     BEGIN {
-        # Complement mapping
         c["A"] = "T"; c["T"] = "A"; c["G"] = "C"; c["C"] = "G"
+    }
+    FNR==NR {
+        chrpos = $1
+        a1 = toupper($2); a2 = toupper($3); id = $4
+        key = chrpos SUBSEP a1 SUBSEP a2
+        pvar_id[key] = id
+        pvar_a1[key] = a1
+        pvar_a2[key] = a2
+        next
     }
     {
         chrpos = $1
-        pvar_a1 = toupper($2); pvar_a2 = toupper($3); pvar_snpid = $4
-        ld_a1 = toupper($5); ld_a2 = toupper($6); ld_rsid = $7
+        la1 = toupper($2); la2 = toupper($3); lid = $4
+        # try to match to a genotype entry (direct or strand flip, either orientation)
+        matched = ""
+        # direct / swap
+        k1 = chrpos SUBSEP la1 SUBSEP la2
+        k2 = chrpos SUBSEP la2 SUBSEP la1
+        # strand flip
+        fa1 = c[la1]; fa2 = c[la2]
+        k3 = chrpos SUBSEP fa1 SUBSEP fa2
+        k4 = chrpos SUBSEP fa2 SUBSEP fa1
+        if (k1 in pvar_id) matched = k1
+        else if (k2 in pvar_id) matched = k2
+        else if (k3 in pvar_id) matched = k3
+        else if (k4 in pvar_id) matched = k4
         
-        # Check direct match
-        direct_match = ((pvar_a1 == ld_a1 && pvar_a2 == ld_a2) || 
-                       (pvar_a1 == ld_a2 && pvar_a2 == ld_a1))
-        
-        # Check strand flip match
-        flip_match = ((c[pvar_a1] == ld_a1 && c[pvar_a2] == ld_a2) || 
-                     (c[pvar_a1] == ld_a2 && c[pvar_a2] == ld_a1))
-        
-        if (direct_match || flip_match) {
-            print chrpos, pvar_a1, pvar_a2, pvar_snpid, ld_a1, ld_a2, ld_rsid
+        split(chrpos, cp, ":")
+        chr_v = cp[1]; pos_v = cp[2]
+        if (matched != "") {
+            if (!(matched in pvar_matched)) {
+                pvar_matched[matched] = 1
+                print chr_v, pos_v, pvar_id[matched], pvar_a1[matched], pvar_a2[matched], lid, la1, la2
+            } else {
+                # already matched: emit ldref-only row to keep union semantics
+                print chr_v, pos_v, "NA", "NA", "NA", lid, la1, la2
+            }
+        } else {
+            print chr_v, pos_v, "NA", "NA", "NA", lid, la1, la2
+        }
+        ld_seen[chrpos SUBSEP la1 SUBSEP la2] = 1
+    }
+    END {
+        for (k in pvar_id) {
+            if (!(k in pvar_matched)) {
+                split(k, parts, SUBSEP)
+                chrpos = parts[1]
+                split(chrpos, cp, ":")
+                chr_v = cp[1]; pos_v = cp[2]
+                print chr_v, pos_v, pvar_id[k], pvar_a1[k], pvar_a2[k], "NA", "NA", "NA"
+            }
         }
     }
-    ' "${step_dir}/chr${chr}_joined.tmp" > "$out_map"
-    
-    # Clean up temp files
-    rm -f "${step_dir}/chr${chr}_pvar_sorted.tmp" \
-          "${step_dir}/chr${chr}_ld_sorted.tmp" \
-          "${step_dir}/chr${chr}_joined.tmp"
+    ' "$pvar_fmt" "$ld_rsids" > "$out_map"
     
     local map_count
     map_count=$(wc -l < "$out_map")
@@ -171,17 +169,31 @@ create_chr_variant_map() {
 combine_variant_maps() {
     local step_dir="$1"
     local prep_dir="$2"
+    local ref_dir="${prep_dir}/references"
+    local ldref_eaf="${ref_dir}/ldref_eaf.tsv"
     
     # Add header - output to prep/ level (not inclusion_list/)
-    echo -e "chrpos\tpvar_a1\tpvar_a2\tpvar_snpid\tld_a1\tld_a2\tld_rsid" > "${prep_dir}/variant_map.tsv"
+    echo -e "chr\tpos\tgeno_snpid\tgeno_a1\tgeno_a2\tldref_snpid\tldref_a1\tldref_a2\tldref_a2freq" > "${prep_dir}/variant_map.tsv"
     
-    # Concatenate all chromosome maps
-    for chr in $(get_chromosomes); do
-        local chr_map="${step_dir}/chr${chr}_variant_map"
-        if [[ -f "$chr_map" ]]; then
-            cat "$chr_map" >> "${prep_dir}/variant_map.tsv"
-        fi
-    done
+    # Concatenate all chromosome maps and add ldref_a2freq (by ldref_snpid)
+    if [[ -f "$ldref_eaf" ]]; then
+        awk -F'\t' -v OFS='\t' -v eaf_file="$ldref_eaf" '
+            BEGIN{
+                while ((getline < eaf_file) > 0) {
+                    if (NR==1) continue
+                    eaf[$1]=$4
+                }
+                close(eaf_file)
+            }
+            {
+                ldid = $6
+                freq = (ldid != "NA" && (ldid in eaf)) ? eaf[ldid] : "NA"
+                print $0, freq
+            }
+        ' "${step_dir}"/chr*_variant_map >> "${prep_dir}/variant_map.tsv"
+    else
+        awk -F'\t' -v OFS='\t' '{print $0, "NA"}' "${step_dir}"/chr*_variant_map >> "${prep_dir}/variant_map.tsv"
+    fi
     
     local total_count
     total_count=$(wc -l < "${prep_dir}/variant_map.tsv")
@@ -193,135 +205,44 @@ combine_variant_maps() {
 create_final_inclusion_list() {
     local step_dir="$1"
     local prep_dir="$2"
-    local info_threshold="$3"
-    local maf_threshold="$4"
     
-    local ref_dir="${prep_dir}/references"
-    ensure_dir "$ref_dir"
-    
-    # Get reference file paths from config (optional)
-    local info_file="${CFG_INFO_FILE:-}"
-    local maf_file="${CFG_MAF_FILE:-}"
-
-    # Allow "false" to explicitly disable these filters via config
-    local info_forced_off="no"
-    local maf_forced_off="no"
-    if [[ -n "$info_file" ]] && [[ "${info_file,,}" == "false" ]]; then
-        info_forced_off="yes"
-        info_file=""
-    fi
-    if [[ -n "$maf_file" ]] && [[ "${maf_file,,}" == "false" ]]; then
-        maf_forced_off="yes"
-        maf_file=""
-    fi
-    
-    # Decide whether we need MAF at all (threshold <= 0 disables MAF filtering)
-    local maf_filter_enabled="yes"
-    if awk -v t="${maf_threshold}" 'BEGIN{ exit !(t <= 0) }' 2>/dev/null; then
-        maf_filter_enabled="no"
-    fi
-    if [[ "$maf_forced_off" == "yes" ]]; then
-        maf_filter_enabled="no"
-    fi
-
-    # If MAF filtering enabled and no MAF file provided, compute from genotypes.
-    # IMPORTANT: compute MAF only for the variants present in variant_map.tsv (typically ~1-2M),
-    # not for the full genotype panel (tens of millions). Computing full-panel MAF then loading
-    # it into awk (GENO_ID -> MAF) is memory-prohibitive and can OOM.
-    if [[ "$maf_filter_enabled" == "yes" ]] && ( [[ -z "$maf_file" ]] || [[ ! -f "$maf_file" ]] ); then
-        log_substep "Computing MAF from genotypes"
-        local variant_map="${prep_dir}/variant_map.tsv"
-        compute_maf_from_genotypes "$prep_dir" "$ref_dir" "$variant_map"
-        maf_file="${ref_dir}/maf_computed.tsv"
-    fi
-    
-    # Start with all variants from variant_map
     local variant_map="${prep_dir}/variant_map.tsv"
+    if [[ ! -s "$variant_map" ]]; then
+        log_error "Missing or empty variant_map.tsv; cannot derive inclusion list."
+        log_error "Expected: ${variant_map}"
+        return 1
+    fi
+    
     local input_count
     input_count=$(awk 'NR > 1' "$variant_map" | wc -l)
     log_info "Starting with ${input_count} variants from variant map"
     
-    # Apply filters
-    local tmpdir
-    tmpdir=$(make_tmpdir "prep_inclusion_list")
-    
-    # Copy variant map to temp (add header for filtering output)
-    cp "$variant_map" "${tmpdir}/variants.tsv"
-    
-    # INFO threshold <= 0 disables INFO filtering (even if info_file is provided)
-    local info_filter_enabled="yes"
-    if awk -v t="${info_threshold}" 'BEGIN{ exit !(t <= 0) }' 2>/dev/null; then
-        info_filter_enabled="no"
-    fi
-    if [[ "$info_forced_off" == "yes" ]]; then
-        info_filter_enabled="no"
-    fi
-
-    # Apply INFO filter if enabled and info_file provided
-    local after_info_count="$input_count"
-    if [[ "$info_filter_enabled" == "yes" ]] && [[ -n "$info_file" ]] && [[ -f "$info_file" ]]; then
-        log_substep "Applying INFO filter (threshold: ${info_threshold})"
-        apply_info_filter "${tmpdir}/variants.tsv" "$info_file" "$info_threshold" "${tmpdir}/after_info.tsv"
-        after_info_count=$(awk 'NR > 1' "${tmpdir}/after_info.tsv" | wc -l)
-        log_info "After INFO filter: ${after_info_count} variants"
-        mv "${tmpdir}/after_info.tsv" "${tmpdir}/variants.tsv"
-    elif [[ "$info_filter_enabled" != "yes" ]]; then
-        if [[ "$info_forced_off" == "yes" ]]; then
-            log_info "INFO filter disabled via config (info_file: false), skipping INFO filter"
-        else
-            log_info "INFO threshold <= 0, skipping INFO filter"
-        fi
-    else
-        log_info "No INFO file provided, skipping INFO filter"
-    fi
-    
-    # Apply MAF filter if enabled and maf_file exists
-    local after_maf_count="$after_info_count"
-    if [[ "$maf_filter_enabled" == "yes" ]] && [[ -f "$maf_file" ]]; then
-        log_substep "Applying MAF filter (threshold: ${maf_threshold})"
-        apply_maf_filter "${tmpdir}/variants.tsv" "$maf_file" "$maf_threshold" "${tmpdir}/after_maf.tsv"
-        after_maf_count=$(awk 'NR > 1' "${tmpdir}/after_maf.tsv" | wc -l)
-        log_info "After MAF filter: ${after_maf_count} variants"
-        mv "${tmpdir}/after_maf.tsv" "${tmpdir}/variants.tsv"
-    elif [[ "$maf_filter_enabled" != "yes" ]]; then
-        if [[ "$maf_forced_off" == "yes" ]]; then
-            log_info "MAF filter disabled via config (maf_file: false), skipping MAF filter"
-        else
-            log_info "MAF threshold <= 0, skipping MAF filter"
-        fi
-    else
-        log_info "No MAF file available, skipping MAF filter"
-    fi
-    
     # Create inclusion list with essential columns
-    # Format: ld_rsid, pvar_snpid, chrpos
-    echo -e "ld_rsid\tpvar_snpid\tchrpos" > "${step_dir}/variant_inclusion_list.tsv"
+    # Format: ldref_snpid, geno_snpid, chr, pos
+    echo -e "ldref_snpid\tgeno_snpid\tchr\tpos" > "${step_dir}/variant_inclusion_list.tsv"
+    awk -F'\t' -v OFS='\t' 'NR > 1 { print $6, $3, $1, $2 }' "$variant_map" >> "${step_dir}/variant_inclusion_list.tsv"
     
-    awk -F'\t' -v OFS='\t' '
-        NR > 1 {
-            # chrpos, pvar_a1, pvar_a2, pvar_snpid, ld_a1, ld_a2, ld_rsid
-            print $7, $4, $1
-        }
-    ' "${tmpdir}/variants.tsv" >> "${step_dir}/variant_inclusion_list.tsv"
-    
-    # Create sorted RSID list for fast lookups (internal file)
-    awk -F'\t' 'NR > 1 {print $1}' "${step_dir}/variant_inclusion_list.tsv" | \
+    # Create sorted LDREF list for fast lookups (internal file)
+    awk -F'\t' 'NR > 1 && $1 != "NA" {print $1}' "${step_dir}/variant_inclusion_list.tsv" | \
         LC_ALL=C sort -u > "${step_dir}/.rsid_index"
     
-    # Clean up
-    rm -rf "$tmpdir"
-    
-    log_info "Created inclusion list with ${after_maf_count} variants"
+    log_info "Created inclusion list with ${input_count} variants"
 }
 
 compute_maf_from_genotypes() {
     local prep_dir="$1"
     local ref_dir="$2"
-    local variant_map="${3:-}"
+    local variant_map="$3"
     
     local geno_dir="${CFG_GENODIR}"
     local geno_file="${CFG_GENOFILE}"
     local maf_output="${ref_dir}/maf_computed.tsv"
+
+    if [[ -z "$variant_map" ]] || [[ ! -s "$variant_map" ]]; then
+        log_error "variant_map.tsv is required to compute MAF (genotype ∩ LD-ref)."
+        log_error "Got: ${variant_map:-<empty>}"
+        return 1
+    fi
     
     # Check if plink2 is available
     if ! command -v plink2 &> /dev/null; then
@@ -336,7 +257,7 @@ compute_maf_from_genotypes() {
     
     for chr in $(get_chromosomes); do
         # Optional: restrict MAF computation to variants in the combined variant map.
-        # variant_map format: chrpos, pvar_a1, pvar_a2, pvar_snpid, ld_a1, ld_a2, ld_rsid
+        # variant_map format: chr, pos, geno_snpid, geno_a1, geno_a2, ldref_snpid, ldref_a1, ldref_a2, ldref_a2freq
         local tmpdir
         tmpdir=$(make_tmpdir "prep_inclusion_list_plink2_freq")
         local extract_ids=""
@@ -345,8 +266,7 @@ compute_maf_from_genotypes() {
             awk -F'\t' -v c="$chr" '
                 NR==1{next}
                 {
-                    split($1,a,":")
-                    if (a[1]==c) print $4
+                    if ($1==c) print $3
                 }
             ' "$variant_map" | LC_ALL=C sort -u > "$extract_ids"
             # If no variants for this chromosome, skip plink entirely

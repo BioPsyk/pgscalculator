@@ -5,8 +5,14 @@ outdir: /path/to/output
 genodir: /path/to/genotypes
 genofile: /path/to/genotype_manifest.tsv
 lddir: /path/to/ld_reference
+# Legacy (INFO/MAF) filters are ignored when inclusion lists are provided
 info_threshold: 0.8
 maf_threshold: 0.01
+filters:
+  inclusion_list:
+    gt: /path/to/genotype_snpids.txt
+    ss: /path/to/sumstat_snpids.txt
+    ld: /path/to/ldref_snpids.txt
 whichn: totalN
 sbayesr:
   gamma: 0.0,0.01,0.1,1

@@ -21,7 +21,7 @@ check_format_posteriors_deps() {
     prep_dir=$(get_prep_dir "$outdir")
     
     # Check that prep-inclusion-list has been run
-    require_file "${prep_dir}/inclusion_list/variant_inclusion_list.tsv" "Run 'pgscalculator prep-inclusion-list' first"
+    require_file "${prep_dir}/variant_map.tsv" "Run 'pgscalculator prep-inclusion-list' first"
 }
 
 # =============================================================================
@@ -70,15 +70,15 @@ run_format_posteriors() {
         log_warn "Found ${step_dir}/.completed but no mapped chr*.snpRes outputs; re-running format-posteriors."
     fi
     
-    local inclusion_file="${prep_dir}/inclusion_list/variant_inclusion_list.tsv"
+    local mapfile="${prep_dir}/variant_map.tsv"
     
-    # Build RSID to genotype ID mapping
-    log_substep "Building RSID to genotype ID mapping"
-    local rsid_map="${step_dir}/rsid_to_genoid.tsv"
-    ensure_rsid_mapping "$inclusion_file" "$rsid_map"
+    # Build LDREF -> genotype ID mapping
+    log_substep "Building LDREF to genotype ID mapping"
+    local rsid_map="${step_dir}/ldref_to_genoid.tsv"
+    ensure_rsid_mapping "$mapfile" "$rsid_map"
     if [[ ! -s "$rsid_map" ]]; then
-        log_error "RSID mapping file is empty: ${rsid_map}"
-        log_error "Check inclusion list: ${inclusion_file}"
+        log_error "LDREF mapping file is empty: ${rsid_map}"
+        log_error "Check mapfile: ${mapfile}"
         exit 1
     fi
     
@@ -145,7 +145,7 @@ run_format_posteriors() {
 # =============================================================================
 
 ensure_rsid_mapping() {
-    local inclusion_file="$1"
+    local mapfile="$1"
     local output_file="$2"
 
     # If mapping exists and is non-empty, keep it (important for parallel runs)
@@ -156,13 +156,15 @@ ensure_rsid_mapping() {
     local tmp_out
     tmp_out=$(mktemp "${output_file}.tmp.XXXXXX")
     
-    # Extract RSID -> pvar_snpid mapping from inclusion list
-    # inclusion list format: ld_rsid, pvar_snpid, chrpos
+    # Extract LDREF -> GENO mapping from variant_map
     awk -F'\t' -v OFS='\t' '
         NR > 1 {
-            print $1, $2  # rsid, genotype_id
+            # chr, pos, geno_snpid, geno_a1, geno_a2, ldref_snpid, ldref_a1, ldref_a2, ldref_a2freq
+            if ($6 != "NA" && $3 != "NA") {
+                print $6, $3  # ldref_id, genotype_id
+            }
         }
-    ' "$inclusion_file" | LC_ALL=C sort -k1,1 > "$tmp_out"
+    ' "$mapfile" | LC_ALL=C sort -k1,1 > "$tmp_out"
     
     local count
     count=$(wc -l < "$tmp_out")

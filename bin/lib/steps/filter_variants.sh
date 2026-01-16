@@ -12,7 +12,6 @@
 check_filter_variants_deps() {
     require_command "awk" "awk is required for text processing"
     require_command "sort" "sort is required for sorting"
-    require_command "join" "join is required for file merging"
     
     # Check config variables
     validate_required_config "CFG" "OUTDIR"
@@ -22,8 +21,7 @@ check_filter_variants_deps() {
     prep_dir=$(get_prep_dir "$outdir")
     
     # Check that prep-inclusion-list has been run
-    require_file "${prep_dir}/inclusion_list/variant_inclusion_list.tsv" "Run 'pgscalculator prep-inclusion-list' first"
-    require_file "${prep_dir}/inclusion_list/.rsid_index" "Run 'pgscalculator prep-inclusion-list' first"
+    require_file "${prep_dir}/variant_map.tsv" "Run 'pgscalculator prep-inclusion-list' first"
 }
 
 # =============================================================================
@@ -32,6 +30,7 @@ check_filter_variants_deps() {
 
 run_filter_variants() {
     local sumstat_name="$1"
+    local specific_chr="${2:-}"  # Optional: run only specific chromosome
     
     log_step "Running filter-variants for: $sumstat_name"
     
@@ -52,133 +51,637 @@ run_filter_variants() {
     step_dir=$(get_sumstat_step_dir "$sumstat_dir" "filtered")
     ensure_dir "$step_dir"
     
-    # Check that format-sumstat has been run
-    require_file "${format_dir}/sumstat_formatted.tsv.gz" "Run 'pgscalculator format-sumstat' first"
+    # Auto-detect single-chromosome runs from config (important for --sbatch-array mode)
+    if [[ -z "$specific_chr" ]] && [[ -n "${CFG_CHROMOSOMES:-}" ]] && [[ "${CFG_CHROMOSOMES}" =~ ^(chr)?[0-9]+$ ]]; then
+        specific_chr="${CFG_CHROMOSOMES#chr}"
+    fi
     
-    # Check if already completed
+    # Detect input format: per-chromosome files or single file
+    local use_perchr_input=false
+    if [[ -f "${format_dir}/chr1.tsv" ]]; then
+        use_perchr_input=true
+    elif [[ -f "${format_dir}/sumstat_formatted.tsv.gz" ]]; then
+        use_perchr_input=false
+    else
+        log_error "No formatted sumstat found. Run 'pgscalculator format-sumstat' first"
+        log_error "Expected: ${format_dir}/chr*.tsv or ${format_dir}/sumstat_formatted.tsv.gz"
+        exit 1
+    fi
+    
+    # Per-chromosome mode
+    if [[ -n "$specific_chr" ]]; then
+        run_filter_variants_chr "$sumstat_name" "$specific_chr"
+        return $?
+    fi
+    
+    # Full mode: check if already completed
     if check_step_completed "$step_dir"; then
         log_info "Step already completed. Use --force to re-run."
         return 0
     fi
     
-    local inclusion_file="${prep_dir}/inclusion_list/.rsid_index"
-    local formatted_sumstat="${format_dir}/sumstat_formatted.tsv.gz"
     local input_dir="${CFG_INPUT}"
     local metadata_file="${input_dir}/cleaned_metadata.yaml"
     local which_n="${CFG_WHICHN:-totalN}"
-    
-    # Count input variants
-    local input_count
-    input_count=$(zcat "$formatted_sumstat" | wc -l)
-    input_count=$((input_count - 1))
-    log_info "Input variants: ${input_count}"
-    
-    # Step 1: Filter sumstat to inclusion list variants
-    log_substep "Filtering to inclusion list variants"
-    filter_to_inclusion_list "$formatted_sumstat" "$inclusion_file" "${step_dir}/sumstat_filtered_raw.tsv"
-    
-    local filtered_count
-    filtered_count=$(wc -l < "${step_dir}/sumstat_filtered_raw.tsv")
-    filtered_count=$((filtered_count - 1))
-    local reduction_pct
-    reduction_pct=$(awk "BEGIN {printf \"%.1f\", (1 - $filtered_count / $input_count) * 100}")
-    log_info "After inclusion list filter: ${filtered_count} variants (${reduction_pct}% reduction)"
+    local prep_mapfile="${prep_dir}/variant_map.tsv"
+    local sumstat_mapfile="${sumstat_dir}/variant_map.tsv"
+    local sumstat_for_posteriors="${sumstat_dir}/sumstat_for_posteriors.tsv.gz"
+    local list_gt="${CFG_FILTERS_INCLUSION_LIST_GT:-}"
+    local list_ss="${CFG_FILTERS_INCLUSION_LIST_SS:-}"
+    local list_ld="${CFG_FILTERS_INCLUSION_LIST_LD:-}"
 
-    # If the whole-file filtering yields 0 variants, hard-exit.
-    # (The "continue-on-failure" model is only for chromosome-parallel steps later on.)
-    if [[ "$filtered_count" -le 0 ]]; then
-        log_error "No variants left after inclusion-list filtering (0 variants)."
-        log_error "Hard exiting: there is nothing to process in downstream steps."
-        exit 1
-    fi
+    # Normalize user inclusion lists
+    for _list_var in list_gt list_ss list_ld; do
+        local _val="${!_list_var}"
+        if [[ -n "$_val" ]] && [[ "${_val,,}" == "false" ]]; then
+            printf -v "$_list_var" ""
+        elif [[ -n "$_val" ]] && [[ ! -f "$_val" ]]; then
+            log_error "User inclusion list not found: ${_val}"
+            exit 1
+        fi
+    done
     
-    # Step 2: Derive N/EAF/B/SE on the filtered subset (much faster than on full sumstat)
-    log_substep "Deriving N/EAF/B/SE statistics"
-    # Write atomically so we never leave a 0-byte file behind if a command is interrupted.
-    local tmp_filtered
-    tmp_filtered="$(mktemp "${step_dir}/sumstat_filtered.tsv.tmp.XXXXXX")"
-    derive_stats "${step_dir}/sumstat_filtered_raw.tsv" "$tmp_filtered" "$metadata_file" "$which_n" "$prep_dir" "$step_dir"
-    mv -f "$tmp_filtered" "${step_dir}/sumstat_filtered.tsv"
+    if [[ "$use_perchr_input" == true ]]; then
+        # New mode: process per-chromosome files
+        log_info "Processing per-chromosome formatted files"
+        
+        local total_input=0
+        local total_output=0
+        local success_count=0
+        local fail_count=0
+        
+        for chr in $(get_chromosomes); do
+            local chr_input="${format_dir}/chr${chr}.tsv"
+            if [[ ! -f "$chr_input" ]]; then
+                log_debug "chr${chr}: no formatted input file, skipping"
+                continue
+            fi
+            
+            if run_filter_variants_chr "$sumstat_name" "$chr"; then
+                ((success_count++))
+                local chr_out="${step_dir}/chr${chr}_filtered.tsv"
+                if [[ -f "$chr_out" ]]; then
+                    local n
+                    n=$(wc -l < "$chr_out")
+                    total_output=$((total_output + n - 1))
+                fi
+            else
+                ((fail_count++))
+            fi
+            
+            local n_in
+            n_in=$(wc -l < "$chr_input")
+            total_input=$((total_input + n_in - 1))
+        done
+        
+        # Concatenate per-chromosome mapfiles into single sumstat mapfile
+        log_substep "Concatenating per-chromosome mapfiles"
+        concatenate_chr_mapfiles "$step_dir" "$sumstat_mapfile"
+        
+        # Create combined sumstat_for_posteriors.tsv.gz from per-chr filtered files
+        log_substep "Creating combined filtered sumstat"
+        concatenate_chr_filtered "$step_dir" "$sumstat_for_posteriors"
+        
+        if [[ $fail_count -gt 0 ]]; then
+            log_warn "filter-variants had issues for ${fail_count} chromosome(s)"
+        fi
+        
+        log_info "Processed ${success_count} chromosomes: ${total_input} input -> ${total_output} output variants"
+        
+    else
+        # Legacy mode: single formatted file
+        local formatted_sumstat="${format_dir}/sumstat_formatted.tsv.gz"
+        
+        # Count input variants
+        local input_count
+        input_count=$(zcat "$formatted_sumstat" | wc -l)
+        input_count=$((input_count - 1))
+        log_info "Input variants: ${input_count}"
+        
+        # Step 1: Build sumstat-annotated mapfile + reduce sumstat to mapfile intersection
+        log_substep "Building sumstat mapfile and reducing to mapfile intersection"
+        build_sumstat_map_and_reduce "$prep_mapfile" "$formatted_sumstat" "$sumstat_mapfile" "$sumstat_for_posteriors" "$list_gt" "$list_ss" "$list_ld"
+        if [[ ! -s "$sumstat_for_posteriors" ]]; then
+            log_error "sumstat_for_posteriors is missing or empty: ${sumstat_for_posteriors}"
+            exit 1
+        fi
+        
+        local filtered_count
+        filtered_count=$(zcat "$sumstat_for_posteriors" | wc -l)
+        filtered_count=$((filtered_count - 1))
+        local reduction_pct
+        reduction_pct=$(awk "BEGIN {printf \"%.1f\", (1 - $filtered_count / $input_count) * 100}")
+        log_info "After inclusion list filter: ${filtered_count} variants (${reduction_pct}% reduction)"
 
-    # If derivation yields 0 variants, hard-exit (whole-file step).
-    local n_lines
-    n_lines=$(wc -l < "${step_dir}/sumstat_filtered.tsv" | awk '{print $1}')
-    if [[ "$n_lines" -le 1 ]]; then
-        log_error "Filtered sumstat derivation produced 0 variants (lines=${n_lines})."
-        log_error "Input (after inclusion list) was: ${step_dir}/sumstat_filtered_raw.tsv"
-        log_error "Output is: ${step_dir}/sumstat_filtered.tsv"
-        log_error "Hard exiting: there is nothing to process in downstream steps."
-        exit 1
+        # If the whole-file filtering yields 0 variants, hard-exit.
+        if [[ "$filtered_count" -le 0 ]]; then
+            log_error "No variants left after mapfile reduction/inclusion-list filtering (0 variants)."
+            log_error "Hard exiting: there is nothing to process in downstream steps."
+            exit 1
+        fi
+        
+        # Step 2: Derive N/EAF/B/SE on the filtered subset
+        log_substep "Deriving N/EAF/B/SE statistics"
+        local tmp_filtered
+        tmp_filtered="$(mktemp "${step_dir}/sumstat_filtered.tsv.tmp.XXXXXX")"
+        zcat "$sumstat_for_posteriors" > "${step_dir}/sumstat_filtered_raw.tsv"
+        derive_stats "${step_dir}/sumstat_filtered_raw.tsv" "$tmp_filtered" "$metadata_file" "$which_n" "$prep_dir" "$step_dir"
+        mv -f "$tmp_filtered" "${step_dir}/sumstat_filtered.tsv"
+
+        # If derivation yields 0 variants, hard-exit.
+        local n_lines
+        n_lines=$(wc -l < "${step_dir}/sumstat_filtered.tsv" | awk '{print $1}')
+        if [[ "$n_lines" -le 1 ]]; then
+            log_error "Filtered sumstat derivation produced 0 variants (lines=${n_lines})."
+            exit 1
+        fi
+        
+        rm -f "${step_dir}/sumstat_filtered_raw.tsv"
+        
+        # Step 3: Split filtered sumstat by chromosome
+        log_substep "Splitting filtered sumstat by chromosome"
+        split_filtered_by_chr "${step_dir}/sumstat_filtered.tsv" "$step_dir"
+        
+        # Step 4: Compress the main filtered file
+        gzip -f "${step_dir}/sumstat_filtered.tsv"
     fi
-    
-    # Clean up intermediate file
-    rm -f "${step_dir}/sumstat_filtered_raw.tsv"
-    
-    # Step 3: Split filtered sumstat by chromosome
-    log_substep "Splitting filtered sumstat by chromosome"
-    split_filtered_by_chr "${step_dir}/sumstat_filtered.tsv" "$step_dir"
-    
-    # Step 4: Compress the main filtered file
-    gzip -f "${step_dir}/sumstat_filtered.tsv"
     
     # Mark step as completed
     mark_step_completed "$step_dir"
     
     # Report results
-    local output_count
-    output_count=$(zcat "${step_dir}/sumstat_filtered.tsv.gz" | wc -l)
-    output_count=$((output_count - 1))
+    local output_count=0
+    if [[ -f "${step_dir}/sumstat_filtered.tsv.gz" ]]; then
+        output_count=$(zcat "${step_dir}/sumstat_filtered.tsv.gz" | wc -l)
+        output_count=$((output_count - 1))
+    elif [[ -f "$sumstat_for_posteriors" ]]; then
+        output_count=$(zcat "$sumstat_for_posteriors" | wc -l)
+        output_count=$((output_count - 1))
+    fi
     
     log_info "Output variants: ${output_count}"
     log_info "Output directory: ${step_dir}"
 }
 
 # =============================================================================
-# PROCESSING FUNCTIONS
+# PER-CHROMOSOME PROCESSING
 # =============================================================================
 
-filter_to_inclusion_list() {
-    local input_sumstat="$1"
-    local inclusion_file="$2"
-    local output_file="$3"
+run_filter_variants_chr() {
+    local sumstat_name="$1"
+    local chr="$2"
     
-    # Get header and find SNP/RSID column
-    local header
-    header=$(zcat "$input_sumstat" | head -1)
+    log_substep "Processing chromosome ${chr}"
     
-    local snp_col
-    snp_col=$(echo "$header" | awk -F'\t' '{
-        for(i=1; i<=NF; i++) {
-            if($i == "SNP" || $i == "RSID" || $i == "rsid" || $i == "ID") {
-                print i
-                exit
-            }
-        }
-    }')
+    # Set up directories
+    local outdir="${CFG_OUTDIR}"
+    local prep_dir
+    prep_dir=$(get_prep_dir "$outdir")
+    local sumstat_dir
+    sumstat_dir=$(get_sumstat_dir "$outdir" "$sumstat_name")
+    local format_dir
+    format_dir=$(get_sumstat_step_dir "$sumstat_dir" "formatted")
+    local step_dir
+    step_dir=$(get_sumstat_step_dir "$sumstat_dir" "filtered")
+    ensure_dir "$step_dir"
     
-    if [[ -z "$snp_col" ]]; then
-        log_error "Could not find SNP/RSID column in sumstat"
-        exit 1
+    local chr_input="${format_dir}/chr${chr}.tsv"
+    local chr_output="${step_dir}/chr${chr}_filtered.tsv"
+    local chr_mapfile="${step_dir}/chr${chr}_map.tsv"
+    
+    # Check if already processed
+    if [[ -f "$chr_output" ]] && [[ $(wc -l < "$chr_output") -gt 1 ]]; then
+        log_debug "chr${chr}: already processed, skipping"
+        return 0
     fi
     
-    log_debug "SNP column index: $snp_col"
+    # Check input exists
+    if [[ ! -f "$chr_input" ]]; then
+        log_warn "chr${chr}: no formatted input file: ${chr_input}"
+        # Write placeholder
+        echo "CHR	POS	RSID	EffectAllele	OtherAllele	EAF	B	SE	P	N	LDREF_SNPID" > "$chr_output"
+        echo "formatted_missing" > "${step_dir}/FAILED_chr${chr}"
+        return 1
+    fi
     
-    # Filter using awk (inclusion list is sorted)
-    awk -F'\t' -v OFS='\t' -v snp_col="$snp_col" '
-        ARGIND == 1 {
-            inclusion[$1] = 1
+    local input_dir="${CFG_INPUT}"
+    local metadata_file="${input_dir}/cleaned_metadata.yaml"
+    local which_n="${CFG_WHICHN:-totalN}"
+    local prep_mapfile="${prep_dir}/variant_map.tsv"
+    local list_gt="${CFG_FILTERS_INCLUSION_LIST_GT:-}"
+    local list_ss="${CFG_FILTERS_INCLUSION_LIST_SS:-}"
+    local list_ld="${CFG_FILTERS_INCLUSION_LIST_LD:-}"
+    
+    # Normalize user inclusion lists
+    for _list_var in list_gt list_ss list_ld; do
+        local _val="${!_list_var}"
+        if [[ -n "$_val" ]] && [[ "${_val,,}" == "false" ]]; then
+            printf -v "$_list_var" ""
+        fi
+    done
+    
+    local tmpdir
+    tmpdir=$(make_tmpdir "filter_variants_chr${chr}")
+    local reduced_tmp="${tmpdir}/reduced.tsv"
+    local map_tmp="${tmpdir}/map.tsv"
+    
+    # Count input
+    local input_count
+    input_count=$(wc -l < "$chr_input")
+    input_count=$((input_count - 1))
+    log_debug "chr${chr}: ${input_count} input variants"
+    
+    # Build mapfile and reduce for this chromosome only
+    # Filter prep_mapfile to just this chromosome for efficiency
+    build_sumstat_map_and_reduce_chr "$prep_mapfile" "$chr_input" "$map_tmp" "$reduced_tmp" "$chr" "$list_gt" "$list_ss" "$list_ld"
+    
+    if [[ ! -s "$reduced_tmp" ]] || [[ $(wc -l < "$reduced_tmp") -le 1 ]]; then
+        log_warn "chr${chr}: no variants after mapfile reduction"
+        echo "CHR	POS	RSID	EffectAllele	OtherAllele	EAF	B	SE	P	N	LDREF_SNPID" > "$chr_output"
+        echo "no_variants_after_reduction" > "${step_dir}/FAILED_chr${chr}"
+        rm -rf "$tmpdir"
+        return 1
+    fi
+    
+    # Derive stats
+    local derived_tmp="${tmpdir}/derived.tsv"
+    derive_stats "$reduced_tmp" "$derived_tmp" "$metadata_file" "$which_n" "$prep_dir" ""
+    
+    if [[ ! -s "$derived_tmp" ]] || [[ $(wc -l < "$derived_tmp") -le 1 ]]; then
+        log_warn "chr${chr}: no variants after stat derivation"
+        echo "CHR	POS	RSID	EffectAllele	OtherAllele	EAF	B	SE	P	N	LDREF_SNPID" > "$chr_output"
+        echo "no_variants_after_derivation" > "${step_dir}/FAILED_chr${chr}"
+        rm -rf "$tmpdir"
+        return 1
+    fi
+    
+    # Move outputs to final locations
+    mv -f "$derived_tmp" "$chr_output"
+    mv -f "$map_tmp" "$chr_mapfile"
+    rm -rf "$tmpdir"
+    
+    # Report
+    local output_count
+    output_count=$(wc -l < "$chr_output")
+    output_count=$((output_count - 1))
+    log_debug "chr${chr}: ${output_count} output variants"
+    
+    # Mark chr as completed
+    date '+%Y-%m-%d %H:%M:%S' > "${step_dir}/.completed_chr${chr}"
+    
+    return 0
+}
+
+build_sumstat_map_and_reduce_chr() {
+    local prep_mapfile="$1"
+    local chr_input="$2"
+    local out_map="$3"
+    local out_sumstat="$4"
+    local chr="$5"
+    local list_gt="${6:-}"
+    local list_ss="${7:-}"
+    local list_ld="${8:-}"
+    
+    # Same logic as build_sumstat_map_and_reduce but for a single chromosome
+    # and reading from uncompressed TSV instead of gzipped
+    awk -F'\t' -v OFS='\t' \
+        -v out_map="$out_map" -v out_sumstat="$out_sumstat" \
+        -v target_chr="$chr" \
+        -v list_gt="$list_gt" -v list_ss="$list_ss" -v list_ld="$list_ld" '
+        BEGIN {
+            c["A"]="T"; c["T"]="A"; c["C"]="G"; c["G"]="C"
+            if (list_gt != "" && list_gt != "NA") {
+                while ((getline < list_gt) > 0) {
+                    if ($1 != "") gt[$1]=1
+                }
+                close(list_gt)
+            }
+            if (list_ss != "" && list_ss != "NA") {
+                while ((getline < list_ss) > 0) {
+                    if ($1 != "") ss[$1]=1
+                }
+                close(list_ss)
+            }
+            if (list_ld != "" && list_ld != "NA") {
+                while ((getline < list_ld) > 0) {
+                    if ($1 != "") ld[$1]=1
+                }
+                close(list_ld)
+            }
+        }
+        NR==FNR {
+            if (NR==1) {
+                for (i=1;i<=NF;i++) {
+                    if ($i=="chr") chr_i=i
+                    else if ($i=="pos") pos_i=i
+                    else if ($i=="geno_snpid") geno_id_i=i
+                    else if ($i=="geno_a1") geno_a1_i=i
+                    else if ($i=="geno_a2") geno_a2_i=i
+                    else if ($i=="ldref_snpid") ld_id_i=i
+                    else if ($i=="ldref_a1") ld_a1_i=i
+                    else if ($i=="ldref_a2") ld_a2_i=i
+                    else if ($i=="ldref_a2freq") ld_freq_i=i
+                }
+                next
+            }
+            # Only load mapfile entries for target chromosome
+            if ($chr_i != target_chr) next
+            idx++
+            chr_arr[idx]=$chr_i; pos[idx]=$pos_i
+            geno_id[idx]=$geno_id_i; geno_a1[idx]=toupper($geno_a1_i); geno_a2[idx]=toupper($geno_a2_i)
+            ld_id[idx]=$ld_id_i; ld_a1[idx]=toupper($ld_a1_i); ld_a2[idx]=toupper($ld_a2_i)
+            ld_freq[idx]=$ld_freq_i
+            a1 = (geno_a1[idx]!="NA" ? geno_a1[idx] : ld_a1[idx])
+            a2 = (geno_a2[idx]!="NA" ? geno_a2[idx] : ld_a2[idx])
+            if (a1!="NA" && a2!="NA" && chr_arr[idx]!="NA" && pos[idx]!="NA") {
+                key = chr_arr[idx] ":" pos[idx] ":" a1 ":" a2
+                map_idx[key]=idx
+            }
             next
         }
-        FNR == 1 {
-            print
+        FNR==1 {
+            for (i=1;i<=NF;i++) {
+                if ($i=="CHR" || $i=="chr" || $i=="#CHR") chr_c=i
+                else if ($i=="POS" || $i=="pos" || $i=="BP" || $i=="Position") pos_c=i
+                else if ($i=="RSID" || $i=="rsid" || $i=="SNP" || $i=="ID") snp_c=i
+                else if ($i=="EffectAllele" || $i=="A1" || $i=="effect_allele") a1_c=i
+                else if ($i=="OtherAllele" || $i=="A2" || $i=="other_allele") a2_c=i
+                else if ($i=="EAF") eaf_c=i
+            }
+            if (!eaf_c) {
+                eaf_c = NF + 1
+                header_extra="EAF"
+            }
+            out = $1
+            for (i=2;i<=NF;i++) out = out OFS $i
+            if (header_extra!="") out = out OFS header_extra
+            out = out OFS "LDREF_SNPID"
+            print out > out_sumstat
             next
         }
         {
-            if ($snp_col in inclusion) {
-                print
+            chr_v = $chr_c; pos_v = $pos_c
+            snp_v = $snp_c
+            a1_v = toupper($a1_c); a2_v = toupper($a2_c)
+            key1 = chr_v ":" pos_v ":" a1_v ":" a2_v
+            key2 = chr_v ":" pos_v ":" a2_v ":" a1_v
+            fa1 = c[a1_v]; fa2 = c[a2_v]
+            key3 = chr_v ":" pos_v ":" fa1 ":" fa2
+            key4 = chr_v ":" pos_v ":" fa2 ":" fa1
+            matched_idx = (key1 in map_idx) ? map_idx[key1] : ((key2 in map_idx) ? map_idx[key2] : ((key3 in map_idx) ? map_idx[key3] : ((key4 in map_idx) ? map_idx[key4] : 0)))
+            if (matched_idx==0) next
+            if (list_gt != "" && list_gt != "NA") {
+                if (!(geno_id[matched_idx] in gt)) next
+            }
+            if (list_ss != "" && list_ss != "NA") {
+                if (!(snp_v in ss)) next
+            }
+            if (list_ld != "" && list_ld != "NA") {
+                if (!(ld_id[matched_idx] in ld)) next
+            }
+            # Fill EAF if missing
+            eaf_v = (eaf_c <= NF ? $eaf_c : "NA")
+            if (eaf_v=="" || eaf_v=="NA") {
+                freq = ld_freq[matched_idx]
+                if (freq != "" && freq != "NA" && ld_a1[matched_idx] != "NA" && ld_a2[matched_idx] != "NA") {
+                    if (a1_v == ld_a2[matched_idx]) eaf_v = freq
+                    else if (a1_v == ld_a1[matched_idx]) eaf_v = 1 - freq
+                    else eaf_v = freq
+                }
+            }
+            # write sumstat row
+            if (header_extra == "") {
+                $eaf_c = eaf_v
+            }
+            out = $1
+            for (i=2;i<=NF;i++) out = out OFS $i
+            if (header_extra!="") out = out OFS eaf_v
+            out = out OFS ld_id[matched_idx]
+            print out > out_sumstat
+            # record sumstat columns for mapfile
+            if (!(matched_idx in sum_snp)) {
+                sum_snp[matched_idx]=snp_v
+                sum_a1[matched_idx]=a1_v
+                sum_a2[matched_idx]=a2_v
             }
         }
-    ' "$inclusion_file" <(zcat "$input_sumstat") > "$output_file"
+        END {
+            print "chr\tpos\tsumstat_snpid\tsumstat_effect\tsumstat_other\tgeno_snpid\tgeno_a1\tgeno_a2\tldref_snpid\tldref_a1\tldref_a2\tldref_a2freq" > out_map
+            for (i=1;i<=idx;i++) {
+                s_snp = (i in sum_snp) ? sum_snp[i] : "NA"
+                s_a1 = (i in sum_a1) ? sum_a1[i] : "NA"
+                s_a2 = (i in sum_a2) ? sum_a2[i] : "NA"
+                print chr_arr[i], pos[i], s_snp, s_a1, s_a2, geno_id[i], geno_a1[i], geno_a2[i], ld_id[i], ld_a1[i], ld_a2[i], ld_freq[i] >> out_map
+            }
+        }
+    ' "$prep_mapfile" "$chr_input"
+}
+
+concatenate_chr_mapfiles() {
+    local step_dir="$1"
+    local output="$2"
+    
+    # Concatenate per-chromosome mapfiles
+    local first=true
+    for chr in $(get_chromosomes); do
+        local chr_map="${step_dir}/chr${chr}_map.tsv"
+        if [[ -f "$chr_map" ]]; then
+            if [[ "$first" == true ]]; then
+                cat "$chr_map" > "$output"
+                first=false
+            else
+                tail -n +2 "$chr_map" >> "$output"
+            fi
+        fi
+    done
+    
+    if [[ "$first" == true ]]; then
+        # No mapfiles found, write empty header
+        echo "chr	pos	sumstat_snpid	sumstat_effect	sumstat_other	geno_snpid	geno_a1	geno_a2	ldref_snpid	ldref_a1	ldref_a2	ldref_a2freq" > "$output"
+    fi
+}
+
+concatenate_chr_filtered() {
+    local step_dir="$1"
+    local output="$2"
+    
+    # Concatenate per-chromosome filtered files into gzipped output
+    local tmpfile
+    tmpfile=$(mktemp)
+    local first=true
+    
+    for chr in $(get_chromosomes); do
+        local chr_out="${step_dir}/chr${chr}_filtered.tsv"
+        if [[ -f "$chr_out" ]] && [[ $(wc -l < "$chr_out") -gt 1 ]]; then
+            if [[ "$first" == true ]]; then
+                cat "$chr_out" > "$tmpfile"
+                first=false
+            else
+                tail -n +2 "$chr_out" >> "$tmpfile"
+            fi
+        fi
+    done
+    
+    if [[ "$first" == true ]]; then
+        # No files found, write empty header
+        echo "CHR	POS	RSID	EffectAllele	OtherAllele	EAF	B	SE	P	N	LDREF_SNPID" > "$tmpfile"
+    fi
+    
+    gzip -c "$tmpfile" > "$output"
+    rm -f "$tmpfile"
+}
+
+# =============================================================================
+# PROCESSING FUNCTIONS
+# =============================================================================
+
+build_sumstat_map_and_reduce() {
+    local prep_mapfile="$1"
+    local formatted_sumstat="$2"
+    local sumstat_mapfile="$3"
+    local sumstat_for_posteriors="$4"
+    local list_gt="${5:-}"
+    local list_ss="${6:-}"
+    local list_ld="${7:-}"
+    
+    local tmpdir
+    tmpdir=$(make_tmpdir "sumstat_map_reduce")
+    local reduced_tmp="${tmpdir}/sumstat_for_posteriors.tsv"
+    local map_tmp="${tmpdir}/variant_map.tsv"
+    
+    awk -F'\t' -v OFS='\t' \
+        -v out_map="$map_tmp" -v out_sumstat="$reduced_tmp" \
+        -v list_gt="$list_gt" -v list_ss="$list_ss" -v list_ld="$list_ld" '
+        BEGIN {
+            c["A"]="T"; c["T"]="A"; c["C"]="G"; c["G"]="C"
+            if (list_gt != "" && list_gt != "NA") {
+                while ((getline < list_gt) > 0) {
+                    if ($1 != "") gt[$1]=1
+                }
+                close(list_gt)
+            }
+            if (list_ss != "" && list_ss != "NA") {
+                while ((getline < list_ss) > 0) {
+                    if ($1 != "") ss[$1]=1
+                }
+                close(list_ss)
+            }
+            if (list_ld != "" && list_ld != "NA") {
+                while ((getline < list_ld) > 0) {
+                    if ($1 != "") ld[$1]=1
+                }
+                close(list_ld)
+            }
+        }
+        NR==FNR {
+            if (NR==1) {
+                for (i=1;i<=NF;i++) {
+                    if ($i=="chr") chr_i=i
+                    else if ($i=="pos") pos_i=i
+                    else if ($i=="geno_snpid") geno_id_i=i
+                    else if ($i=="geno_a1") geno_a1_i=i
+                    else if ($i=="geno_a2") geno_a2_i=i
+                    else if ($i=="ldref_snpid") ld_id_i=i
+                    else if ($i=="ldref_a1") ld_a1_i=i
+                    else if ($i=="ldref_a2") ld_a2_i=i
+                    else if ($i=="ldref_a2freq") ld_freq_i=i
+                }
+                next
+            }
+            idx++
+            chr[idx]=$chr_i; pos[idx]=$pos_i
+            geno_id[idx]=$geno_id_i; geno_a1[idx]=toupper($geno_a1_i); geno_a2[idx]=toupper($geno_a2_i)
+            ld_id[idx]=$ld_id_i; ld_a1[idx]=toupper($ld_a1_i); ld_a2[idx]=toupper($ld_a2_i)
+            ld_freq[idx]=$ld_freq_i
+            a1 = (geno_a1[idx]!="NA" ? geno_a1[idx] : ld_a1[idx])
+            a2 = (geno_a2[idx]!="NA" ? geno_a2[idx] : ld_a2[idx])
+            if (a1!="NA" && a2!="NA" && chr[idx]!="NA" && pos[idx]!="NA") {
+                key = chr[idx] ":" pos[idx] ":" a1 ":" a2
+                map_idx[key]=idx
+            }
+            next
+        }
+        FNR==1 {
+            for (i=1;i<=NF;i++) {
+                if ($i=="CHR" || $i=="chr" || $i=="#CHR") chr_c=i
+                else if ($i=="POS" || $i=="pos" || $i=="BP" || $i=="Position") pos_c=i
+                else if ($i=="RSID" || $i=="rsid" || $i=="SNP" || $i=="ID") snp_c=i
+                else if ($i=="EffectAllele" || $i=="A1" || $i=="effect_allele") a1_c=i
+                else if ($i=="OtherAllele" || $i=="A2" || $i=="other_allele") a2_c=i
+                else if ($i=="EAF") eaf_c=i
+            }
+            if (!eaf_c) {
+                eaf_c = NF + 1
+                header_extra="EAF"
+            }
+            # Write header with appended LDREF_SNPID
+            out = $1
+            for (i=2;i<=NF;i++) out = out OFS $i
+            if (header_extra!="") out = out OFS header_extra
+            out = out OFS "LDREF_SNPID"
+            print out > out_sumstat
+            next
+        }
+        {
+            chr_v = $chr_c; pos_v = $pos_c
+            snp_v = $snp_c
+            a1_v = toupper($a1_c); a2_v = toupper($a2_c)
+            key1 = chr_v ":" pos_v ":" a1_v ":" a2_v
+            key2 = chr_v ":" pos_v ":" a2_v ":" a1_v
+            fa1 = c[a1_v]; fa2 = c[a2_v]
+            key3 = chr_v ":" pos_v ":" fa1 ":" fa2
+            key4 = chr_v ":" pos_v ":" fa2 ":" fa1
+            idx = (key1 in map_idx) ? map_idx[key1] : ((key2 in map_idx) ? map_idx[key2] : ((key3 in map_idx) ? map_idx[key3] : ((key4 in map_idx) ? map_idx[key4] : 0)))
+            if (idx==0) next
+            if (list_gt != "" && list_gt != "NA") {
+                if (!(geno_id[idx] in gt)) next
+            }
+            if (list_ss != "" && list_ss != "NA") {
+                if (!(snp_v in ss)) next
+            }
+            if (list_ld != "" && list_ld != "NA") {
+                if (!(ld_id[idx] in ld)) next
+            }
+            # Fill EAF if missing
+            eaf_v = (eaf_c <= NF ? $eaf_c : "NA")
+            if (eaf_v=="" || eaf_v=="NA") {
+                freq = ld_freq[idx]
+                if (freq != "" && freq != "NA" && ld_a1[idx] != "NA" && ld_a2[idx] != "NA") {
+                    if (a1_v == ld_a2[idx]) eaf_v = freq
+                    else if (a1_v == ld_a1[idx]) eaf_v = 1 - freq
+                    else eaf_v = freq
+                }
+            }
+            # write sumstat row
+            if (header_extra == "") {
+                $eaf_c = eaf_v
+            }
+            out = $1
+            for (i=2;i<=NF;i++) out = out OFS $i
+            if (header_extra!="") out = out OFS eaf_v
+            out = out OFS ld_id[idx]
+            print out > out_sumstat
+            # record sumstat columns for mapfile
+            if (!(idx in sum_snp)) {
+                sum_snp[idx]=snp_v
+                sum_a1[idx]=a1_v
+                sum_a2[idx]=a2_v
+            }
+        }
+        END {
+            print "chr\tpos\tsumstat_snpid\tsumstat_effect\tsumstat_other\tgeno_snpid\tgeno_a1\tgeno_a2\tldref_snpid\tldref_a1\tldref_a2\tldref_a2freq" > out_map
+            for (i=1;i<=idx;i++) {
+                s_snp = (i in sum_snp) ? sum_snp[i] : "NA"
+                s_a1 = (i in sum_a1) ? sum_a1[i] : "NA"
+                s_a2 = (i in sum_a2) ? sum_a2[i] : "NA"
+                print chr[i], pos[i], s_snp, s_a1, s_a2, geno_id[i], geno_a1[i], geno_a2[i], ld_id[i], ld_a1[i], ld_a2[i], ld_freq[i] >> out_map
+            }
+        }
+    ' "$prep_mapfile" <(zcat "$formatted_sumstat")
+    
+    mv -f "$map_tmp" "$sumstat_mapfile"
+    gzip -c "$reduced_tmp" > "$sumstat_for_posteriors"
+    rm -rf "$tmpdir"
 }
 
 derive_stats() {
@@ -318,45 +821,33 @@ derive_stats() {
     audit_row "add_sample_size" "$n0" "$n1" "ensure N column (missing_N=${n_missing_1})"
     change_row "add_sample_size" "N" "$n_filled_1" "rows where N was filled (before missing -> after present)"
     
-    # Step 2: Force EAF column (use ldref_eaf as fallback, preferred over EAF_1KG)
-    local ldref_eaf_file="${prep_dir}/references/ldref_eaf.tsv"
-    force_eaf "${tmpdir}/step1.tsv" "${tmpdir}/step2.tsv" "$ldref_eaf_file"
+    # Step 2: Filter bad values (first pass - remove NA/invalid before derivation)
+    filter_bad_values "${tmpdir}/step1.tsv" "${tmpdir}/step2.tsv" "$removed_tmp" "pass1"
     local n2
     n2=$(count_variants_tsv "${tmpdir}/step2.tsv")
-    local eaf_missing_2
-    eaf_missing_2=$(count_missing_col "${tmpdir}/step2.tsv" "EAF")
-    local eaf_filled_2
-    eaf_filled_2=$(count_filled_missing "${tmpdir}/step1.tsv" "${tmpdir}/step2.tsv" "EAF")
-    audit_row "force_eaf" "$n1" "$n2" "fill EAF (missing_EAF=${eaf_missing_2})"
-    change_row "force_eaf" "EAF" "$eaf_filled_2" "rows where EAF was filled (before missing -> after present)"
+    audit_row "filter_bad_values_pass1" "$n1" "$n2" "drop obviously invalid rows before derivation (see removed_lines.tsv.gz; reasons prefixed pass1:)"
     
-    # Step 3: Filter bad values (first pass - remove NA/invalid before derivation)
-    filter_bad_values "${tmpdir}/step2.tsv" "${tmpdir}/step3.tsv" "$removed_tmp" "pass1"
+    # Step 3: Derive B and SE if missing (from Z, N, EAF)
+    add_beta_se "${tmpdir}/step2.tsv" "${tmpdir}/step3.tsv"
     local n3
     n3=$(count_variants_tsv "${tmpdir}/step3.tsv")
-    audit_row "filter_bad_values_pass1" "$n2" "$n3" "drop obviously invalid rows before derivation (see removed_lines.tsv.gz; reasons prefixed pass1:)"
-    
-    # Step 4: Derive B and SE if missing (from Z, N, EAF)
-    add_beta_se "${tmpdir}/step3.tsv" "${tmpdir}/step4.tsv"
-    local n4
-    n4=$(count_variants_tsv "${tmpdir}/step4.tsv")
     local b_missing_4
     local se_missing_4
-    b_missing_4=$(count_missing_col "${tmpdir}/step4.tsv" "B")
-    se_missing_4=$(count_missing_col "${tmpdir}/step4.tsv" "SE")
+    b_missing_4=$(count_missing_col "${tmpdir}/step3.tsv" "B")
+    se_missing_4=$(count_missing_col "${tmpdir}/step3.tsv" "SE")
     local b_filled_4
     local se_filled_4
-    b_filled_4=$(count_filled_missing "${tmpdir}/step3.tsv" "${tmpdir}/step4.tsv" "B")
-    se_filled_4=$(count_filled_missing "${tmpdir}/step3.tsv" "${tmpdir}/step4.tsv" "SE")
-    audit_row "add_beta_se" "$n3" "$n4" "derive B/SE if missing (missing_B=${b_missing_4}, missing_SE=${se_missing_4})"
+    b_filled_4=$(count_filled_missing "${tmpdir}/step2.tsv" "${tmpdir}/step3.tsv" "B")
+    se_filled_4=$(count_filled_missing "${tmpdir}/step2.tsv" "${tmpdir}/step3.tsv" "SE")
+    audit_row "add_beta_se" "$n2" "$n3" "derive B/SE if missing (missing_B=${b_missing_4}, missing_SE=${se_missing_4})"
     change_row "add_beta_se" "B" "$b_filled_4" "rows where B was derived/filled (before missing -> after present)"
     change_row "add_beta_se" "SE" "$se_filled_4" "rows where SE was derived/filled (before missing -> after present)"
     
-    # Step 5: Filter bad values (second pass - ensure derived values are valid)
-    filter_bad_values "${tmpdir}/step4.tsv" "$output" "$removed_tmp" "pass2"
-    local n5
-    n5=$(count_variants_tsv "$output")
-    audit_row "filter_bad_values_pass2" "$n4" "$n5" "final validity filter after derivation (see removed_lines.tsv.gz; reasons prefixed pass2:)"
+    # Step 4: Filter bad values (second pass - ensure derived values are valid)
+    filter_bad_values "${tmpdir}/step3.tsv" "$output" "$removed_tmp" "pass2"
+    local n4
+    n4=$(count_variants_tsv "$output")
+    audit_row "filter_bad_values_pass2" "$n3" "$n4" "final validity filter after derivation (see removed_lines.tsv.gz; reasons prefixed pass2:)"
     
     # Persist removal details + counts into the filtered step directory (kept with sumstat outputs).
     if [[ -n "${step_dir:-}" ]]; then
@@ -622,8 +1113,8 @@ filter_bad_values() {
                 else if (valid && (($se_col + 0) == 0)) { valid = 0; reason = "se_zero" }
             }
             
-            # Check EAF
-            if (eaf_col) {
+            # Check EAF (pass1 only)
+            if (eaf_col && pass_tag != "pass2") {
                 if (valid && ($eaf_col == "NA" || $eaf_col == "")) { valid = 0; reason = "eaf_missing" }
                 else if (valid && (($eaf_col + 0) == 0 || ($eaf_col + 0) == 1)) { valid = 0; reason = "eaf_boundary" }
             }

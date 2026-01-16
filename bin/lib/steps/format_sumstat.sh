@@ -55,25 +55,29 @@ run_format_sumstat() {
     local input_grch38="${input_dir}/cleaned_GRCh38.gz"
     local input_grch37="${input_dir}/cleaned_GRCh37.gz"
     
-    # Step 1: Add GRCh37 coordinates to sumstat
-    log_substep "Adding GRCh37 build coordinates"
-    add_build_coordinates "$input_grch38" "$input_grch37" "${step_dir}/sumstat_with_b37.tsv.gz"
-    
-    # Step 2: Filter NA coordinates (remove variants without valid GRCh37 positions)
-    log_substep "Filtering NA coordinates"
-    filter_na_coordinates_gz "${step_dir}/sumstat_with_b37.tsv.gz" "${step_dir}/sumstat_formatted.tsv.gz"
-    
-    # Clean up intermediate file
-    rm -f "${step_dir}/sumstat_with_b37.tsv.gz"
+    # Single pass: add GRCh37 coordinates, filter NA, and split by chromosome
+    log_substep "Adding GRCh37 build coordinates and splitting by chromosome"
+    add_build_coordinates_and_split "$input_grch38" "$input_grch37" "$step_dir"
     
     # Mark step as completed
     mark_step_completed "$step_dir"
     
     # Report results
-    local final_count
-    final_count=$(zcat "${step_dir}/sumstat_formatted.tsv.gz" | wc -l)
-    final_count=$((final_count - 1))
-    log_info "Formatted sumstat with GRCh37 coordinates: ${final_count} variants"
+    local total_count=0
+    local chr_count=0
+    for chr in $(get_chromosomes); do
+        local chr_file="${step_dir}/chr${chr}.tsv"
+        if [[ -f "$chr_file" ]]; then
+            local count
+            count=$(wc -l < "$chr_file")
+            count=$((count - 1))
+            total_count=$((total_count + count))
+            chr_count=$((chr_count + 1))
+            log_debug "chr${chr}: ${count} variants"
+        fi
+    done
+    
+    log_info "Formatted sumstat with GRCh37 coordinates: ${total_count} variants across ${chr_count} chromosomes"
     log_info "Output directory: ${step_dir}"
     log_info "Note: N/EAF/B/SE derivation will happen after filtering"
 }
@@ -82,10 +86,10 @@ run_format_sumstat() {
 # PROCESSING FUNCTIONS
 # =============================================================================
 
-add_build_coordinates() {
+add_build_coordinates_and_split() {
     local input_grch38="$1"
     local input_grch37="$2"
-    local output_file="$3"
+    local outdir="$3"
     
     # GRCh37 file has: CHR, POS, RSID (3 columns)
     # GRCh38 file has: CHR, POS, 0, RSID, EffectAllele, ...
@@ -94,8 +98,11 @@ add_build_coordinates() {
     # We want: CHR_b37, POS_b37, POS_b38, 0, RSID, ... (drop RSID_b37 and CHR_b38)
     # Use cut -f1-2,5- to skip columns 3 and 4
     #
-    # NOTE: avoid process substitution here because failures inside <(zcat ...)
-    # don't reliably propagate under set -e/pipefail. Use FIFOs + wait instead.
+    # This function combines:
+    # - Adding GRCh37 coordinates
+    # - Filtering NA coordinates (b37 liftover failures)
+    # - Splitting output by chromosome
+    # All in a single pass for efficiency.
 
     require_file "$input_grch37" "Cleaned sumstat (GRCh37 map) not found"
     require_file "$input_grch38" "Cleaned sumstat (GRCh38) not found"
@@ -110,52 +117,60 @@ add_build_coordinates() {
     zcat "$input_grch37" > "$fifo37" & local pid37=$!
     zcat "$input_grch38" > "$fifo38" & local pid38=$!
 
-    # Consume both streams
-    paste "$fifo37" "$fifo38" | \
-        awk -F'\t' -v OFS='\t' '{
-            # Replace empty values with NA
-            for(i=1; i<=NF; i++) if($i=="") $i="NA"
-            print
-        }' | cut -f1-2,5- | gzip -c > "$output_file"
-
-    # Ensure both zcat processes succeeded
-    wait "$pid37"
-    wait "$pid38"
-
-    rm -rf "$tmpdir"
-
-    # Sanity-check output isn't empty.
-    # With pipefail enabled, `zcat ... | head -1` can fail because zcat receives SIGPIPE.
-    local header=""
-    set +o pipefail
-    header="$(zcat "$output_file" | head -1)"
-    set -o pipefail
-    if [[ -z "$header" ]] || [[ "$header" != *$'\t'* ]]; then
-        log_error "add_build_coordinates produced empty/invalid output: ${output_file}"
-        exit 1
-    fi
-}
-
-filter_na_coordinates_gz() {
-    local input="$1"
-    local output="$2"
-    
-    # Filter out rows where CHR or POS (for b37) is NA
-    zcat "$input" | awk -F'\t' -v OFS='\t' '
+    # Single pass: paste, reorder columns, filter NA, split by chromosome
+    paste "$fifo37" "$fifo38" | cut -f1-2,5- | \
+        awk -F'\t' -v OFS='\t' -v outdir="$outdir" '
         NR == 1 {
-            # Find CHR and POS column indices
+            # Store header for per-chromosome files
+            header = $0
+            # Find CHR column index (should be column 1 after cut)
             for(i=1; i<=NF; i++) {
-                if($i == "CHR") chr_col = i
-                if($i == "POS") pos_col = i
+                if($i == "CHR" || $i == "chr" || $i == "#CHR") chr_col = i
+                if($i == "POS" || $i == "pos") pos_col = i
             }
-            print
+            if (!chr_col) chr_col = 1
+            if (!pos_col) pos_col = 2
             next
         }
         {
-            if ($chr_col != "NA" && $chr_col != "" && 
-                $pos_col != "NA" && $pos_col != "") {
-                print
+            chr = $chr_col
+            pos = $pos_col
+            
+            # Skip rows with empty/NA coordinates (b37 liftover failed)
+            if (chr == "" || chr == "NA" || pos == "" || pos == "NA") next
+            
+            # Only process valid chromosomes (1-22)
+            if (chr < 1 || chr > 22) next
+            
+            # Write to per-chromosome file
+            outfile = outdir "/chr" chr ".tsv"
+            if (!(chr in seen)) {
+                print header > outfile
+                seen[chr] = 1
+            }
+            print > outfile
+        }
+        END {
+            # Report count of chromosomes written
+            for (c in seen) count++
+            if (count == 0) {
+                print "ERROR: No valid variants written to any chromosome file" > "/dev/stderr"
+                exit 1
             }
         }
-    ' | gzip -c > "$output"
+        '
+
+    # Ensure both zcat processes succeeded
+    wait "$pid37" || { log_error "Failed to decompress GRCh37 file"; rm -rf "$tmpdir"; exit 1; }
+    wait "$pid38" || { log_error "Failed to decompress GRCh38 file"; rm -rf "$tmpdir"; exit 1; }
+
+    rm -rf "$tmpdir"
+
+    # Sanity-check at least one chromosome file was created
+    local chr_files_count
+    chr_files_count=$(ls "${outdir}"/chr*.tsv 2>/dev/null | wc -l)
+    if [[ "$chr_files_count" -eq 0 ]]; then
+        log_error "add_build_coordinates_and_split produced no chromosome files in: ${outdir}"
+        exit 1
+    fi
 }

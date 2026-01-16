@@ -215,9 +215,14 @@ cfg_genotype_manifest=$(parse_yaml_value "genotype_manifest" "$config_file_host"
 cfg_outdir=$(parse_yaml_value "outdir" "$config_file_host")
 cfg_chromosomes=$(parse_yaml_value "chromosomes" "$config_file_host")
 
-# Read optional reference files (for INFO/MAF filtering)
+# Read optional reference files (legacy INFO/MAF filtering)
 cfg_info_file=$(parse_yaml_nested "references" "info_file" "$config_file_host")
 cfg_maf_file=$(parse_yaml_nested "references" "maf_file" "$config_file_host")
+
+# Read optional user inclusion lists
+cfg_inclusion_gt=$(parse_yaml_nested "filters" "inclusion_list.gt" "$config_file_host")
+cfg_inclusion_ss=$(parse_yaml_nested "filters" "inclusion_list.ss" "$config_file_host")
+cfg_inclusion_ld=$(parse_yaml_nested "filters" "inclusion_list.ld" "$config_file_host")
 
 # CLI overrides config
 if [[ -n "$outdir" ]]; then
@@ -727,9 +732,16 @@ infold_host=$(realpath "${infold}")
       slurm_time=$(parse_inline_dict "$step_settings" "time")
       slurm_max_parallel_step=$(parse_inline_dict "$step_settings" "max_parallel")
     fi
-    slurm_mem="${slurm_mem:-20g}"
-    slurm_cpus="${slurm_cpus:-8}"
-    slurm_time="${slurm_time:-2:00:00}"
+    # Step-specific defaults
+    if [[ "$step_profile" == "sumstat" ]]; then
+      slurm_mem="${slurm_mem:-1g}"
+      slurm_cpus="${slurm_cpus:-1}"
+      slurm_time="${slurm_time:-0:30:00}"
+    else
+      slurm_mem="${slurm_mem:-20g}"
+      slurm_cpus="${slurm_cpus:-8}"
+      slurm_time="${slurm_time:-2:00:00}"
+    fi
 
     # Determine max parallel tasks (step > default 22)
     max_parallel="${slurm_max_parallel_step:-22}"
@@ -786,10 +798,13 @@ infold_host=$(realpath "${infold}")
     echo "$step_chr_list" | tr ' ' '\n' > "$chr_file"
 
     # In array mode, we must only run chromosome-parallel work.
+    # - sumstat: filter-variants per-chromosome (format-sumstat already ran in driver)
     # - posteriors: safe (calc-posteriors + format-posteriors are chr-parallel)
     # - score: only calc-score is chr-parallel; combine-scores/finalize-output must be run once after
     steps_arg_for_task="${step_profile}"
-    if [[ "$step_profile" == "score" ]]; then
+    if [[ "$step_profile" == "sumstat" ]]; then
+      steps_arg_for_task="filter-variants"
+    elif [[ "$step_profile" == "score" ]]; then
       steps_arg_for_task="calc-score"
     fi
 
@@ -847,7 +862,14 @@ rc=\$?; echo \"[INFO] Finished ${step_profile} chr\${CHR} at \$(date) (exit=\$rc
     # This catches cases where tasks return 0 but accidentally write nothing.
     if [[ -n "$sumstat_name" ]]; then
       base_sumstat_out="${outdir_host}/sumstats/${sumstat_name}/work"
-      if [[ "$step_profile" == "posteriors" ]]; then
+      if [[ "$step_profile" == "sumstat" ]]; then
+        n_filtered=$(ls "${base_sumstat_out}/filtered"/chr*_filtered.tsv 2>/dev/null | wc -l | awk '{print $1}')
+        if [[ "$n_filtered" -lt "$step_chr_count" ]]; then
+          >&2 echo "Warning: sumstat array finished but outputs are missing (continuing)."
+          >&2 echo "  Expected >=${step_chr_count} files in: ${base_sumstat_out}/filtered/chr*_filtered.tsv (found ${n_filtered})"
+          >&2 echo "Check logs under: ${log_dir}/"
+        fi
+      elif [[ "$step_profile" == "posteriors" ]]; then
         n_post=$(ls "${base_sumstat_out}/posteriors"/chr*.snpRes 2>/dev/null | wc -l | awk '{print $1}')
         n_mapped=$(ls "${base_sumstat_out}/posteriors_mapped"/chr*.snpRes 2>/dev/null | wc -l | awk '{print $1}')
         if [[ "$n_post" -lt "$step_chr_count" || "$n_mapped" -lt "$step_chr_count" ]]; then
@@ -870,7 +892,10 @@ rc=\$?; echo \"[INFO] Finished ${step_profile} chr\${CHR} at \$(date) (exit=\$rc
   }
 
   # Always run posteriors before score if both requested
-  # In driver mode, we run sumstat directly (within this driver job), then launch arrays.
+  # In driver mode:
+  # - format-sumstat runs directly (GRCh37 paste + chromosome split)
+  # - filter-variants runs as a SLURM array (per-chromosome)
+  # - posteriors and score run as SLURM arrays (per-chromosome)
   run_base="${project_dir}/pgscalculator-v2.sh --config ${config_file_host}"
   [[ -n "$infold" ]] && run_base="${run_base} -i ${infold}"
   [[ -n "$outdir" ]] && run_base="${run_base} -o ${outdir}"
@@ -878,8 +903,20 @@ rc=\$?; echo \"[INFO] Finished ${step_profile} chr\${CHR} at \$(date) (exit=\$rc
   [[ -n "$devmode" ]] && run_base="${run_base} -d"
 
   if [[ "$has_sumstat" == true ]]; then
-    echo "Running sumstat inside driver job..."
-    eval "${run_base} --steps sumstat"
+    # Step 1: Run format-sumstat directly (produces per-chr files)
+    echo "Running format-sumstat inside driver job..."
+    eval "${run_base} --steps format-sumstat"
+
+    # Check that format-sumstat produced per-chromosome files
+    format_dir="${outdir_host}/sumstats/${sumstat_name}/work/formatted"
+    if [[ ! -f "${format_dir}/chr1.tsv" ]]; then
+      >&2 echo "Error: format-sumstat did not produce per-chromosome files."
+      >&2 echo "Expected: ${format_dir}/chr*.tsv"
+      exit 1
+    fi
+
+    # Step 2: Submit filter-variants as a SLURM array (per-chromosome)
+    submit_array_for_step "sumstat"
 
     # Gate downstream arrays on the expected sumstat outputs existing.
     # This prevents submitting 22 tasks that all fail immediately due to missing inputs.
@@ -1374,6 +1411,30 @@ elif [[ -n "$cfg_maf_file" ]] && [[ -f "$cfg_maf_file" ]]; then
   mount_opts="${mount_opts} ${mountflag} ${maf_file_host}:${maf_file_container}"
   # Add to config
   echo "maf_file: ${maf_file_container}" >> "${config_yaml_host}"
+fi
+
+# Mount user inclusion lists (gt/ss/ld) if provided
+if [[ -n "$cfg_inclusion_gt" || -n "$cfg_inclusion_ss" || -n "$cfg_inclusion_ld" ]]; then
+  echo "filters:" >> "${config_yaml_host}"
+  echo "  inclusion_list:" >> "${config_yaml_host}"
+  if [[ -n "$cfg_inclusion_gt" ]] && [[ -f "$cfg_inclusion_gt" ]]; then
+    inclusion_gt_host=$(realpath "$cfg_inclusion_gt")
+    inclusion_gt_container="/pgscalculator/references/inclusion_gt.tsv"
+    mount_opts="${mount_opts} ${mountflag} ${inclusion_gt_host}:${inclusion_gt_container}"
+    echo "    gt: ${inclusion_gt_container}" >> "${config_yaml_host}"
+  fi
+  if [[ -n "$cfg_inclusion_ss" ]] && [[ -f "$cfg_inclusion_ss" ]]; then
+    inclusion_ss_host=$(realpath "$cfg_inclusion_ss")
+    inclusion_ss_container="/pgscalculator/references/inclusion_ss.tsv"
+    mount_opts="${mount_opts} ${mountflag} ${inclusion_ss_host}:${inclusion_ss_container}"
+    echo "    ss: ${inclusion_ss_container}" >> "${config_yaml_host}"
+  fi
+  if [[ -n "$cfg_inclusion_ld" ]] && [[ -f "$cfg_inclusion_ld" ]]; then
+    inclusion_ld_host=$(realpath "$cfg_inclusion_ld")
+    inclusion_ld_container="/pgscalculator/references/inclusion_ld.tsv"
+    mount_opts="${mount_opts} ${mountflag} ${inclusion_ld_host}:${inclusion_ld_container}"
+    echo "    ld: ${inclusion_ld_container}" >> "${config_yaml_host}"
+  fi
 fi
 
 ################################################################################

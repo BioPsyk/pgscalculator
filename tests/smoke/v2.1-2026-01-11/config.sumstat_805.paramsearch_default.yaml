@@ -37,8 +37,9 @@ slurm:
   account: ibp_pipeline_pgscalculator
   partition: normal
 
-  driver: { mem: 2g, cpus: 1, time: '02:00:00' }
+  driver: { mem: 1g, cpus: 1, time: '02:00:00' }
   prep: { mem: 16g, cpus: 4, time: '02:00:00' }
+  sumstat: { mem: 1g, cpus: 1, time: '00:30:00', max_parallel: 2 }
   posteriors: { mem: 20g, cpus: 6, time: '04:00:00', max_parallel: 2 }
   score: { mem: 10g, cpus: 4, time: '01:00:00', max_parallel: 2 }
 

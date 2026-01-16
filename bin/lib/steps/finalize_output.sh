@@ -89,7 +89,10 @@ write_variant_map() {
     local prep_dir="$1"
     local sumstat_dir="$2"
 
-    local variant_map_src="${prep_dir}/variant_map.tsv"
+    local variant_map_src="${sumstat_dir}/variant_map.tsv"
+    if [[ ! -f "$variant_map_src" ]]; then
+        variant_map_src="${prep_dir}/variant_map.tsv"
+    fi
     local variant_map_out="${sumstat_dir}/variant_map.tsv.gz"
 
     if [[ ! -f "$variant_map_src" ]]; then
@@ -107,15 +110,15 @@ combine_posteriors() {
     
     # The mapped posterior files are written as TSVs with header:
     #   ID  A1  A2  Freq  Effect  SE  PIP
-    # We enrich them with GENO_ID using the rsid->genoid mapping produced during mapping.
+    # We enrich them with GENO_ID using the ldref->genoid mapping produced during mapping.
     # This makes the combined file stable for downstream consumers (augmented sumstat join).
     echo -e "RSID\tGENO_ID\tA1\tA2\tFREQ\tEFFECT\tSE\tPIP" > "$output_file"
     
     local total_variants=0
 
-    local rsid_to_genoid="${posteriors_dir}/rsid_to_genoid.tsv"
+    local rsid_to_genoid="${posteriors_dir}/ldref_to_genoid.tsv"
     if [[ ! -f "$rsid_to_genoid" ]]; then
-        log_warn "rsid_to_genoid.tsv not found at: ${rsid_to_genoid}; GENO_ID will be NA in posteriors_combined.tsv"
+        log_warn "ldref_to_genoid.tsv not found at: ${rsid_to_genoid}; GENO_ID will be NA in posteriors_combined.tsv"
     fi
     
     for chr in $(get_chromosomes); do
@@ -158,7 +161,10 @@ generate_augmented_sumstat() {
     migrate_sumstat_step_dir "$sumstat_dir" "formatted"
     local formatted_sumstat
     formatted_sumstat="$(get_sumstat_step_dir "$sumstat_dir" "formatted")/sumstat_formatted.tsv.gz"
-    local variant_map="${prep_dir}/variant_map.tsv"
+    local variant_map="${sumstat_dir}/variant_map.tsv"
+    if [[ ! -f "$variant_map" ]]; then
+        variant_map="${prep_dir}/variant_map.tsv"
+    fi
     local output_file="${sumstat_dir}/sumstat_augmented.tsv.gz"
     
     if [[ ! -f "$formatted_sumstat" ]]; then
@@ -188,11 +194,13 @@ generate_augmented_sumstat() {
         }
     ' "$posteriors_file" > "${tmpdir}/posteriors_lookup.tsv"
     
-    # Load variant map (ld_rsid -> pvar_snpid)
+    # Load variant map (sumstat_snpid -> ldref_snpid, geno_snpid)
     awk -F'\t' -v OFS='\t' '
         NR > 1 {
-            # chrpos, pvar_a1, pvar_a2, pvar_snpid, ld_a1, ld_a2, ld_rsid
-            print $7, $4
+            # chr, pos, sumstat_snpid, sumstat_effect, sumstat_other, geno_snpid, geno_a1, geno_a2, ldref_snpid, ldref_a1, ldref_a2, ldref_a2freq
+            if ($3 != "NA") {
+                print $3, $9, $6
+            }
         }
     ' "$variant_map" > "${tmpdir}/varmap_lookup.tsv"
     
@@ -206,7 +214,8 @@ generate_augmented_sumstat() {
         }
         # Load variant map lookup
         ARGIND == 2 {
-            geno_id[$1] = $2
+            ldref_id[$1] = $2
+            geno_id[$1] = $3
             next
         }
         # Process sumstat
@@ -222,8 +231,9 @@ generate_augmented_sumstat() {
             
             rsid = $snp_col
             gid = (rsid in geno_id) ? geno_id[rsid] : "NA"
-            pe = (rsid in post_effect) ? post_effect[rsid] : "NA"
-            pp = (rsid in post_pip) ? post_pip[rsid] : "NA"
+            ldid = (rsid in ldref_id) ? ldref_id[rsid] : "NA"
+            pe = (ldid in post_effect) ? post_effect[ldid] : "NA"
+            pp = (ldid in post_pip) ? post_pip[ldid] : "NA"
             in_analysis = (pe != "NA") ? "Y" : "N"
             
             print $0, gid, pe, pp, in_analysis

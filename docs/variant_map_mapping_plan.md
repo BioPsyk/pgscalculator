@@ -176,7 +176,7 @@ slurm:
   sumstat: { mem: 1g, cpus: 1, time: '00:30:00', max_parallel: 22 }
 
   # Posteriors array (one task per chromosome)
-  posteriors: { mem: 20g, cpus: 6, time: '04:00:00', max_parallel: 22 }
+  posteriors: { mem: 20g, cpus: 6, time: '01:00:00', max_parallel: 22 }
 
   # Score array (one task per chromosome with mapped posteriors)
   score: { mem: 10g, cpus: 4, time: '01:00:00', max_parallel: 22 }

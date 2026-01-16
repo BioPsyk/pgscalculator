@@ -253,8 +253,9 @@ format_for_sbayesr() {
     # Find column indices (pick a single best match, deterministically)
     local snp_col a1_col a2_col freq_col beta_col se_col p_col n_col
 
-    # Prefer RSID over SNP/ID if multiple exist
+    # Prefer LDREF_SNPID, then RSID, then SNP/ID
     snp_col=$(echo "$header" | awk -F"$fs" '
+        { for(i=1;i<=NF;i++) if($i=="LDREF_SNPID") {print i; exit} }
         { for(i=1;i<=NF;i++) if($i=="RSID"||$i=="rsid") {print i; exit} }
         { for(i=1;i<=NF;i++) if($i=="SNP"||$i=="ID") {print i; exit} }
     ')
