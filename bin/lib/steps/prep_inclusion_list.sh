@@ -46,27 +46,96 @@ run_prep_inclusion_list() {
     step_dir=$(get_step_dir "$outdir" "inclusion_list")
     ensure_dir "$step_dir"
     
-    # Check if already completed
+    local geno_dir="${prep_dir}/genotypes"
+    local ldref_dir="${prep_dir}/ldref"
+    
+    # If running per-chromosome (driver/array), only build that chromosome map
+    local specific_chr=""
+    if [[ -n "${CFG_CHROMOSOMES:-}" ]] && [[ "${CFG_CHROMOSOMES}" =~ ^(chr)?[0-9]+$ ]]; then
+        specific_chr="${CFG_CHROMOSOMES#chr}"
+    fi
+    
+    if [[ -n "$specific_chr" ]]; then
+        local chr_marker="${step_dir}/.completed_chr${specific_chr}"
+        if [[ -f "$chr_marker" ]]; then
+            log_info "prep-inclusion-list chr${specific_chr} already completed. Use --force to re-run."
+            return 0
+        fi
+        create_chr_variant_map "$specific_chr" "$geno_dir" "$ldref_dir" "$step_dir"
+        date '+%Y-%m-%d %H:%M:%S' > "$chr_marker"
+        log_info "Completed prep-inclusion-list for chr${specific_chr}"
+        return 0
+    fi
+    
+    # Check if already completed (full run)
     if check_step_completed "$step_dir"; then
         log_info "Step already completed. Use --force to re-run."
         return 0
     fi
     
-    local geno_dir="${prep_dir}/genotypes"
-    local ldref_dir="${prep_dir}/ldref"
-    
-    # Step 1: Create per-chromosome variant maps
+    # Step 1: Create per-chromosome variant maps (parallel by chromosome)
     log_substep "Creating per-chromosome variant maps"
+    local max_parallel=""
+    if [[ -n "${CFG_SLURM_PREP_MAX_PARALLEL:-}" ]]; then
+        max_parallel="${CFG_SLURM_PREP_MAX_PARALLEL}"
+    elif [[ -n "${CFG_SLURM_PREP:-}" ]]; then
+        # Parse inline dict, e.g. "{ mem: 10g, cpus: 6, time: '1:00:00', max_parallel: 22 }"
+        max_parallel=$(echo "${CFG_SLURM_PREP}" | sed 's/[{}]//g' | tr ',' '\n' | \
+            awk -F': ' '$1 ~ /max_parallel/ {gsub(/^[ \t]+|[ \t]+$/, "", $2); print $2; exit}')
+    elif [[ -n "${CFG_PREP_MAX_PARALLEL:-}" ]]; then
+        # Backward compatibility (legacy top-level key)
+        max_parallel="${CFG_PREP_MAX_PARALLEL}"
+    else
+        max_parallel="4"
+    fi
+    if ! [[ "$max_parallel" =~ ^[0-9]+$ ]] || [[ "$max_parallel" -lt 1 ]]; then
+        log_warn "Invalid prep_max_parallel (${max_parallel}), falling back to 1"
+        max_parallel=1
+    fi
+    log_info "prep-inclusion-list: using up to ${max_parallel} parallel chr jobs"
     
+    local -a pids=()
+    local job_fail=0
     for chr in $(get_chromosomes); do
-        create_chr_variant_map "$chr" "$geno_dir" "$ldref_dir" "$step_dir"
+        create_chr_variant_map "$chr" "$geno_dir" "$ldref_dir" "$step_dir" &
+        pids+=($!)
+        
+        if [[ "${#pids[@]}" -ge "$max_parallel" ]]; then
+            if ! wait -n; then
+                job_fail=1
+            fi
+            # prune finished pids
+            local -a still_running=()
+            local pid
+            for pid in "${pids[@]}"; do
+                if kill -0 "$pid" 2>/dev/null; then
+                    still_running+=("$pid")
+                fi
+            done
+            pids=("${still_running[@]}")
+        fi
     done
     
-    # Step 2: Combine all chromosome maps (output to prep/ level)
-    log_substep "Combining chromosome variant maps"
-    combine_variant_maps "$step_dir" "$prep_dir"
+    for pid in "${pids[@]}"; do
+        if ! wait "$pid"; then
+            job_fail=1
+        fi
+    done
     
-    # Step 3: Create final inclusion list (derived from mapfile)
+    if [[ "$job_fail" -ne 0 ]]; then
+        log_error "One or more per-chromosome map jobs failed"
+        return 1
+    fi
+    
+    # Step 2: Write per-chromosome mapfiles with ldref_a2freq (prep/variant_map/)
+    log_substep "Writing per-chromosome mapfiles"
+    write_chr_variant_maps "$step_dir" "$prep_dir"
+    
+    # Step 3: Combine all chromosome maps (output to prep/ level)
+    log_substep "Combining chromosome variant maps"
+    combine_variant_maps "$prep_dir"
+    
+    # Step 4: Create final inclusion list (derived from mapfile)
     log_substep "Creating final variant inclusion list"
     create_final_inclusion_list "$step_dir" "$prep_dir"
     
@@ -96,8 +165,8 @@ create_chr_variant_map() {
     local ld_rsids="${ldref_dir}/chr${chr}_ld_rsids"
     local out_map="${step_dir}/chr${chr}_variant_map"
     
-    if [[ ! -f "$pvar_fmt" ]] && [[ ! -f "$ld_rsids" ]]; then
-        log_debug "No genotype or LD reference data for chr${chr}, skipping"
+    if [[ ! -f "$pvar_fmt" ]] || [[ ! -f "$ld_rsids" ]]; then
+        log_debug "Missing genotype or LD reference data for chr${chr}, skipping"
         return 0
     fi
     
@@ -139,25 +208,11 @@ create_chr_variant_map() {
             if (!(matched in pvar_matched)) {
                 pvar_matched[matched] = 1
                 print chr_v, pos_v, pvar_id[matched], pvar_a1[matched], pvar_a2[matched], lid, la1, la2
-            } else {
-                # already matched: emit ldref-only row to keep union semantics
-                print chr_v, pos_v, "NA", "NA", "NA", lid, la1, la2
             }
-        } else {
-            print chr_v, pos_v, "NA", "NA", "NA", lid, la1, la2
         }
-        ld_seen[chrpos SUBSEP la1 SUBSEP la2] = 1
     }
     END {
-        for (k in pvar_id) {
-            if (!(k in pvar_matched)) {
-                split(k, parts, SUBSEP)
-                chrpos = parts[1]
-                split(chrpos, cp, ":")
-                chr_v = cp[1]; pos_v = cp[2]
-                print chr_v, pos_v, pvar_id[k], pvar_a1[k], pvar_a2[k], "NA", "NA", "NA"
-            }
-        }
+        # intersection only: no unmatched geno or ldref rows
     }
     ' "$pvar_fmt" "$ld_rsids" > "$out_map"
     
@@ -166,33 +221,55 @@ create_chr_variant_map() {
     log_debug "chr${chr}: ${map_count} variants mapped"
 }
 
-combine_variant_maps() {
+write_chr_variant_maps() {
     local step_dir="$1"
     local prep_dir="$2"
     local ref_dir="${prep_dir}/references"
     local ldref_eaf="${ref_dir}/ldref_eaf.tsv"
+    local out_dir="${prep_dir}/variant_map"
+    
+    ensure_dir "$out_dir"
+    
+    for chr in $(get_chromosomes); do
+        local in_map="${step_dir}/chr${chr}_variant_map"
+        local out_map="${out_dir}/chr${chr}.tsv"
+        
+        if [[ ! -s "$in_map" ]]; then
+            continue
+        fi
+        
+        echo -e "chr\tpos\tgeno_snpid\tgeno_a1\tgeno_a2\tldref_snpid\tldref_a1\tldref_a2\tldref_a2freq" > "$out_map"
+        if [[ -f "$ldref_eaf" ]]; then
+            awk -F'\t' -v OFS='\t' -v eaf_file="$ldref_eaf" '
+                BEGIN{
+                    while ((getline < eaf_file) > 0) {
+                        if (NR==1) continue
+                        eaf[$1]=$4
+                    }
+                    close(eaf_file)
+                }
+                {
+                    ldid = $6
+                    freq = (ldid != "NA" && (ldid in eaf)) ? eaf[ldid] : "NA"
+                    print $0, freq
+                }
+            ' "$in_map" >> "$out_map"
+        else
+            awk -F'\t' -v OFS='\t' '{print $0, "NA"}' "$in_map" >> "$out_map"
+        fi
+    done
+}
+
+combine_variant_maps() {
+    local prep_dir="$1"
+    local in_dir="${prep_dir}/variant_map"
     
     # Add header - output to prep/ level (not inclusion_list/)
     echo -e "chr\tpos\tgeno_snpid\tgeno_a1\tgeno_a2\tldref_snpid\tldref_a1\tldref_a2\tldref_a2freq" > "${prep_dir}/variant_map.tsv"
     
-    # Concatenate all chromosome maps and add ldref_a2freq (by ldref_snpid)
-    if [[ -f "$ldref_eaf" ]]; then
-        awk -F'\t' -v OFS='\t' -v eaf_file="$ldref_eaf" '
-            BEGIN{
-                while ((getline < eaf_file) > 0) {
-                    if (NR==1) continue
-                    eaf[$1]=$4
-                }
-                close(eaf_file)
-            }
-            {
-                ldid = $6
-                freq = (ldid != "NA" && (ldid in eaf)) ? eaf[ldid] : "NA"
-                print $0, freq
-            }
-        ' "${step_dir}"/chr*_variant_map >> "${prep_dir}/variant_map.tsv"
-    else
-        awk -F'\t' -v OFS='\t' '{print $0, "NA"}' "${step_dir}"/chr*_variant_map >> "${prep_dir}/variant_map.tsv"
+    # Concatenate all chromosome maps (skip header)
+    if compgen -G "${in_dir}/chr*.tsv" > /dev/null; then
+        awk -F'\t' 'NR==1{next} {print}' "${in_dir}"/chr*.tsv >> "${prep_dir}/variant_map.tsv"
     fi
     
     local total_count
@@ -227,6 +304,31 @@ create_final_inclusion_list() {
         LC_ALL=C sort -u > "${step_dir}/.rsid_index"
     
     log_info "Created inclusion list with ${input_count} variants"
+}
+
+run_prep_inclusion_list_combine() {
+    log_step "Running prep-inclusion-list (combine)"
+    
+    check_prep_inclusion_list_deps
+    
+    local outdir="${CFG_OUTDIR}"
+    local prep_dir
+    prep_dir=$(get_prep_dir "$outdir")
+    local step_dir
+    step_dir=$(get_step_dir "$outdir" "inclusion_list")
+    ensure_dir "$step_dir"
+    
+    log_substep "Writing per-chromosome mapfiles"
+    write_chr_variant_maps "$step_dir" "$prep_dir"
+    
+    log_substep "Combining chromosome variant maps"
+    combine_variant_maps "$prep_dir"
+    
+    log_substep "Creating final variant inclusion list"
+    create_final_inclusion_list "$step_dir" "$prep_dir"
+    
+    mark_step_completed "$step_dir"
+    log_info "prep-inclusion-list combine completed"
 }
 
 compute_maf_from_genotypes() {

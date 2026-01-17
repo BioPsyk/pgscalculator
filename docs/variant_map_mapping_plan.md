@@ -17,13 +17,12 @@ Notes:
 - The mapfile may include non-key frequency columns used for EAF filling/auditing.
 
 ## Filtering order (planned)
-1) **prep** builds the base `variant_map.tsv` from the **intersection** of genotype + LD reference variants
+1) **prep** builds base mapfiles from the **intersection** of genotype + LD reference variants
    (by `chr/pos + alleles`), including LD reference EAF (`ldref_a2freq`).
-   - Also write chromosome-specific mapfiles (e.g., `prep/variant_map/chrN.tsv`) for parallel use.
+   - Write **chromosome-specific mapfiles** only (e.g., `prep/variant_map/chrN.tsv`) for parallel use.
+   - Do **not** create a combined prep mapfile during processing.
 2) **sumstat** attaches `sumstat_*` columns via `chr/pos + alleles` into **chromosome-specific**
    sumstat mapfiles (using the prep `prep/variant_map/chrN.tsv` files).
-3) **sumstat** concatenates the per-chromosome sumstat mapfiles into a single sumstat-specific
-   mapfile for output/auditing.
 3) **sumstat** reduces to the **sumstat intersection of the mapfile** to produce the posterior-input
    sumstat (same row count as the matched subset, not the full union), and fills missing `EAF`
    from `ldref_a2freq` during this reduction (allele-aware, no `EAF_1KG`).
@@ -42,14 +41,18 @@ Notes:
 
 ## Build workflow
 ### Prep step (sumstat-agnostic)
-1) Build `variant_map.tsv` from the **intersection** of genotype + LD reference variants.
-2) Populate geno/ldref columns and add LD reference EAF (`ldref_a2freq`) to the mapfile.
-3) No sumstat columns are added at prep.
-4) Always derive SNP inclusion lists from the mapfile:
+1) Build per-chromosome mapfiles from the **intersection** of genotype + LD reference variants.
+2) Populate geno/ldref columns and add LD reference EAF (`ldref_a2freq`) to each mapfile.
+3) No sumstat columns are added at prep, and no combined prep mapfile is required.
+4) The prep step should support **per-chromosome parallelism** when creating the
+   base mapfiles, using **SLURM arrays** (config: `slurm.prep.max_parallel`).
+5) Always derive SNP inclusion lists from the mapfile:
    - Use the prep mapfile when the prep step needs an inclusion list.
    - Use the sumstat-annotated mapfile when the sumstat step needs an inclusion list.
    - It is acceptable to derive a union inclusion list that contains all three sources, which
      can be useful for building the posterior-calculation input.
+6) Timing/logging: each step logs start + completion with elapsed time, and the overall
+   pipeline logs a total elapsed time.
 
 ### Format-sumstat step (GRCh37 coordinate mapping)
 
@@ -63,7 +66,7 @@ Notes:
 All steps after GRCh37 coordinate mapping should support **per-chromosome parallelism**.
 Each chromosome process should only load its corresponding `prep/variant_map/chrN.tsv`.
 
-1) Create a sumstat-specific copy of the mapfile.
+1) Create sumstat-specific per-chromosome mapfiles.
 2) Attach `sumstat_*` columns using `chr/pos + alleles` to match against the map.
 3) Fill missing sumstat `EAF` from mapfile `ldref_a2freq` when needed (allele-aware).
 4) The mapfile number of rows remains; same as in prep mapfile ; no reduction to the sumstat intersection.
@@ -101,7 +104,8 @@ Source ideas consistent with the mapfile plan:
 - Keep LD_EAF in output mapfile.
 
 ## Final output
-Always write the sumstat-annotated mapfile as `variant_map.tsv.gz` for auditing and back-tracing.
+Only at final output time, combine per-chromosome files into consolidated outputs
+(`variant_map.tsv.gz`, augmented sumstat, etc.) for auditing and back-tracing.
 
 ## SLURM submission system (`--sbatch`)
 
@@ -112,8 +116,12 @@ workflows: **prep jobs** and **per-sumstat driver jobs**.
 ### Submission modes
 
 1. **Prep job** (`--sbatch --steps prep`):
-   - Submits a single SLURM job for the prep step.
-   - Resources configured via `slurm.prep: { mem, cpus, time }`.
+   - Submits a lightweight **driver job** for prep.
+   - The driver runs `prep-genotypes` and `prep-ldref` directly, then submits a
+     **prep array** (one task per chromosome) for `prep-inclusion-list`.
+   - After the array completes, the driver combines per-chromosome maps and
+     creates the final inclusion list.
+   - Resources configured via `slurm.prep: { mem, cpus, time, max_parallel }`.
    - Logs written to `<outdir>/prep/logs/slurm/`.
 
 2. **Per-sumstat driver job** (`--sbatch --steps sumstat,posteriors,score -i <sumstat>`):
@@ -169,8 +177,8 @@ slurm:
   # Lightweight driver job (submits arrays for sumstat/posteriors/score)
   driver: { mem: 1g, cpus: 1, time: '02:00:00' }
 
-  # Prep step (sumstat-agnostic, single job)
-  prep: { mem: 16g, cpus: 4, time: '02:00:00' }
+  # Prep driver + array (sumstat-agnostic)
+  prep: { mem: 2g, cpus: 1, time: '02:00:00', max_parallel: 22 }
 
   # Sumstat array (one task per chromosome, after format-sumstat splits)
   sumstat: { mem: 1g, cpus: 1, time: '00:30:00', max_parallel: 22 }

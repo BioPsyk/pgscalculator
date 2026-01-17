@@ -23,3 +23,13 @@ sbayesr:
   seed: 80851
   exclude_mhc: true
 score_columns: 2 5 9
+
+# Optional: SLURM settings for --sbatch
+slurm:
+  account: my_account
+  partition: normal
+  driver: { mem: 1g, cpus: 1, time: '2:00:00' }
+  prep: { mem: 10g, cpus: 1, time: '1:00:00', max_parallel: 22 }
+  sumstat: { mem: 1g, cpus: 1, time: '0:30:00', max_parallel: 22 }
+  posteriors: { mem: 20g, cpus: 6, time: '2:00:00', max_parallel: 22 }
+  score: { mem: 10g, cpus: 4, time: '0:30:00', max_parallel: 22 }

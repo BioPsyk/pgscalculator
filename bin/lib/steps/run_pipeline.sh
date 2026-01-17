@@ -5,9 +5,23 @@ declare -A STEP_GROUPS
 STEP_GROUPS=([prep]="prep-genotypes prep-ldref prep-inclusion-list" [sumstat]="format-sumstat filter-variants" [posteriors]="calc-posteriors format-posteriors" [score]="calc-score combine-scores finalize-output" [benchmark]="calc-benchmark")
 STEP_GROUP_ORDER=("prep" "sumstat" "posteriors" "score")
 
+format_elapsed() {
+    local secs="$1"
+    if [[ -z "$secs" ]] || ! [[ "$secs" =~ ^[0-9]+$ ]]; then
+        echo "NA"
+        return
+    fi
+    local h=$((secs/3600))
+    local m=$(((secs%3600)/60))
+    local s=$((secs%60))
+    printf "%02d:%02d:%02d" "$h" "$m" "$s"
+}
+
 run_pipeline() {
     local sumstat_name="$1" steps_arg="$2" run_all="$3" skip_prep="$4"
     log_step "Running pipeline for: $sumstat_name"
+    local pipeline_start_ts
+    pipeline_start_ts=$(date +%s)
     # Expose current sumstat name to steps (for tmp/log containment and details reporting)
     if [[ -n "$sumstat_name" ]]; then
         export CFG_SUMSTAT_NAME="$sumstat_name"
@@ -23,7 +37,15 @@ run_pipeline() {
     [[ "$skip_prep" -eq 1 ]] && check_step_completed "$(get_prep_dir "${CFG_OUTDIR}")/inclusion_list" && groups_to_run=("${groups_to_run[@]/prep/}")
     local failed=0
     for group in "${groups_to_run[@]}"; do [[ -z "$group" ]] && continue; run_step_group "$group" "$sumstat_name" || { failed=1; break; }; done
-    [[ $failed -eq 0 ]] && log_info "Pipeline completed" || { log_error "Pipeline failed"; exit 1; }
+    local pipeline_end_ts
+    pipeline_end_ts=$(date +%s)
+    local pipeline_elapsed=$((pipeline_end_ts - pipeline_start_ts))
+    if [[ $failed -eq 0 ]]; then
+        log_info "Pipeline completed (elapsed=$(format_elapsed "$pipeline_elapsed"))"
+    else
+        log_error "Pipeline failed (elapsed=$(format_elapsed "$pipeline_elapsed"))"
+        exit 1
+    fi
 }
 
 run_step_group() {
@@ -47,19 +69,32 @@ run_step_group() {
 }
 
 run_single_step() {
-    local step="$1" sumstat_name="$2"; log_info "Step: $step"
+    local step="$1" sumstat_name="$2"
+    local step_start_ts step_end_ts step_elapsed rc
+    log_info "Step: $step"
+    step_start_ts=$(date +%s)
+    rc=0
     case "$step" in
-        prep-genotypes) export CFG_STEP_GROUP="prep"; source "${STEPS_DIR}/prep_genotypes.sh"; run_prep_genotypes;;
-        prep-ldref) export CFG_STEP_GROUP="prep"; source "${STEPS_DIR}/prep_ldref.sh"; run_prep_ldref;;
-        prep-inclusion-list) export CFG_STEP_GROUP="prep"; source "${STEPS_DIR}/prep_inclusion_list.sh"; run_prep_inclusion_list;;
-        format-sumstat) source "${STEPS_DIR}/format_sumstat.sh"; run_format_sumstat "$sumstat_name";;
-        filter-variants) source "${STEPS_DIR}/filter_variants.sh"; run_filter_variants "$sumstat_name";;
-        calc-posteriors) source "${STEPS_DIR}/calc_posteriors.sh"; run_calc_posteriors "$sumstat_name" "";;
-        format-posteriors) source "${STEPS_DIR}/format_posteriors.sh"; run_format_posteriors "$sumstat_name";;
-        calc-score) source "${STEPS_DIR}/calc_score.sh"; run_calc_score "$sumstat_name" "";;
-        combine-scores) source "${STEPS_DIR}/combine_scores.sh"; run_combine_scores "$sumstat_name";;
-        finalize-output) source "${STEPS_DIR}/finalize_output.sh"; run_finalize_output "$sumstat_name";;
-        calc-benchmark) source "${STEPS_DIR}/calc_benchmark.sh"; run_calc_benchmark "$sumstat_name" "";;
-        *) return 1;;
+        prep-genotypes) export CFG_STEP_GROUP="prep"; source "${STEPS_DIR}/prep_genotypes.sh"; run_prep_genotypes; rc=$?;;
+        prep-ldref) export CFG_STEP_GROUP="prep"; source "${STEPS_DIR}/prep_ldref.sh"; run_prep_ldref; rc=$?;;
+        prep-inclusion-list) export CFG_STEP_GROUP="prep"; source "${STEPS_DIR}/prep_inclusion_list.sh"; run_prep_inclusion_list; rc=$?;;
+        prep-inclusion-combine) export CFG_STEP_GROUP="prep"; source "${STEPS_DIR}/prep_inclusion_list.sh"; run_prep_inclusion_list_combine; rc=$?;;
+        format-sumstat) source "${STEPS_DIR}/format_sumstat.sh"; run_format_sumstat "$sumstat_name"; rc=$?;;
+        filter-variants) source "${STEPS_DIR}/filter_variants.sh"; run_filter_variants "$sumstat_name"; rc=$?;;
+        calc-posteriors) source "${STEPS_DIR}/calc_posteriors.sh"; run_calc_posteriors "$sumstat_name" ""; rc=$?;;
+        format-posteriors) source "${STEPS_DIR}/format_posteriors.sh"; run_format_posteriors "$sumstat_name"; rc=$?;;
+        calc-score) source "${STEPS_DIR}/calc_score.sh"; run_calc_score "$sumstat_name" ""; rc=$?;;
+        combine-scores) source "${STEPS_DIR}/combine_scores.sh"; run_combine_scores "$sumstat_name"; rc=$?;;
+        finalize-output) source "${STEPS_DIR}/finalize_output.sh"; run_finalize_output "$sumstat_name"; rc=$?;;
+        calc-benchmark) source "${STEPS_DIR}/calc_benchmark.sh"; run_calc_benchmark "$sumstat_name" ""; rc=$?;;
+        *) rc=1;;
     esac
+    step_end_ts=$(date +%s)
+    step_elapsed=$((step_end_ts - step_start_ts))
+    if [[ $rc -eq 0 ]]; then
+        log_info "Step completed: ${step} (elapsed=$(format_elapsed "$step_elapsed"))"
+    else
+        log_error "Step failed: ${step} (elapsed=$(format_elapsed "$step_elapsed"))"
+    fi
+    return $rc
 }

@@ -9,6 +9,10 @@ Track only the **remaining** implementation updates needed to align code with
 - Sumstat reduction produces `sumstat_for_posteriors.tsv.gz` and fills missing EAF from LDref.
 - LDref SNP IDs flow into sbayesR input via `LDREF_SNPID`, and posteriors map LDref -> genotype.
 - Output `variant_map.tsv.gz` written during finalize.
+- **Prep intersection + per-chr mapfiles** (2026-01-16):
+  - `prep_inclusion_list.sh` now emits **intersection-only** base mapfile.
+  - Per-chromosome mapfiles written to `prep/variant_map/chrN.tsv` with `ldref_a2freq`.
+  - Prep map generation runs in **parallel** across chromosomes (config: `prep_max_parallel`).
 - **Format-sumstat single-pass chromosome split** (2026-01-15):
   - `format_sumstat.sh` now outputs per-chromosome files (`formatted/chrN.tsv`).
   - NA filtering and chromosome splitting in a single awk pass.
@@ -24,24 +28,7 @@ Track only the **remaining** implementation updates needed to align code with
 
 ## Remaining updates
 
-### 1) Prep mapfile should be **intersection**, not union
-Files to update:
-- `bin/lib/steps/prep_inclusion_list.sh`
-
-Changes:
-- Switch base `prep/variant_map.tsv` to **intersection** of genotype + LD reference
-  (chr/pos + alleles).
-- Stop emitting unmatched geno-only or ldref-only rows in `prep/variant_map.tsv`.
-
-### 2) Emit per-chromosome mapfiles in prep
-Files to update:
-- `bin/lib/steps/prep_inclusion_list.sh`
-
-Changes:
-- Write `prep/variant_map/chrN.tsv` (one file per chromosome), same schema as `prep/variant_map.tsv`.
-- Ensure inclusion list derivation uses the base mapfile (intersection).
-
-### 3) Update tests / validation checklist
+### 1) Update tests / validation checklist
 - Validate prep mapfile size ~= intersection (geno ∩ ldref), not union.
 - Validate per-chromosome mapfiles exist and sumstat mapfile is concatenated from them.
 - Confirm EAF fill (LDref) still works under per-chromosome processing.

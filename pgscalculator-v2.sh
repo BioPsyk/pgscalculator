@@ -18,7 +18,6 @@ function general_usage(){
   echo "Optional:"
   echo "  -i <dir>          Path to sumstats folder (required for non-prep steps)"
   echo "  -o <dir>          Path to output directory (overrides config)"
-  echo "  --chr <range>     Chromosomes to process (e.g., '21-22', default: 1-22)"
   echo "  --sbatch          Submit as SLURM job using sbatch settings from config"
   echo "                   For per-sumstat steps (sumstat/posteriors/score), this submits a"
   echo "                   lightweight *driver job* that runs sumstat and launches/monitors"
@@ -35,19 +34,21 @@ function general_usage(){
   echo "  posteriors  Calculate posteriors with sbayesR"
   echo "  score       Calculate PGS scores"
   echo ""
-  echo "Config file (config.yaml) should contain:"
-  echo "  ld_reference: /path/to/band_ukb_10k_hm3"
-  echo "  genotypes: /path/to/genotypes"
-  echo "  genotype_manifest: /path/to/manifest.txt"
-  echo "  outdir: /path/to/output"
+ echo "Config file (config.yaml) should contain:"
+ echo "  lddir: /path/to/band_ukb_10k_hm3"
+ echo "  genodir: /path/to/genotypes"
+ echo "  genofile: /path/to/manifest.txt"
+ echo "  outdir: /path/to/output"
  echo ""
   echo "  # Optional: SLURM settings for --sbatch / --sbatch-array"
   echo "  slurm:"
   echo "    account: my_account"
-  echo "    max_parallel: 22"
-  echo "    prep:       { mem: 10g, cpus: 6, time: '1:00:00' }"
+  echo "    partition: normal"
+  echo "    driver:     { mem: 1g, cpus: 1, time: '2:00:00' }"
+  echo "    prep:       { mem: 10g, cpus: 1, time: '1:00:00', max_parallel: 22 }"
+  echo "    sumstat:    { mem: 1g, cpus: 1, time: '0:30:00', max_parallel: 22 }"
   echo "    posteriors: { mem: 20g, cpus: 6, time: '2:00:00', max_parallel: 22 }"
-  echo "    score:      { mem: 10g, cpus: 4, time: '0:30:00' }"
+  echo "    score:      { mem: 10g, cpus: 4, time: '0:30:00', max_parallel: 22 }"
  echo ""
  echo "Examples:"
   echo "  # Step 1: Run prep (once per project)"
@@ -77,7 +78,7 @@ config_file=""
 infold=""
 outdir=""
 steps_arg=""
-chromosomes=""
+chromosomes_override=""
 devmode=""
 use_sbatch=false
 driver_run=false
@@ -94,8 +95,8 @@ while [ $i -lt ${#paramarray[@]} ]; do
         steps_arg="${paramarray[$((i+1))]}"
         i=$((i+2))
       ;;
-    --chr)
-        chromosomes="${paramarray[$((i+1))]}"
+    --_chr)
+        chromosomes_override="${paramarray[$((i+1))]}"
         i=$((i+2))
       ;;
     --sbatch)
@@ -105,7 +106,7 @@ while [ $i -lt ${#paramarray[@]} ]; do
     --_driver-run)
       # Internal flag: run inside a driver job; orchestrates arrays, does not submit itself.
       driver_run=true
-      i=$((i+1))
+        i=$((i+1))
       ;;
     --cleanup)
       do_cleanup=true
@@ -208,10 +209,25 @@ parse_inline_dict() {
   '
 }
 
-# Read paths from config
+# Read paths from config (support new keys + legacy aliases)
 cfg_ld_reference=$(parse_yaml_value "ld_reference" "$config_file_host")
+cfg_lddir=$(parse_yaml_value "lddir" "$config_file_host")
+if [[ -z "$cfg_ld_reference" && -n "$cfg_lddir" ]]; then
+  cfg_ld_reference="$cfg_lddir"
+fi
+
 cfg_genotypes=$(parse_yaml_value "genotypes" "$config_file_host")
+cfg_genodir=$(parse_yaml_value "genodir" "$config_file_host")
+if [[ -z "$cfg_genotypes" && -n "$cfg_genodir" ]]; then
+  cfg_genotypes="$cfg_genodir"
+fi
+
 cfg_genotype_manifest=$(parse_yaml_value "genotype_manifest" "$config_file_host")
+cfg_genofile=$(parse_yaml_value "genofile" "$config_file_host")
+if [[ -z "$cfg_genotype_manifest" && -n "$cfg_genofile" ]]; then
+  cfg_genotype_manifest="$cfg_genofile"
+fi
+
 cfg_outdir=$(parse_yaml_value "outdir" "$config_file_host")
 cfg_chromosomes=$(parse_yaml_value "chromosomes" "$config_file_host")
 
@@ -229,8 +245,8 @@ if [[ -n "$outdir" ]]; then
   cfg_outdir="$outdir"
 fi
 
-if [[ -n "$chromosomes" ]]; then
-  cfg_chromosomes="$chromosomes"
+if [[ -n "$chromosomes_override" ]]; then
+  cfg_chromosomes="$chromosomes_override"
 fi
 
 ################################################################################
@@ -347,15 +363,20 @@ check_sumstat_exists() {
   # Prefer v2.1+ work/, but accept older legacy locations for backwards compatibility.
   local formatted_new="${outdir}/sumstats/${sumstat}/work/formatted/sumstat_formatted.tsv.gz"
   local formatted_legacy="${outdir}/sumstats/${sumstat}/formatted/sumstat_formatted.tsv.gz"
+  local formatted_chr_new_glob="${outdir}/sumstats/${sumstat}/work/formatted/chr*.tsv"
   local filtered_new="${outdir}/sumstats/${sumstat}/work/filtered/sumstat_filtered.tsv.gz"
   local filtered_legacy="${outdir}/sumstats/${sumstat}/filtered/sumstat_filtered.tsv.gz"
   local filtered_chr_new_glob="${outdir}/sumstats/${sumstat}/work/filtered/chr*_filtered.tsv"
   local filtered_chr_legacy_glob="${outdir}/sumstats/${sumstat}/filtered/chr*_filtered.tsv"
 
   if [[ ! -f "$formatted_new" && ! -f "$formatted_legacy" ]]; then
-    echo "  - Formatted sumstat (expected): ${formatted_new}"
-    echo "    (older legacy accepted): ${formatted_legacy}"
-    return 1
+    # Accept per-chromosome formatted files as an alternative.
+    if ! compgen -G "$formatted_chr_new_glob" >/dev/null 2>&1; then
+      echo "  - Formatted sumstat (expected): ${formatted_new}"
+      echo "    (older legacy accepted): ${formatted_legacy}"
+      echo "    (alt accepted): ${formatted_chr_new_glob}"
+      return 1
+    fi
   fi
 
   if [[ ! -f "$filtered_new" && ! -f "$filtered_legacy" ]]; then
@@ -404,9 +425,10 @@ if [[ "$driver_run" == true ]]; then
   #   --steps sumstat,posteriors,score
   # Order is enforced: sumstat -> posteriors -> score
   if [[ -z "${steps_arg:-}" ]]; then
-    >&2 echo "Error: --_driver-run requires --steps (sumstat, posteriors, score, or combinations thereof)"
+    >&2 echo "Error: --_driver-run requires --steps (prep, sumstat, posteriors, score, or combinations thereof)"
     exit 1
   fi
+  has_prep=false
   has_sumstat=false
   has_posteriors=false
   has_score=false
@@ -415,22 +437,24 @@ if [[ "$driver_run" == true ]]; then
     _s="$(echo "$_s" | awk '{$1=$1;print}')"
     [[ -z "$_s" ]] && continue
     if [[ "$_s" == "prep" ]]; then
-      >&2 echo "Error: prep must be run on its own (do not include prep in driver jobs)"
-      exit 1
-    fi
-    if [[ "$_s" == "sumstat" ]]; then
+      has_prep=true
+    elif [[ "$_s" == "sumstat" ]]; then
       has_sumstat=true
     elif [[ "$_s" == "posteriors" ]]; then
       has_posteriors=true
     elif [[ "$_s" == "score" ]]; then
       has_score=true
     else
-      >&2 echo "Error: driver mode only supports --steps sumstat, posteriors, score (or combinations) (got: '${steps_arg}')"
+      >&2 echo "Error: driver mode only supports --steps prep, sumstat, posteriors, score (or combinations) (got: '${steps_arg}')"
       exit 1
     fi
   done
-  if [[ "$has_sumstat" != true && "$has_posteriors" != true && "$has_score" != true ]]; then
-    >&2 echo "Error: --sbatch-array requires --steps to include sumstat and/or posteriors and/or score"
+  if [[ "$has_prep" == true && ( "$has_sumstat" == true || "$has_posteriors" == true || "$has_score" == true ) ]]; then
+    >&2 echo "Error: prep must be run on its own (do not include prep with other steps in driver jobs)"
+    exit 1
+  fi
+  if [[ "$has_prep" != true && "$has_sumstat" != true && "$has_posteriors" != true && "$has_score" != true ]]; then
+    >&2 echo "Error: --_driver-run requires --steps to include prep and/or sumstat/posteriors/score"
     exit 1
   fi
 
@@ -442,18 +466,20 @@ if [[ "$driver_run" == true ]]; then
   mkdir -p "${cfg_outdir}"
   outdir_host=$(realpath "${cfg_outdir}")
 
-  # In --sbatch-array mode we exit before the later "Resolve paths" block.
-  # Compute sumstat_name here so watcher sanity-checks can run.
-  if [[ -z "${infold:-}" ]]; then
-    >&2 echo "Error: --sbatch-array requires -i <sumstat_dir>"
-    exit 1
-  fi
+  # In driver mode we exit before the later "Resolve paths" block.
+  # For non-prep steps, compute sumstat_name here so watcher sanity-checks can run.
+  if [[ "$has_prep" != true ]]; then
+    if [[ -z "${infold:-}" ]]; then
+      >&2 echo "Error: --_driver-run requires -i <sumstat_dir> for sumstat/posteriors/score"
+      exit 1
+    fi
 infold_host=$(realpath "${infold}")
-  if [[ ! -d "$infold_host" ]]; then
-    >&2 echo "Error: Input directory doesn't exist: $infold_host"
-    exit 1
+    if [[ ! -d "$infold_host" ]]; then
+      >&2 echo "Error: Input directory doesn't exist: $infold_host"
+      exit 1
+    fi
+    sumstat_name=$(basename "$infold_host")
   fi
-  sumstat_name=$(basename "$infold_host")
 
   # Read SLURM settings from config
   slurm_account=$(parse_yaml_nested "slurm" "account" "$config_file_host")
@@ -467,9 +493,13 @@ infold_host=$(realpath "${infold}")
   fi
   chr_count=$(echo "$chr_list" | wc -w | awk '{print $1}')
 
-  # Keep SLURM logs contained within the sumstat folder to avoid collisions across runs.
+  # Keep SLURM logs contained within the appropriate folder.
   # (prep is shared; sumstat/posteriors/score are per-sumstat)
-  log_dir="${outdir_host}/sumstats/${sumstat_name}/logs/slurm"
+  if [[ "$has_prep" == true ]]; then
+    log_dir="${outdir_host}/prep/logs/slurm"
+  else
+    log_dir="${outdir_host}/sumstats/${sumstat_name}/logs/slurm"
+  fi
   mkdir -p "$log_dir"
 
   watch_array() {
@@ -737,6 +767,10 @@ infold_host=$(realpath "${infold}")
       slurm_mem="${slurm_mem:-1g}"
       slurm_cpus="${slurm_cpus:-1}"
       slurm_time="${slurm_time:-0:30:00}"
+    elif [[ "$step_profile" == "prep" ]]; then
+      slurm_mem="${slurm_mem:-10g}"
+      slurm_cpus="${slurm_cpus:-2}"
+      slurm_time="${slurm_time:-2:00:00}"
     else
       slurm_mem="${slurm_mem:-20g}"
       slurm_cpus="${slurm_cpus:-8}"
@@ -806,6 +840,8 @@ infold_host=$(realpath "${infold}")
       steps_arg_for_task="filter-variants"
     elif [[ "$step_profile" == "score" ]]; then
       steps_arg_for_task="calc-score"
+    elif [[ "$step_profile" == "prep" ]]; then
+      steps_arg_for_task="prep-inclusion-list"
     fi
 
     run_cmd="${project_dir}/pgscalculator-v2.sh --config ${config_file_host} --steps ${steps_arg_for_task}"
@@ -816,7 +852,7 @@ infold_host=$(realpath "${infold}")
     task_wrap="CHR=\$(sed -n \"\${SLURM_ARRAY_TASK_ID}p\" \"${chr_file}\"); \
 if [[ -z \"\$CHR\" ]]; then echo \"Error: could not resolve chromosome for task \$SLURM_ARRAY_TASK_ID\" >&2; exit 1; fi; \
 echo \"[INFO] Starting ${step_profile} chr\${CHR} at \$(date)\"; \
-${run_cmd} --chr \"\$CHR\"; \
+${run_cmd} --_chr \"\$CHR\"; \
 rc=\$?; echo \"[INFO] Finished ${step_profile} chr\${CHR} at \$(date) (exit=\$rc)\"; exit \$rc"
 
     # Build sbatch args as an array to avoid brittle quoting + eval issues.
@@ -899,8 +935,26 @@ rc=\$?; echo \"[INFO] Finished ${step_profile} chr\${CHR} at \$(date) (exit=\$rc
   run_base="${project_dir}/pgscalculator-v2.sh --config ${config_file_host}"
   [[ -n "$infold" ]] && run_base="${run_base} -i ${infold}"
   [[ -n "$outdir" ]] && run_base="${run_base} -o ${outdir}"
-  [[ -n "$chromosomes" ]] && run_base="${run_base} --chr ${chromosomes}"
   [[ -n "$devmode" ]] && run_base="${run_base} -d"
+
+  if [[ "$has_prep" == true ]]; then
+    echo "Running prep-genotypes and prep-ldref inside driver job..."
+    eval "${run_base} --steps prep-genotypes,prep-ldref"
+
+    # Run prep-inclusion-list as a SLURM array (per-chromosome)
+    submit_array_for_step "prep"
+
+    # Combine per-chromosome maps + inclusion list after array completes
+    echo "Running prep-inclusion-list combine..."
+    eval "${run_base} --steps prep-inclusion-combine"
+
+    if [[ "$do_cleanup" == true ]]; then
+      echo "Cleanup enabled: removing prep tmp/"
+      cleanup_work_and_tmp "$outdir_host" ""
+    fi
+
+    exit 0
+  fi
 
   if [[ "$has_sumstat" == true ]]; then
     # Step 1: Run format-sumstat directly (produces per-chr files)
@@ -994,7 +1048,7 @@ if [[ "$use_sbatch" == true ]]; then
   outdir_host=$(realpath "${cfg_outdir}")
 
   if [[ "$has_prep" == true ]]; then
-    # Prep job (shared across sumstats)
+    # Prep driver job (runs prep-genotypes/ldref, submits prep-inclusion-list array)
     step_profile="prep"
     step_settings=$(parse_yaml_nested "slurm" "$step_profile" "$config_file_host")
     slurm_mem=""
@@ -1009,11 +1063,11 @@ if [[ "$use_sbatch" == true ]]; then
     slurm_cpus="${slurm_cpus:-2}"
     slurm_time="${slurm_time:-2:00:00}"
 
-    job_name="pgs_prep"
+    job_name="pgs_prep_driver"
     log_dir="${outdir_host}/prep/logs/slurm"
     mkdir -p "$log_dir"
 
-    run_cmd="${project_dir}/pgscalculator-v2.sh --config ${config_file_host} --steps prep"
+    run_cmd="${project_dir}/pgscalculator-v2.sh --config ${config_file_host} --steps prep --_driver-run"
     [[ -n "$outdir" ]] && run_cmd="${run_cmd} -o ${outdir}"
     [[ -n "$devmode" ]] && run_cmd="${run_cmd} -d"
     [[ "$do_cleanup" == true ]] && run_cmd="${run_cmd} --cleanup"
@@ -1076,7 +1130,6 @@ fi
 
   run_cmd="${project_dir}/pgscalculator-v2.sh --config ${config_file_host} --steps ${steps_arg} -i ${infold} --_driver-run"
   [[ -n "$outdir" ]] && run_cmd="${run_cmd} -o ${outdir}"
-  [[ -n "$chromosomes" ]] && run_cmd="${run_cmd} --chr ${chromosomes}"
   [[ -n "$devmode" ]] && run_cmd="${run_cmd} -d"
   [[ "$do_cleanup" == true ]] && run_cmd="${run_cmd} --cleanup"
 
@@ -1182,7 +1235,21 @@ fi
 ################################################################################
 
 # Check prerequisites based on requested steps
-if [[ "$steps_arg" != "prep" ]]; then
+needs_prep_check=1
+if [[ "$steps_arg" == "prep" ]]; then
+  needs_prep_check=0
+else
+  IFS="," read -ra steps_list <<< "$steps_arg"
+  needs_prep_check=0
+  for step in "${steps_list[@]}"; do
+    if [[ ! "$step" =~ ^prep(-genotypes|-ldref|-inclusion-list|-inclusion-combine)?$ ]]; then
+      needs_prep_check=1
+      break
+    fi
+  done
+fi
+
+if [[ "$needs_prep_check" -eq 1 ]]; then
   # Non-prep steps require prep to be completed
   missing_prep=$(check_prep_exists "$outdir_host")
   if [[ $? -ne 0 ]]; then
@@ -1274,7 +1341,7 @@ fi
 # Generate container config.yaml
 ################################################################################
 # Use a unique filename to avoid collisions between concurrent runs / SLURM array tasks.
-# IMPORTANT: array tasks run in parallel and may pass different --chr values; if they share the same
+# IMPORTANT: array tasks run in parallel and may pass different --_chr values; if they share the same
 # config_container.yaml path, they can overwrite each other and end up running the wrong chromosome.
 config_base_dir=""
 if [[ -n "${sumstat_name:-}" ]]; then
@@ -1446,9 +1513,9 @@ echo "Output: ${outdir_host}"
   echo "Command: ${cli_cmd}"
 
   # Force temp usage inside container to /tmp (which we bind to ${outdir_host}/tmp).
-  # With --cleanenv, set via SINGULARITYENV_*
-  SINGULARITYENV_TMPDIR=/tmp \
-  SINGULARITYENV_TMP=/tmp \
+  # With --cleanenv, set via APPTAINERENV_*
+  APPTAINERENV_TMPDIR=/tmp \
+  APPTAINERENV_TMP=/tmp \
   singularity run \
      --contain \
      --cleanenv \

@@ -151,13 +151,13 @@ run_filter_variants() {
     else
         # Legacy mode: single formatted file
         local formatted_sumstat="${format_dir}/sumstat_formatted.tsv.gz"
-        
-        # Count input variants
-        local input_count
-        input_count=$(zcat "$formatted_sumstat" | wc -l)
-        input_count=$((input_count - 1))
-        log_info "Input variants: ${input_count}"
-        
+    
+    # Count input variants
+    local input_count
+    input_count=$(zcat "$formatted_sumstat" | wc -l)
+    input_count=$((input_count - 1))
+    log_info "Input variants: ${input_count}"
+    
         # Step 1: Build sumstat-annotated mapfile + reduce sumstat to mapfile intersection
         log_substep "Building sumstat mapfile and reducing to mapfile intersection"
         build_sumstat_map_and_reduce "$prep_mapfile" "$formatted_sumstat" "$sumstat_mapfile" "$sumstat_for_posteriors" "$list_gt" "$list_ss" "$list_ld"
@@ -165,14 +165,14 @@ run_filter_variants() {
             log_error "sumstat_for_posteriors is missing or empty: ${sumstat_for_posteriors}"
             exit 1
         fi
-        
-        local filtered_count
+    
+    local filtered_count
         filtered_count=$(zcat "$sumstat_for_posteriors" | wc -l)
-        filtered_count=$((filtered_count - 1))
-        local reduction_pct
-        reduction_pct=$(awk "BEGIN {printf \"%.1f\", (1 - $filtered_count / $input_count) * 100}")
-        log_info "After inclusion list filter: ${filtered_count} variants (${reduction_pct}% reduction)"
-
+    filtered_count=$((filtered_count - 1))
+    local reduction_pct
+    reduction_pct=$(awk "BEGIN {printf \"%.1f\", (1 - $filtered_count / $input_count) * 100}")
+    log_info "After inclusion list filter: ${filtered_count} variants (${reduction_pct}% reduction)"
+    
         # If the whole-file filtering yields 0 variants, hard-exit.
         if [[ "$filtered_count" -le 0 ]]; then
             log_error "No variants left after mapfile reduction/inclusion-list filtering (0 variants)."
@@ -181,7 +181,7 @@ run_filter_variants() {
         fi
         
         # Step 2: Derive N/EAF/B/SE on the filtered subset
-        log_substep "Deriving N/EAF/B/SE statistics"
+    log_substep "Deriving N/EAF/B/SE statistics"
         local tmp_filtered
         tmp_filtered="$(mktemp "${step_dir}/sumstat_filtered.tsv.tmp.XXXXXX")"
         zcat "$sumstat_for_posteriors" > "${step_dir}/sumstat_filtered_raw.tsv"
@@ -196,14 +196,14 @@ run_filter_variants() {
             exit 1
         fi
         
-        rm -f "${step_dir}/sumstat_filtered_raw.tsv"
-        
-        # Step 3: Split filtered sumstat by chromosome
-        log_substep "Splitting filtered sumstat by chromosome"
-        split_filtered_by_chr "${step_dir}/sumstat_filtered.tsv" "$step_dir"
-        
-        # Step 4: Compress the main filtered file
-        gzip -f "${step_dir}/sumstat_filtered.tsv"
+    rm -f "${step_dir}/sumstat_filtered_raw.tsv"
+    
+    # Step 3: Split filtered sumstat by chromosome
+    log_substep "Splitting filtered sumstat by chromosome"
+    split_filtered_by_chr "${step_dir}/sumstat_filtered.tsv" "$step_dir"
+    
+    # Step 4: Compress the main filtered file
+    gzip -f "${step_dir}/sumstat_filtered.tsv"
     fi
     
     # Mark step as completed
@@ -212,8 +212,8 @@ run_filter_variants() {
     # Report results
     local output_count=0
     if [[ -f "${step_dir}/sumstat_filtered.tsv.gz" ]]; then
-        output_count=$(zcat "${step_dir}/sumstat_filtered.tsv.gz" | wc -l)
-        output_count=$((output_count - 1))
+    output_count=$(zcat "${step_dir}/sumstat_filtered.tsv.gz" | wc -l)
+    output_count=$((output_count - 1))
     elif [[ -f "$sumstat_for_posteriors" ]]; then
         output_count=$(zcat "$sumstat_for_posteriors" | wc -l)
         output_count=$((output_count - 1))
@@ -401,8 +401,8 @@ build_sumstat_map_and_reduce_chr() {
         }
         FNR==1 {
             for (i=1;i<=NF;i++) {
-                if ($i=="CHR" || $i=="chr" || $i=="#CHR") chr_c=i
-                else if ($i=="POS" || $i=="pos" || $i=="BP" || $i=="Position") pos_c=i
+                if (!chr_c && ($i=="CHR" || $i=="chr" || $i=="#CHR")) chr_c=i
+                else if (!pos_c && ($i=="POS" || $i=="pos" || $i=="BP" || $i=="Position")) pos_c=i
                 else if ($i=="RSID" || $i=="rsid" || $i=="SNP" || $i=="ID") snp_c=i
                 else if ($i=="EffectAllele" || $i=="A1" || $i=="effect_allele") a1_c=i
                 else if ($i=="OtherAllele" || $i=="A2" || $i=="other_allele") a2_c=i
@@ -870,7 +870,7 @@ derive_stats() {
         log_debug "Wrote removed lines: ${removed_out}"
         log_debug "Wrote removed reason counts: ${removed_counts}"
     fi
-
+    
     # Clean up
     rm -rf "$tmpdir"
     
@@ -885,7 +885,7 @@ add_sample_size() {
     local output="$2"
     local metadata_file="$3"
     local which_n="$4"
-
+    
     # Prefer metadata-derived N when the sumstat file doesn't include N/CaseN/ControlN.
     # cleaned_metadata.yaml is produced by cleansumstats and includes:
     # - stats_TotalN
@@ -932,7 +932,7 @@ add_sample_size() {
                 # Calculate effective N: 4 * (cases * controls) / (cases + controls)
                 if ($case_col != "NA" && $ctrl_col != "NA" && $case_col > 0 && $ctrl_col > 0) {
                     eff_n = 4 * ($case_col * $ctrl_col) / ($case_col + $ctrl_col)
-                    $n_col = eff_n
+                        $n_col = eff_n
                 }
                 print
             } else if (default_n != "" && default_n != "NA" && default_n + 0 > 0) {
@@ -1044,27 +1044,27 @@ force_eaf() {
     else
         # No ldref_eaf file, fall back to old behavior (EAF_1KG)
         log_debug "No LD reference EAF file found, using EAF_1KG as fallback"
-        
-        awk -F'\t' -v OFS='\t' '
-            NR == 1 {
-                has_eaf = 0
-                has_eaf_1kg = 0
-                for(i=1; i<=NF; i++) {
-                    header[i] = $i
-                    if($i == "EAF") { eaf_col = i; has_eaf = 1 }
-                    if($i == "EAF_1KG") { eaf_1kg_col = i; has_eaf_1kg = 1 }
-                }
-                print
-                next
+    
+    awk -F'\t' -v OFS='\t' '
+        NR == 1 {
+            has_eaf = 0
+            has_eaf_1kg = 0
+            for(i=1; i<=NF; i++) {
+                header[i] = $i
+                if($i == "EAF") { eaf_col = i; has_eaf = 1 }
+                if($i == "EAF_1KG") { eaf_1kg_col = i; has_eaf_1kg = 1 }
             }
-            {
-                if (has_eaf && ($eaf_col == "NA" || $eaf_col == "") && has_eaf_1kg) {
-                    # Use EAF_1KG as fallback
-                    $eaf_col = $eaf_1kg_col
-                }
-                print
+            print
+            next
+        }
+        {
+            if (has_eaf && ($eaf_col == "NA" || $eaf_col == "") && has_eaf_1kg) {
+                # Use EAF_1KG as fallback
+                $eaf_col = $eaf_1kg_col
             }
-        ' "$input" > "$output"
+            print
+        }
+    ' "$input" > "$output"
     fi
 }
 

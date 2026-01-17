@@ -559,21 +559,23 @@ dispatch_command() {
             require_file "$CONFIG_FILE" "Config file required. Use --config FILE"
             # Sumstat name is only required for non-prep steps
             if [[ -z "$SUMSTAT_NAME" ]]; then
-                # Check if only prep steps are being run
-                if [[ "$STEPS" != "prep" ]] && [[ "$RUN_ALL" -eq 1 ]]; then
+                # For --all runs, sumstat is required.
+                if [[ "$RUN_ALL" -eq 1 ]]; then
                     log_error "Sumstat name required. Use --sumstat NAME"
                     exit 1
                 fi
-                # For non-all runs, check if any non-prep steps are requested
-                if [[ -n "$STEPS" ]] && [[ "$STEPS" != "prep" ]]; then
-                    # Check if steps contain anything other than prep
+                # For explicit --steps, allow any prep-only selection.
+                if [[ -n "$STEPS" ]]; then
                     local needs_sumstat=0
                     IFS=',' read -ra step_array <<< "$STEPS"
                     for s in "${step_array[@]}"; do
-                        if [[ "$s" != "prep" ]]; then
-                            needs_sumstat=1
-                            break
+                        s="$(echo "$s" | awk '{$1=$1;print}')"
+                        [[ -z "$s" ]] && continue
+                        if [[ "$s" == "prep" ]] || [[ "$s" == prep-* ]]; then
+                            continue
                         fi
+                        needs_sumstat=1
+                        break
                     done
                     if [[ $needs_sumstat -eq 1 ]]; then
                         log_error "Sumstat name required for non-prep steps. Use --sumstat NAME"

@@ -41,20 +41,20 @@ Create `config.yaml` with your reference data paths:
 
 ```yaml
 # config.yaml
+input: /path/to/cleansumstats/output
 outdir: /path/to/output
-ld_reference: /path/to/ld-reference/band_ukb_10k_hm3
-genotypes: /path/to/genotypes
-genotype_manifest: /path/to/genotype_manifest.txt
+genodir: /path/to/genotypes
+genofile: /path/to/genotype_manifest.tsv
+lddir: /path/to/ld_reference
 
-# Optional reference files for filtering (recommended if you want to apply INFO/MAF filters)
-references:
-  info_file: /path/to/info_scores.tsv   # (optional) or set to false to disable INFO filtering
-  maf_file:  /path/to/maf.tsv           # (optional) or set to false to disable MAF filtering
-
-# Variant filters used when building the inclusion list (prep-inclusion-list)
+# Variant inclusion lists (optional)
 filters:
-  info_threshold: 0.8   # set to 0 to disable INFO filtering
-  maf_threshold: 0.01   # set to 0 to disable MAF filtering (and avoid computing MAF)
+  inclusion_list:
+    gt: /path/to/genotype_snpids.txt
+    ss: /path/to/sumstat_snpids.txt
+    ld: /path/to/ldref_snpids.txt
+
+whichn: totalN
 
 sbayesr:
   gamma: "0.0,0.01,0.1,1"
@@ -64,6 +64,11 @@ sbayesr:
   threads: 6
   seed: 80851
   exclude_mhc: true
+  unscale_genotype: true
+  impute_n: false
+
+# Scoring columns (variant_id allele effect)
+score_columns: 2 5 9
 
 # PLINK2 settings
 plink:
@@ -72,7 +77,10 @@ plink:
 # Optional: SLURM settings for --sbatch
 slurm:
   account: my_account
-  prep:       { mem: 10g, cpus: 6, time: '1:00:00' }
+  partition: normal
+  driver:     { mem: 1g, cpus: 1, time: '2:00:00' }
+  prep:       { mem: 10g, cpus: 1, time: '1:00:00', max_parallel: 22 }
+  sumstat:    { mem: 1g, cpus: 1, time: '0:30:00', max_parallel: 22 }
   # Optional: per-step max concurrent array tasks for chromosome-parallel arrays (default: 22)
   posteriors: { mem: 20g, cpus: 6, time: '2:00:00', max_parallel: 22 }
   score:      { mem: 10g, cpus: 4, time: '0:30:00', max_parallel: 22 }

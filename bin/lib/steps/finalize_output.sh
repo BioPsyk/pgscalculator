@@ -160,7 +160,9 @@ generate_augmented_sumstat() {
     
     migrate_sumstat_step_dir "$sumstat_dir" "formatted"
     local formatted_sumstat
-    formatted_sumstat="$(get_sumstat_step_dir "$sumstat_dir" "formatted")/sumstat_formatted.tsv.gz"
+    local formatted_dir
+    formatted_dir="$(get_sumstat_step_dir "$sumstat_dir" "formatted")"
+    formatted_sumstat="${formatted_dir}/sumstat_formatted.tsv.gz"
     local variant_map="${sumstat_dir}/variant_map.tsv"
     if [[ ! -f "$variant_map" ]]; then
         variant_map="${prep_dir}/variant_map.tsv"
@@ -168,8 +170,27 @@ generate_augmented_sumstat() {
     local output_file="${sumstat_dir}/sumstat_augmented.tsv.gz"
     
     if [[ ! -f "$formatted_sumstat" ]]; then
-        log_warn "Formatted sumstat not found, skipping augmented sumstat generation"
-        return 0
+        local formatted_chr_glob="${formatted_dir}/chr*.tsv"
+        if compgen -G "$formatted_chr_glob" >/dev/null 2>&1; then
+            log_warn "Formatted sumstat not found; building from per-chromosome files"
+            {
+                local first=1
+                local chr_file=""
+                for chr in $(get_chromosomes); do
+                    chr_file="${formatted_dir}/chr${chr}.tsv"
+                    [[ -f "$chr_file" ]] || continue
+                    if [[ "$first" -eq 1 ]]; then
+                        cat "$chr_file"
+                        first=0
+                    else
+                        tail -n +2 "$chr_file"
+                    fi
+                done
+            } | gzip > "$formatted_sumstat"
+        else
+            log_warn "Formatted sumstat not found, skipping augmented sumstat generation"
+            return 0
+        fi
     fi
     
     # Join formatted sumstat with posteriors and variant map
