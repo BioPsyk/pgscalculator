@@ -209,6 +209,22 @@ parse_inline_dict() {
   '
 }
 
+# Format SBATCH settings for logging.
+format_sbatch_settings() {
+  local array_spec="${1:-none}"
+  local max_parallel="${2:-}"
+  local account="${slurm_account:-none}"
+  local partition="${slurm_partition:-none}"
+  local mem="${slurm_mem:-}"
+  local cpus="${slurm_cpus:-}"
+  local time="${slurm_time:-}"
+  if [[ -n "$max_parallel" ]]; then
+    echo "SBATCH: account=${account}, partition=${partition}, mem=${mem}, cpus=${cpus}, time=${time}, array=${array_spec}, max_parallel=${max_parallel}"
+  else
+    echo "SBATCH: account=${account}, partition=${partition}, mem=${mem}, cpus=${cpus}, time=${time}, array=${array_spec}"
+  fi
+}
+
 # Read paths from config (support new keys + legacy aliases)
 cfg_ld_reference=$(parse_yaml_value "ld_reference" "$config_file_host")
 cfg_lddir=$(parse_yaml_value "lddir" "$config_file_host")
@@ -875,6 +891,7 @@ rc=\$?; echo \"[INFO] Finished ${step_profile} chr\${CHR} at \$(date) (exit=\$rc
     if [[ "$step_profile" == "score" ]]; then
       echo "  Note: array mode runs 'calc-score' only; combine/finalize will run once after the score array finishes."
     fi
+    echo "  $(format_sbatch_settings "1-${step_chr_count}%${max_parallel}" "${max_parallel}")"
     echo "  Chromosomes: ${step_chr_list}"
     echo "  Array: 1-${step_chr_count}%${max_parallel} (max_parallel=${max_parallel})"
     echo "  Resources per task: mem=${slurm_mem}, cpus=${slurm_cpus}, time=${slurm_time}"
@@ -1085,6 +1102,7 @@ if [[ "$use_sbatch" == true ]]; then
 
     echo "Submitting SLURM job..."
     echo "  Job name: ${job_name}"
+    echo "  $(format_sbatch_settings "none")"
     echo "  Resources: mem=${slurm_mem}, cpus=${slurm_cpus}, time=${slurm_time}"
     echo "  Command: ${run_cmd}"
     echo ""
@@ -1146,6 +1164,7 @@ fi
 
   echo "Submitting SLURM driver job..."
   echo "  Job name: ${job_name}"
+  echo "  $(format_sbatch_settings "none")"
   echo "  Resources: mem=${slurm_mem}, cpus=${slurm_cpus}, time=${slurm_time}"
   echo "  Command: ${run_cmd}"
   echo ""
