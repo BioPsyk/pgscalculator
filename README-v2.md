@@ -68,7 +68,7 @@ sbayesr:
   impute_n: false
 
 # Scoring columns (variant_id allele effect)
-score_columns: 2 5 9
+score_columns: 1 2 5
 
 # PLINK2 settings
 plink:
@@ -194,9 +194,6 @@ The wrapper script (`pgscalculator-v2.sh`) uses a config-first approach:
 # Run specific steps only (prerequisite checking will warn if previous steps missing)
 ./pgscalculator-v2.sh --config config.yaml --steps posteriors,score -i /path/to/sumstat_TRAIT
 
-# Limit to specific chromosomes (for testing)
-./pgscalculator-v2.sh --config config.yaml --steps sumstat,posteriors,score -i /path/to/sumstat_TRAIT --chr 21-22
-
 # Submit as SLURM job (uses slurm settings from config)
 ./pgscalculator-v2.sh --config config.yaml --steps sumstat,posteriors,score -i /path/to/sumstat_TRAIT --sbatch
 ```
@@ -209,8 +206,9 @@ The wrapper script (`pgscalculator-v2.sh`) uses a config-first approach:
 | `--steps <list>` | **Required**: Steps to run: `prep`, `sumstat`, `posteriors`, `score` |
 | `-i <dir>` | Path to sumstat folder (required for non-prep steps) |
 | `-o <dir>` | Output directory (overrides config) |
-| `--chr <range>` | Chromosome range (e.g., "21-22") |
+| `--force` | Force re-run of steps even if already completed |
 | `--sbatch` | Submit as SLURM job using slurm settings from config |
+| `--cleanup` | Remove work/tmp folders after successful run |
 | `-d` | Dev/verbose mode |
 | `-v` | Show version |
 
@@ -281,24 +279,42 @@ genodir: /path/to/genotypes
 genofile: /path/to/genotype_manifest.tsv
 lddir: /path/to/ld_reference
 
-# Filtering thresholds
+# Variant inclusion lists (optional)
 filters:
-  info_threshold: 0.8
-  maf_threshold: 0.01
+  inclusion_list:
+    gt: /path/to/genotype_snpids.txt
+    ss: /path/to/sumstat_snpids.txt
+    ld: /path/to/ldref_snpids.txt
+
 whichn: totalN
 
-# sbayesR parameters
 sbayesr:
-  gamma: 0.0,0.01,0.1,1
-  pi: 0.95,0.02,0.02,0.01
+  gamma: "0.0,0.01,0.1,1"
+  pi: "0.95,0.02,0.02,0.01"
   burn_in: 2000
   chain_length: 10000
   threads: 6
   seed: 80851
   exclude_mhc: true
+  unscale_genotype: true
+  impute_n: false
 
 # Scoring columns (variant_id allele effect)
-score_columns: 2 5 9
+score_columns: 1 2 5
+
+# PLINK2 settings
+plink:
+  threads: 4
+
+# Optional: SLURM settings for --sbatch
+slurm:
+  account: my_account
+  partition: normal
+  driver:     { mem: 1g, cpus: 1, time: '2:00:00' }
+  prep:       { mem: 10g, cpus: 1, time: '1:00:00', max_parallel: 22 }
+  sumstat:    { mem: 1g, cpus: 1, time: '0:30:00', max_parallel: 22 }
+  posteriors: { mem: 20g, cpus: 6, time: '2:00:00', max_parallel: 22 }
+  score:      { mem: 10g, cpus: 4, time: '0:30:00', max_parallel: 22 }
 ```
 
 ## Testing

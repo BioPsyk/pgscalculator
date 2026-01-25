@@ -18,6 +18,7 @@ function general_usage(){
   echo "Optional:"
   echo "  -i <dir>          Path to sumstats folder (required for non-prep steps)"
   echo "  -o <dir>          Path to output directory (overrides config)"
+  echo "  --force           Force re-run of steps even if already completed"
   echo "  --sbatch          Submit as SLURM job using sbatch settings from config"
   echo "                   For per-sumstat steps (sumstat/posteriors/score), this submits a"
   echo "                   lightweight *driver job* that runs sumstat and launches/monitors"
@@ -80,6 +81,7 @@ outdir=""
 steps_arg=""
 chromosomes_override=""
 devmode=""
+force_mode=""
 use_sbatch=false
 driver_run=false
 do_cleanup=false
@@ -110,6 +112,10 @@ while [ $i -lt ${#paramarray[@]} ]; do
       ;;
     --cleanup)
       do_cleanup=true
+      i=$((i+1))
+      ;;
+    --force|-f)
+      force_mode="--force"
       i=$((i+1))
       ;;
     -i)
@@ -864,6 +870,7 @@ infold_host=$(realpath "${infold}")
     [[ -n "$infold" ]] && run_cmd="${run_cmd} -i ${infold}"
     [[ -n "$outdir" ]] && run_cmd="${run_cmd} -o ${outdir}"
     [[ -n "$devmode" ]] && run_cmd="${run_cmd} -d"
+    [[ -n "$force_mode" ]] && run_cmd="${run_cmd} --force"
 
     task_wrap="CHR=\$(sed -n \"\${SLURM_ARRAY_TASK_ID}p\" \"${chr_file}\"); \
 if [[ -z \"\$CHR\" ]]; then echo \"Error: could not resolve chromosome for task \$SLURM_ARRAY_TASK_ID\" >&2; exit 1; fi; \
@@ -953,6 +960,7 @@ rc=\$?; echo \"[INFO] Finished ${step_profile} chr\${CHR} at \$(date) (exit=\$rc
   [[ -n "$infold" ]] && run_base="${run_base} -i ${infold}"
   [[ -n "$outdir" ]] && run_base="${run_base} -o ${outdir}"
   [[ -n "$devmode" ]] && run_base="${run_base} -d"
+  [[ -n "$force_mode" ]] && run_base="${run_base} --force"
 
   if [[ "$has_prep" == true ]]; then
     echo "Running prep-genotypes and prep-ldref inside driver job..."
@@ -1011,6 +1019,7 @@ rc=\$?; echo \"[INFO] Finished ${step_profile} chr\${CHR} at \$(date) (exit=\$rc
     [[ -n "$infold" ]] && follow_cmd="${follow_cmd} -i ${infold}"
     [[ -n "$outdir" ]] && follow_cmd="${follow_cmd} -o ${outdir}"
     [[ -n "$devmode" ]] && follow_cmd="${follow_cmd} -d"
+    [[ -n "$force_mode" ]] && follow_cmd="${follow_cmd} --force"
     eval "$follow_cmd"
   fi
 
@@ -1087,6 +1096,7 @@ if [[ "$use_sbatch" == true ]]; then
     run_cmd="${project_dir}/pgscalculator-v2.sh --config ${config_file_host} --steps prep --_driver-run"
     [[ -n "$outdir" ]] && run_cmd="${run_cmd} -o ${outdir}"
     [[ -n "$devmode" ]] && run_cmd="${run_cmd} -d"
+    [[ -n "$force_mode" ]] && run_cmd="${run_cmd} --force"
     [[ "$do_cleanup" == true ]] && run_cmd="${run_cmd} --cleanup"
 
     sbatch_args=(--parsable)
@@ -1149,6 +1159,7 @@ fi
   run_cmd="${project_dir}/pgscalculator-v2.sh --config ${config_file_host} --steps ${steps_arg} -i ${infold} --_driver-run"
   [[ -n "$outdir" ]] && run_cmd="${run_cmd} -o ${outdir}"
   [[ -n "$devmode" ]] && run_cmd="${run_cmd} -d"
+  [[ -n "$force_mode" ]] && run_cmd="${run_cmd} --force"
   [[ "$do_cleanup" == true ]] && run_cmd="${run_cmd} --cleanup"
 
   sbatch_args=(--parsable)
@@ -1441,6 +1452,10 @@ fi
 
 if [[ -n "$devmode" ]]; then
   cli_cmd="${cli_cmd} ${devmode}"
+fi
+
+if [[ -n "$force_mode" ]]; then
+  cli_cmd="${cli_cmd} ${force_mode}"
 fi
 
 ################################################################################
