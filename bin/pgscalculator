@@ -57,6 +57,7 @@ COMMANDS:
 OPTIONS:
     --config FILE       Path to config.yaml file (required for most commands)
     --sumstat NAME      Name of sumstat to process (for per-sumstat commands)
+    --force             Force re-run of steps even if already completed
     --verbose           Enable verbose output
     --dry-run           Show what would be done without executing
 
@@ -402,6 +403,7 @@ parse_args() {
     STEPS=""
     RUN_ALL=0
     SKIP_PREP=0
+    FORCE=0
     MAF_THRESHOLD=""
     
     while [[ $# -gt 0 ]]; do
@@ -428,6 +430,10 @@ parse_args() {
                 ;;
             --skip-prep)
                 SKIP_PREP=1
+                shift
+                ;;
+            --force|-f)
+                FORCE=1
                 shift
                 ;;
             --maf)

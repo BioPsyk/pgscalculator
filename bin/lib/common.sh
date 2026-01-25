@@ -99,6 +99,11 @@ check_step_completed() {
     local step_dir="$1"
     local marker_file="${step_dir}/.completed"
     
+    # If FORCE=1 is set, always return false (step not completed)
+    if [[ "${FORCE:-0}" -eq 1 ]]; then
+        return 1
+    fi
+    
     if [[ -f "$marker_file" ]]; then
         return 0
     fi
