@@ -12,7 +12,16 @@ genotypes: /faststorage/project/ibp_migration_opengdk/PROJECT_pgscalculator/pgsc
 genotype_manifest: /faststorage/project/ibp_migration_opengdk/PROJECT_pgscalculator/pgscalculator/references/genotypes_test/mapfiles/plink2_genodir_genofiles.txt
 
 # New output directory for this test
-outdir: /faststorage/project/ibp_pipeline_pgscalculator/pgscalculator/tests/smoke/v2.1-2026-01-11/out_v2parallel_814
+outdir: /faststorage/project/ibp_pipeline_pgscalculator/pgscalculator/tests/smoke/v2.1-2026-01-11/out_v2parallel
+
+whichn: totalN
+
+# PLINK2 settings
+plink:
+  threads: 4
+
+# Scoring columns (variant_id allele effect)
+score_columns: 1 2 5
 
 slurm:
   account: ibp_pipeline_pgscalculator

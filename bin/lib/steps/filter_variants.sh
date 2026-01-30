@@ -373,7 +373,8 @@ build_sumstat_map_and_reduce_chr() {
             if (NR==1) {
                 for (i=1;i<=NF;i++) {
                     if ($i=="chr") chr_i=i
-                    else if ($i=="pos") pos_i=i
+                    else if ($i=="pos_b37") pos_b37_i=i
+                    else if ($i=="pos_b38") pos_b38_i=i
                     else if ($i=="geno_snpid") geno_id_i=i
                     else if ($i=="geno_a1") geno_a1_i=i
                     else if ($i=="geno_a2") geno_a2_i=i
@@ -387,14 +388,17 @@ build_sumstat_map_and_reduce_chr() {
             # Only load mapfile entries for target chromosome
             if ($chr_i != target_chr) next
             idx++
-            chr_arr[idx]=$chr_i; pos[idx]=$pos_i
+            chr_arr[idx]=$chr_i
+            pos_b37[idx]=$pos_b37_i
+            pos_b38[idx]=$pos_b38_i
             geno_id[idx]=$geno_id_i; geno_a1[idx]=toupper($geno_a1_i); geno_a2[idx]=toupper($geno_a2_i)
             ld_id[idx]=$ld_id_i; ld_a1[idx]=toupper($ld_a1_i); ld_a2[idx]=toupper($ld_a2_i)
             ld_freq[idx]=$ld_freq_i
             a1 = (geno_a1[idx]!="NA" ? geno_a1[idx] : ld_a1[idx])
             a2 = (geno_a2[idx]!="NA" ? geno_a2[idx] : ld_a2[idx])
-            if (a1!="NA" && a2!="NA" && chr_arr[idx]!="NA" && pos[idx]!="NA") {
-                key = chr_arr[idx] ":" pos[idx] ":" a1 ":" a2
+            # Match on pos_b38 (sumstat is GRCh38)
+            if (a1!="NA" && a2!="NA" && chr_arr[idx]!="NA" && pos_b38[idx]!="NA") {
+                key = chr_arr[idx] ":" pos_b38[idx] ":" a1 ":" a2
                 map_idx[key]=idx
             }
             next
@@ -466,12 +470,13 @@ build_sumstat_map_and_reduce_chr() {
             }
         }
         END {
-            print "chr\tpos\tsumstat_snpid\tsumstat_effect\tsumstat_other\tgeno_snpid\tgeno_a1\tgeno_a2\tldref_snpid\tldref_a1\tldref_a2\tldref_a2freq" > out_map
+            # Output mapfile with dual positions (pos_b37 and pos_b38)
+            print "chr\tpos_b37\tpos_b38\tsumstat_snpid\tsumstat_effect\tsumstat_other\tgeno_snpid\tgeno_a1\tgeno_a2\tldref_snpid\tldref_a1\tldref_a2\tldref_a2freq" > out_map
             for (i=1;i<=idx;i++) {
                 s_snp = (i in sum_snp) ? sum_snp[i] : "NA"
                 s_a1 = (i in sum_a1) ? sum_a1[i] : "NA"
                 s_a2 = (i in sum_a2) ? sum_a2[i] : "NA"
-                print chr_arr[i], pos[i], s_snp, s_a1, s_a2, geno_id[i], geno_a1[i], geno_a2[i], ld_id[i], ld_a1[i], ld_a2[i], ld_freq[i] >> out_map
+                print chr_arr[i], pos_b37[i], pos_b38[i], s_snp, s_a1, s_a2, geno_id[i], geno_a1[i], geno_a2[i], ld_id[i], ld_a1[i], ld_a2[i], ld_freq[i] >> out_map
             }
         }
     ' "$prep_mapfile" "$chr_input"
@@ -496,8 +501,8 @@ concatenate_chr_mapfiles() {
     done
     
     if [[ "$first" == true ]]; then
-        # No mapfiles found, write empty header
-        echo "chr	pos	sumstat_snpid	sumstat_effect	sumstat_other	geno_snpid	geno_a1	geno_a2	ldref_snpid	ldref_a1	ldref_a2	ldref_a2freq" > "$output"
+        # No mapfiles found, write empty header with dual positions
+        echo "chr	pos_b37	pos_b38	sumstat_snpid	sumstat_effect	sumstat_other	geno_snpid	geno_a1	geno_a2	ldref_snpid	ldref_a1	ldref_a2	ldref_a2freq" > "$output"
     fi
 }
 
@@ -577,7 +582,8 @@ build_sumstat_map_and_reduce() {
             if (NR==1) {
                 for (i=1;i<=NF;i++) {
                     if ($i=="chr") chr_i=i
-                    else if ($i=="pos") pos_i=i
+                    else if ($i=="pos_b37") pos_b37_i=i
+                    else if ($i=="pos_b38") pos_b38_i=i
                     else if ($i=="geno_snpid") geno_id_i=i
                     else if ($i=="geno_a1") geno_a1_i=i
                     else if ($i=="geno_a2") geno_a2_i=i
@@ -589,14 +595,17 @@ build_sumstat_map_and_reduce() {
                 next
             }
             idx++
-            chr[idx]=$chr_i; pos[idx]=$pos_i
+            chr[idx]=$chr_i
+            pos_b37[idx]=$pos_b37_i
+            pos_b38[idx]=$pos_b38_i
             geno_id[idx]=$geno_id_i; geno_a1[idx]=toupper($geno_a1_i); geno_a2[idx]=toupper($geno_a2_i)
             ld_id[idx]=$ld_id_i; ld_a1[idx]=toupper($ld_a1_i); ld_a2[idx]=toupper($ld_a2_i)
             ld_freq[idx]=$ld_freq_i
             a1 = (geno_a1[idx]!="NA" ? geno_a1[idx] : ld_a1[idx])
             a2 = (geno_a2[idx]!="NA" ? geno_a2[idx] : ld_a2[idx])
-            if (a1!="NA" && a2!="NA" && chr[idx]!="NA" && pos[idx]!="NA") {
-                key = chr[idx] ":" pos[idx] ":" a1 ":" a2
+            # Match on pos_b38 (sumstat is GRCh38)
+            if (a1!="NA" && a2!="NA" && chr[idx]!="NA" && pos_b38[idx]!="NA") {
+                key = chr[idx] ":" pos_b38[idx] ":" a1 ":" a2
                 map_idx[key]=idx
             }
             next
@@ -669,12 +678,13 @@ build_sumstat_map_and_reduce() {
             }
         }
         END {
-            print "chr\tpos\tsumstat_snpid\tsumstat_effect\tsumstat_other\tgeno_snpid\tgeno_a1\tgeno_a2\tldref_snpid\tldref_a1\tldref_a2\tldref_a2freq" > out_map
+            # Output mapfile with dual positions (pos_b37 and pos_b38)
+            print "chr\tpos_b37\tpos_b38\tsumstat_snpid\tsumstat_effect\tsumstat_other\tgeno_snpid\tgeno_a1\tgeno_a2\tldref_snpid\tldref_a1\tldref_a2\tldref_a2freq" > out_map
             for (i=1;i<=idx;i++) {
                 s_snp = (i in sum_snp) ? sum_snp[i] : "NA"
                 s_a1 = (i in sum_a1) ? sum_a1[i] : "NA"
                 s_a2 = (i in sum_a2) ? sum_a2[i] : "NA"
-                print chr[i], pos[i], s_snp, s_a1, s_a2, geno_id[i], geno_a1[i], geno_a2[i], ld_id[i], ld_a1[i], ld_a2[i], ld_freq[i] >> out_map
+                print chr[i], pos_b37[i], pos_b38[i], s_snp, s_a1, s_a2, geno_id[i], geno_a1[i], geno_a2[i], ld_id[i], ld_a1[i], ld_a2[i], ld_freq[i] >> out_map
             }
         }
     ' "$prep_mapfile" <(zcat "$formatted_sumstat")

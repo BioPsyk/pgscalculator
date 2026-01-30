@@ -5,9 +5,9 @@ Define the required behavior for variant ID mapping so that sumstat, LD referenc
 identifiers are linked unambiguously and conversions never rely on RSIDs alone.
 
 ## Canonical mapfile schema
-Single shared `chr` and `pos`, with per-source SNP IDs and allele columns:
-- `chr`, `pos`
-- `sumstat_snpid`, `sumstat_effect`, `sumstat_other`
+Single shared `chr` with **dual position columns** for build support, plus per-source SNP IDs and allele columns:
+- `chr`, `pos_b37`, `pos_b38`
+- `sumstat_snpid`, `sumstat_effectallele`, `sumstat_otherallele`
 - `geno_snpid`, `geno_a1`, `geno_a2`
 - `ldref_snpid`, `ldref_a1`, `ldref_a2`
 
@@ -15,13 +15,219 @@ Notes:
 - No compound `chrpos` field is required.
 - No sorting requirement is imposed for runtime use.
 - The mapfile may include non-key frequency columns used for EAF filling/auditing.
+- Both `pos_b37` and `pos_b38` are always populated from liftover reference files during prep.
+- The mapfile only contains variants present in **both** genotypes and LD reference (intersection).
+
+## Genome build handling
+
+### Config options
+
+```yaml
+# Genome build of the genotype files (default: GRCh37)
+genotype_build: GRCh37  # or GRCh38
+
+# Liftover reference file (required if genotype_build: GRCh38)
+# This file provides chr:pos mapping between GRCh38 and GRCh37, derived from dbSNP/cleansumstats
+liftover_reference: /path/to/references/liftover/dbsnp_cleansumstat_reference_GRCh38_GRCh37.txt.gz
+```
+
+### Liftover reference file
+
+The liftover reference is derived from the cleansumstats pipeline (dbSNP-based) and stored in
+`references/liftover/`. This file provides chr:pos mapping between builds for all known variants.
+
+**File locations:**
+```
+references/liftover/dbsnp_cleansumstat_reference_GRCh37_GRCh38.txt.gz  # sorted on col1 (b37)
+references/liftover/dbsnp_cleansumstat_reference_GRCh38_GRCh37.txt.gz  # sorted on col1 (b38)
+```
+
+**Format (space-delimited, sorted on column 1 with `LC_ALL=C`):**
+
+For `dbsnp_cleansumstat_reference_GRCh37_GRCh38.txt.gz` (b37 → b38):
+```
+10:1045940 10:1000000 rs1831596373 A C
+...
+```
+- Column 1: `chr:pos_b37` (sort key)
+- Column 2: `chr:pos_b38`
+
+For `dbsnp_cleansumstat_reference_GRCh38_GRCh37.txt.gz` (b38 → b37):
+```
+10:1000000 10:1045940 rs1831596373 A C
+...
+```
+- Column 1: `chr:pos_b38` (sort key)
+- Column 2: `chr:pos_b37`
+
+**Common columns (both files):**
+1. `chr:pos` of source build - **sort key**
+2. `chr:pos` of target build
+3. `rsid` - dbSNP RSID (matches sumstat RSIDs)
+4. `a1` - Allele 1
+5. `a2` - Allele 2 (may contain multiple alleles, e.g., "C,G")
+
+**Note:** Each file is pre-sorted on column 1 using `LC_ALL=C sort`, enabling
+efficient `join` operations with genotype positions in the corresponding build.
+
+### Build assumptions
+- **LD reference**: Always GRCh37 (sbayesR ukb_10k_hm3 is GRCh37).
+- **Sumstats**: Both builds available via cleansumstats (`cleaned_GRCh37.gz`, `cleaned_GRCh38.gz`).
+- **Genotypes**: Configurable via `genotype_build` (default: GRCh37).
+- **Liftover reference**: Used to pre-compute augmented LD reference with both positions.
+
+### Pre-computed augmented LD reference (optimization)
+
+To avoid redundant liftover operations, we pre-compute an augmented LD reference that
+contains both `pos_b37` and `pos_b38` for all LD reference variants. This augmentation
+is performed as part of `--steps prep` (specifically within `prep-ldref`) and is cached
+for reuse across subsequent runs.
+
+**Augmentation within `prep-ldref`** (runs once, cached)
+
+```bash
+# Join LD reference (b37) with liftover file to add b38 positions
+# Input: LD reference chr:pos_b37, a1, a2, rsid
+# Liftover: chr:pos_b37, chr:pos_b38, rsid, a1, a2 (sorted on col1)
+# Output: Augmented LD reference with both positions
+
+LC_ALL=C join -1 1 -2 1 \
+  <(awk -F'\t' '{print $1, $2, $3, $4}' ldref_chr10.tsv | LC_ALL=C sort -k1,1) \
+  <(zcat dbsnp_cleansumstat_reference_GRCh37_GRCh38.txt.gz) \
+  > ldref_augmented_chr10.tsv
+
+# Output columns: chr:pos_b37, ldref_a1, ldref_a2, rsid, chr:pos_b38, liftover_rsid, liftover_a1, liftover_a2
+```
+
+**Output location:**
+```
+prep/ldref_augmented/chr{N}_ld_augmented.tsv
+```
+
+**Augmented LD reference schema:**
+- `chr:pos_b37` - Original LD reference position (GRCh37)
+- `chr:pos_b38` - Lifted position (GRCh38) from liftover reference
+- `rsid` - dbSNP RSID
+- `a1`, `a2` - Alleles
+
+**Benefits:**
+- One-time computation per LD reference (not per genotype dataset)
+- Prep step just joins genotypes against pre-augmented LD reference
+- No liftover join needed during per-genotype prep
+- Sumstat matching uses `pos_b38` directly from pre-computed map
+
+### Matching strategy by genotype build
+
+| Genotype build | Prep matching key | pos_b37 source | pos_b38 source |
+|----------------|-------------------|----------------|----------------|
+| **GRCh37** (default) | chr:pos_b37 + alleles | augmented LD ref | augmented LD ref |
+| **GRCh38** | chr:pos_b38 + alleles | augmented LD ref | augmented LD ref |
+
+**Note:** Both position columns always come from the pre-augmented LD reference.
+The liftover join is done once during `prep-ldref` (part of `--steps prep`), cached for reuse.
+
+**Key insight**: By pre-augmenting the LD reference with both positions, the per-genotype prep
+step only needs a simple join - no liftover processing required during the main workflow.
+
+### Implementation details
+
+**When running `--steps prep`:**
+
+1. **prep-ldref** (includes augmentation):
+   - Extract positions and RSIDs from LD reference (always GRCh37).
+   - Join with liftover file (`dbsnp_cleansumstat_reference_GRCh37_GRCh38.txt.gz`) to add `pos_b38`.
+   - Output: `prep/ldref_augmented/chr{N}_ld_augmented.tsv` with both positions.
+   - **Cached**: If augmented files already exist, skip the liftover join.
+
+2. **prep-genotypes**: Extract positions from genotypes as-is (in their native build).
+   - Output: `chr:pos`, `a1`, `a2`, `variant_id` per chromosome.
+
+3. **prep-inclusion-list** (now simplified):
+   - If `genotype_build == GRCh37`:
+     - Match genotypes ↔ augmented LD ref by **chr:pos_b37 + alleles**.
+   - If `genotype_build == GRCh38`:
+     - Match genotypes ↔ augmented LD ref by **chr:pos_b38 + alleles**.
+   - Both `pos_b37` and `pos_b38` come from the pre-augmented LD ref.
+   - Only intersection variants are kept.
+   - No liftover join needed during this step.
+
+4. **format-sumstat**: Simplified - just split `cleaned_GRCh38.gz` by chromosome.
+   - No coordinate mapping needed since variant_map has both positions.
+
+5. **filter-variants**: Match sumstat to variant_map using `pos_b38` (sumstat native coordinates).
+   - Both `pos_b37` and `pos_b38` are already populated from prep step.
+   - No coordinate conversion needed - direct matching on GRCh38.
+
+6. **calc-score**: Uses `geno_snpid` which is build-independent.
+
+### Augmented LD reference join strategy (within prep-ldref)
+
+The augmentation (performed once during `--steps prep`) uses efficient unix `join` with
+`LC_ALL=C` for fast matching. The liftover reference `dbsnp_cleansumstat_reference_GRCh37_GRCh38.txt.gz`
+is pre-sorted on column 1 (`chr:pos_b37`).
+
+**Conceptual workflow:**
+```bash
+# For each chromosome, join LD ref (b37) with liftover to add b38 positions
+for chr in {1..22}; do
+  # LD ref format: chr:pos_b37, a1, a2, rsid (already sorted or sort here)
+  # Liftover format: chr:pos_b37, chr:pos_b38, rsid, a1, a2 (pre-sorted on col1)
+  
+  LC_ALL=C join -1 1 -2 1 \
+    <(LC_ALL=C sort -k1,1 ldref/chr${chr}_ld_rsids.tsv) \
+    <(zcat dbsnp_cleansumstat_reference_GRCh37_GRCh38.txt.gz | grep "^${chr}:" | tr ' ' '\t') \
+    > ldref_augmented/chr${chr}_ld_augmented.tsv
+done
+
+# Output: chr:pos_b37, ldref_a1, ldref_a2, rsid, chr:pos_b38, liftover_rsid, liftover_a1, liftover_a2
+```
+
+### Genotype ↔ Augmented LD ref matching (prep-inclusion-list)
+
+**For GRCh37 genotypes:**
+```bash
+# Match on chr:pos_b37 (column 1 in both files)
+LC_ALL=C join -1 1 -2 1 \
+  <(LC_ALL=C sort -k1,1 genotypes_b37.tsv) \
+  <(LC_ALL=C sort -k1,1 ldref_augmented/chr${chr}_ld_augmented.tsv) \
+  > variant_map_chr${chr}.tsv
+```
+
+**For GRCh38 genotypes:**
+```bash
+# Match on chr:pos_b38 (column 1 in genotypes, column 5 in augmented LD ref)
+# Need to re-key augmented LD ref on pos_b38 for join
+LC_ALL=C join -1 1 -2 1 \
+  <(LC_ALL=C sort -k1,1 genotypes_b38.tsv) \
+  <(awk -F'\t' '{print $5, $0}' ldref_augmented/chr${chr}_ld_augmented.tsv | LC_ALL=C sort -k1,1) \
+  > variant_map_chr${chr}.tsv
+```
+
+**Allele matching considerations:**
+- After position join, verify alleles match (with strand flip support).
+- The liftover reference `a2` column may contain multiple alleles (e.g., "C,G");
+  match if genotype allele is any of the listed alleles.
+
+### Fallback behavior
+
+If `genotype_build: GRCh38` is set but liftover_reference is not provided or file is missing:
+1. Log an error: "liftover_reference required when genotype_build is GRCh38".
+2. Exit with non-zero status.
+
+If liftover produces few matches (e.g., <10% of genotype variants):
+1. Log a warning about low liftover rate.
+2. Continue processing with matched variants.
 
 ## Filtering order (planned)
-1) **prep** builds base mapfiles from the **intersection** of genotype + LD reference variants
-   (by `chr/pos + alleles`), including LD reference EAF (`ldref_a2freq`).
+1) **prep** (`--steps prep`) builds base mapfiles from the **intersection** of genotype + LD reference variants,
+   including LD reference EAF (`ldref_a2freq`) and both position columns (`pos_b37`, `pos_b38`).
+   - `prep-ldref` creates augmented LD reference with both positions (via liftover, cached).
+   - `prep-genotypes` extracts genotype positions in their native build.
+   - `prep-inclusion-list` matches genotypes ↔ augmented LD ref (no liftover needed here).
+   - Only variants present in **both** genotypes and LD ref are kept (intersection).
    - Write **chromosome-specific mapfiles** only (e.g., `prep/variant_map/chrN.tsv`) for parallel use.
    - Do **not** create a combined prep mapfile during processing.
-2) **sumstat** attaches `sumstat_*` columns via `chr/pos + alleles` into **chromosome-specific**
+2) **sumstat** attaches `sumstat_*` columns via `chr/pos_b38 + alleles` into **chromosome-specific**
    sumstat mapfiles (using the prep `prep/variant_map/chrN.tsv` files).
 3) **sumstat** reduces to the **sumstat intersection of the mapfile** to produce the posterior-input
    sumstat (same row count as the matched subset, not the full union), and fills missing `EAF`
@@ -40,9 +246,15 @@ Notes:
      - Missing/NA or zero `SE`.
 
 ## Build workflow
-### Prep step (sumstat-agnostic)
-1) Build per-chromosome mapfiles from the **intersection** of genotype + LD reference variants.
-2) Populate geno/ldref columns and add LD reference EAF (`ldref_a2freq`) to each mapfile.
+### Prep step (`--steps prep`, sumstat-agnostic)
+1) `prep-ldref`: Create augmented LD reference with both `pos_b37` and `pos_b38`.
+   - Joins LD ref (b37) with liftover file to add `pos_b38`.
+   - Cached: if augmented files exist, skip liftover join.
+2) `prep-genotypes`: Extract positions from genotypes in their native build.
+3) `prep-inclusion-list`: Build per-chromosome mapfiles from **intersection** of genotype + augmented LD ref.
+   - Match by `pos_b37` (if genotype_build=GRCh37) or `pos_b38` (if genotype_build=GRCh38).
+   - Both `pos_b37` and `pos_b38` come from augmented LD ref.
+4) Populate geno/ldref columns, dual positions, and LD reference EAF (`ldref_a2freq`).
 3) No sumstat columns are added at prep, and no combined prep mapfile is required.
 4) The prep step should support **per-chromosome parallelism** when creating the
    base mapfiles, using **SLURM arrays** (config: `slurm.prep.max_parallel`).
@@ -54,20 +266,26 @@ Notes:
 6) Timing/logging: each step logs start + completion with elapsed time, and the overall
    pipeline logs a total elapsed time.
 
-### Format-sumstat step (GRCh37 coordinate mapping)
+### Format-sumstat step (simplified with dual-position variant_map)
 
-1. Paste `cleaned_GRCh37.gz` and `cleaned_GRCh38.gz` side-by-side.
+Since the variant_map now contains both `pos_b37` and `pos_b38` (populated via liftover references
+during prep), the sumstat can be matched directly using its native GRCh38 coordinates.
+
+1. Read `cleaned_GRCh38.gz` directly (no need to paste with `cleaned_GRCh37.gz`).
 2. In a single awk pass:
-   - Filter out rows where CHR or POS (b37) are empty/NA (liftover failed).
    - Split output by chromosome into per-chromosome files (`formatted/chrN.tsv`).
 3. Output: Per-chromosome sumstat files ready for parallel processing.
 
+**Note:** The `cleaned_GRCh37.gz` file is no longer needed for coordinate mapping since the
+variant_map provides both positions. This simplifies processing and saves time.
+
 ### Sumstat step (sumstat-specific)
-All steps after GRCh37 coordinate mapping should support **per-chromosome parallelism**.
+All sumstat processing steps should support **per-chromosome parallelism**.
 Each chromosome process should only load its corresponding `prep/variant_map/chrN.tsv`.
 
 1) Create sumstat-specific per-chromosome mapfiles.
-2) Attach `sumstat_*` columns using `chr/pos + alleles` to match against the map.
+2) Attach `sumstat_*` columns using `chr/pos_b38 + alleles` to match against the variant_map.
+   - Sumstat uses native GRCh38 coordinates; variant_map has `pos_b38` from prep.
 3) Fill missing sumstat `EAF` from mapfile `ldref_a2freq` when needed (allele-aware).
 4) The mapfile number of rows remains; same as in prep mapfile ; no reduction to the sumstat intersection.
 5) Apply a **user-provided inclusion list** (replacing INFO/MAF filtering):
@@ -117,8 +335,9 @@ workflows: **prep jobs** and **per-sumstat driver jobs**.
 
 1. **Prep job** (`--sbatch --steps prep`):
    - Submits a lightweight **driver job** for prep.
-   - The driver runs `prep-genotypes` and `prep-ldref` directly, then submits a
-     **prep array** (one task per chromosome) for `prep-inclusion-list`.
+   - The driver runs `prep-ldref` (including liftover augmentation if not cached),
+     then `prep-genotypes`, then submits a **prep array** (one task per chromosome)
+     for `prep-inclusion-list`.
    - After the array completes, the driver combines per-chromosome maps and
      creates the final inclusion list.
    - Resources configured via `slurm.prep: { mem, cpus, time, max_parallel }`.
@@ -142,7 +361,7 @@ User submission                     SLURM cluster
      │
      └──► Driver job (pgs_sumstat_814_driver) ──────────────────────────────────►
               │
-              ├── [1] Runs format-sumstat directly (GRCh37 mapping + chr split)
+              ├── [1] Runs format-sumstat directly (chr split only, no liftover needed)
               │
               ├── [2] Submits sumstat array (1-22%max_parallel)
               │       └── Per-chr: mapfile join, EAF fill, filter, reduce
@@ -280,15 +499,17 @@ The driver job:
 ---
 
 ## Criteria checklist
-- Mapfile uses a single `chr` and `pos` for all sources.
+- Mapfile uses a single `chr` with **dual position columns** (`pos_b37`, `pos_b38`) for build support.
 - Mapfile contains all three source SNP IDs and their allele columns.
 - Prep step is sumstat-agnostic and builds a union map for geno + ldref only.
+- Prep step supports **GRCh38 genotypes** via pre-augmented LD reference (liftover done once in `prep-ldref`).
+- Matching is always by **chr:pos + alleles** (using appropriate position column based on genotype build).
 - SNP inclusion lists are always derived from the mapfile (prep or sumstat mapfile).
-- Sumstat step attaches `sumstat_*` via `chr/pos + alleles`.
+- Sumstat step attaches `sumstat_*` via `chr/pos_b38 + alleles` (native GRCh38 coordinates).
 - Sumstat `EAF` is filled only from LD reference EAF (`ldref_a2freq`) when missing;
   `EAF_1KG` is not used.
 - INFO/MAF reference files are replaced by a user-provided inclusion list, with an
   explicit ID-space specifier (`ss`, `ld`, or `gt`), applied after mapfile reduction.
 - Conversions to/from LD reference and genotype IDs only use the mapfile.
-- Final output includes the full mapfile (`variant_map.tsv.gz`).
+- Final output includes the full mapfile (`variant_map.tsv.gz`) with both position columns.
 

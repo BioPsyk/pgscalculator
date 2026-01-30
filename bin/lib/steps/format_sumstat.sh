@@ -1,7 +1,11 @@
 #!/bin/bash
 # pgscalculator v2 - format-sumstat step
-# Format summary statistics: add GRCh37 build coordinates only
+# Format summary statistics: split by chromosome (GRCh38 native coordinates)
 # (N/EAF/B/SE derivation happens AFTER filtering in filter-variants step)
+#
+# Note: With the dual-position variant_map (pos_b37 + pos_b38), we no longer need
+# to paste GRCh37 coordinates. The variant_map provides both positions from the
+# pre-augmented LD reference.
 
 # This script is sourced by the main pgscalculator CLI
 
@@ -19,9 +23,8 @@ check_format_sumstat_deps() {
     
     local input_dir="${CFG_INPUT}"
     
-    # Check for cleaned sumstat files from cleansumstats
+    # Only require GRCh38 file (variant_map has both positions from prep)
     require_file "${input_dir}/cleaned_GRCh38.gz" "Cleaned sumstat (GRCh38) not found in input directory"
-    require_file "${input_dir}/cleaned_GRCh37.gz" "Cleaned sumstat (GRCh37 map) not found in input directory"
 }
 
 # =============================================================================
@@ -53,11 +56,11 @@ run_format_sumstat() {
     
     local input_dir="${CFG_INPUT}"
     local input_grch38="${input_dir}/cleaned_GRCh38.gz"
-    local input_grch37="${input_dir}/cleaned_GRCh37.gz"
     
-    # Single pass: add GRCh37 coordinates, filter NA, and split by chromosome
-    log_substep "Adding GRCh37 build coordinates and splitting by chromosome"
-    add_build_coordinates_and_split "$input_grch38" "$input_grch37" "$step_dir"
+    # Split sumstat by chromosome (GRCh38 native coordinates)
+    # No paste with GRCh37 needed - variant_map has both positions from prep
+    log_substep "Splitting sumstat by chromosome (GRCh38 native coordinates)"
+    split_by_chromosome "$input_grch38" "$step_dir"
     
     # Mark step as completed
     mark_step_completed "$step_dir"
@@ -77,53 +80,29 @@ run_format_sumstat() {
         fi
     done
     
-    log_info "Formatted sumstat with GRCh37 coordinates: ${total_count} variants across ${chr_count} chromosomes"
+    log_info "Formatted sumstat: ${total_count} variants across ${chr_count} chromosomes (GRCh38 coordinates)"
     log_info "Output directory: ${step_dir}"
-    log_info "Note: N/EAF/B/SE derivation will happen after filtering"
+    log_info "Note: Matching to variant_map uses pos_b38; N/EAF/B/SE derivation happens after filtering"
 }
 
 # =============================================================================
 # PROCESSING FUNCTIONS
 # =============================================================================
 
-add_build_coordinates_and_split() {
+split_by_chromosome() {
     local input_grch38="$1"
-    local input_grch37="$2"
-    local outdir="$3"
+    local outdir="$2"
     
-    # GRCh37 file has: CHR, POS, RSID (3 columns)
-    # GRCh38 file has: CHR, POS, 0, RSID, EffectAllele, ...
-    # After paste (b37 first, then b38):
-    #   1: CHR_b37, 2: POS_b37, 3: RSID_b37, 4: CHR_b38, 5: POS_b38, 6+: rest
-    # We want: CHR_b37, POS_b37, POS_b38, 0, RSID, ... (drop RSID_b37 and CHR_b38)
-    # Use cut -f1-2,5- to skip columns 3 and 4
-    #
-    # This function combines:
-    # - Adding GRCh37 coordinates
-    # - Filtering NA coordinates (b37 liftover failures)
-    # - Splitting output by chromosome
-    # All in a single pass for efficiency.
-
-    require_file "$input_grch37" "Cleaned sumstat (GRCh37 map) not found"
+    # Simplified: just split GRCh38 sumstat by chromosome
+    # No paste with GRCh37 needed - variant_map has both positions from prep
+    
     require_file "$input_grch38" "Cleaned sumstat (GRCh38) not found"
-
-    local tmpdir fifo37 fifo38
-    tmpdir=$(make_tmpdir "format_sumstat")
-    fifo37="${tmpdir}/grch37.fifo"
-    fifo38="${tmpdir}/grch38.fifo"
-    mkfifo "$fifo37" "$fifo38"
-
-    # Start streaming decompress in background
-    zcat "$input_grch37" > "$fifo37" & local pid37=$!
-    zcat "$input_grch38" > "$fifo38" & local pid38=$!
-
-    # Single pass: paste, reorder columns, filter NA, split by chromosome
-    paste "$fifo37" "$fifo38" | cut -f1-2,5- | \
+    
+    # Single pass: decompress, filter NA chr/pos, split by chromosome
+    zcat "$input_grch38" | \
         awk -F'\t' -v OFS='\t' -v outdir="$outdir" '
         NR == 1 {
-            # Store header for per-chromosome files
             header = $0
-            # Find CHR column index (should be column 1 after cut)
             for(i=1; i<=NF; i++) {
                 if($i == "CHR" || $i == "chr" || $i == "#CHR") chr_col = i
                 if($i == "POS" || $i == "pos") pos_col = i
@@ -136,7 +115,7 @@ add_build_coordinates_and_split() {
             chr = $chr_col
             pos = $pos_col
             
-            # Skip rows with empty/NA coordinates (b37 liftover failed)
+            # Skip rows with empty/NA coordinates
             if (chr == "" || chr == "NA" || pos == "" || pos == "NA") next
             
             # Only process valid chromosomes (1-22)
@@ -151,7 +130,6 @@ add_build_coordinates_and_split() {
             print > outfile
         }
         END {
-            # Report count of chromosomes written
             for (c in seen) count++
             if (count == 0) {
                 print "ERROR: No valid variants written to any chromosome file" > "/dev/stderr"
@@ -159,18 +137,12 @@ add_build_coordinates_and_split() {
             }
         }
         '
-
-    # Ensure both zcat processes succeeded
-    wait "$pid37" || { log_error "Failed to decompress GRCh37 file"; rm -rf "$tmpdir"; exit 1; }
-    wait "$pid38" || { log_error "Failed to decompress GRCh38 file"; rm -rf "$tmpdir"; exit 1; }
-
-    rm -rf "$tmpdir"
-
+    
     # Sanity-check at least one chromosome file was created
     local chr_files_count
     chr_files_count=$(ls "${outdir}"/chr*.tsv 2>/dev/null | wc -l)
     if [[ "$chr_files_count" -eq 0 ]]; then
-        log_error "add_build_coordinates_and_split produced no chromosome files in: ${outdir}"
+        log_error "split_by_chromosome produced no chromosome files in: ${outdir}"
         exit 1
     fi
 }

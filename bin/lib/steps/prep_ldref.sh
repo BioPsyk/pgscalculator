@@ -11,12 +11,22 @@
 check_prep_ldref_deps() {
     require_command "awk" "awk is required for text processing"
     require_command "sort" "sort is required for sorting"
+    require_command "join" "join is required for liftover augmentation"
+    require_command "zcat" "zcat is required for reading gzipped liftover reference"
     
     # Check config variables
     validate_required_config "CFG" "LDDIR" "OUTDIR"
     
     # Check LD reference directory exists
     require_dir "${CFG_LDDIR}" "LD reference directory not found"
+    
+    # Check liftover reference file exists (required for dual-position mapfile)
+    local liftover_ref="${CFG_LIFTOVER_REFERENCE:-}"
+    if [[ -z "$liftover_ref" ]]; then
+        log_error "CFG_LIFTOVER_REFERENCE not set. This is required for the dual-position mapfile."
+        exit 1
+    fi
+    require_file "$liftover_ref" "Liftover reference file is required for dual-position mapfile"
 }
 
 # =============================================================================
@@ -87,6 +97,12 @@ run_prep_ldref() {
     log_substep "Extracting allele frequencies from LD reference"
     extract_ldref_eaf "$lddir" "$outdir"
     
+    # Augment LD reference with GRCh38 positions (for dual-position mapfile)
+    log_substep "Augmenting LD reference with GRCh38 positions"
+    local liftover_ref="${CFG_LIFTOVER_REFERENCE}"
+    local augmented_dir="${outdir}/prep/ldref_augmented"
+    augment_ldref_with_liftover "$step_dir" "$liftover_ref" "$augmented_dir"
+    
     # Mark step as completed
     mark_step_completed "$step_dir"
     
@@ -135,6 +151,68 @@ extract_ldref_eaf() {
     done
     
     log_info "Extracted EAF for ${total_variants} variants to: ${eaf_file}"
+}
+
+augment_ldref_with_liftover() {
+    local ldref_dir="$1"
+    local liftover_ref="$2"
+    local augmented_dir="$3"
+    
+    ensure_dir "$augmented_dir"
+    
+    # Check if already augmented (all chromosomes present)
+    local all_present=true
+    for chr in $(get_chromosomes); do
+        if [[ ! -f "${augmented_dir}/chr${chr}_ld_augmented.tsv" ]]; then
+            all_present=false
+            break
+        fi
+    done
+    
+    if [[ "$all_present" == true ]]; then
+        log_info "Augmented LD reference already exists, skipping liftover join"
+        return 0
+    fi
+    
+    log_info "Joining LD reference with liftover to add GRCh38 positions"
+    
+    local augmented_count=0
+    
+    for chr in $(get_chromosomes); do
+        local ld_file="${ldref_dir}/chr${chr}_ld_rsids"
+        local out_file="${augmented_dir}/chr${chr}_ld_augmented.tsv"
+        
+        if [[ ! -f "$ld_file" ]]; then
+            log_warn "No LD reference file for chr${chr}, skipping"
+            continue
+        fi
+        
+        log_debug "Augmenting chr${chr} with GRCh38 positions"
+        
+        # LD ref format: chr:pos_b37, a1, a2, rsid (tab-separated)
+        # Liftover format: chr:pos_b37 chr:pos_b38 rsid a1 a2 (space-separated)
+        #
+        # Join on chr:pos_b37 (column 1 in both)
+        # Output: pos_b37, pos_b38, ldref_a1, ldref_a2, ldref_rsid
+        
+        LC_ALL=C join -t $'\t' -1 1 -2 1 \
+            <(LC_ALL=C sort -t $'\t' -k1,1 "$ld_file") \
+            <(zcat "$liftover_ref" | grep "^${chr}:" | tr ' ' '\t' | LC_ALL=C sort -t $'\t' -k1,1) \
+            2>/dev/null | \
+            awk -F'\t' -v OFS='\t' '{
+                # Input after join: pos_b37, ldref_a1, ldref_a2, ldref_rsid, pos_b38, liftover_rsid, liftover_a1, liftover_a2
+                # Output: pos_b37, pos_b38, ldref_a1, ldref_a2, ldref_rsid
+                print $1, $5, $2, $3, $4
+            }' > "$out_file"
+        
+        local chr_count
+        chr_count=$(wc -l < "$out_file")
+        augmented_count=$((augmented_count + chr_count))
+        log_debug "chr${chr}: ${chr_count} variants augmented with GRCh38 positions"
+    done
+    
+    log_info "Augmented LD reference created: ${augmented_count} total variants"
+    log_info "Output directory: ${augmented_dir}"
 }
 
 find_ld_info_file() {

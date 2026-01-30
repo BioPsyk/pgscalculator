@@ -262,6 +262,11 @@ cfg_inclusion_gt=$(parse_yaml_nested "filters" "inclusion_list.gt" "$config_file
 cfg_inclusion_ss=$(parse_yaml_nested "filters" "inclusion_list.ss" "$config_file_host")
 cfg_inclusion_ld=$(parse_yaml_nested "filters" "inclusion_list.ld" "$config_file_host")
 
+# Read genome build and liftover reference (for dual-position mapfile)
+cfg_genotype_build=$(parse_yaml_value "genotype_build" "$config_file_host")
+cfg_genotype_build="${cfg_genotype_build:-GRCh37}"  # Default to GRCh37
+cfg_liftover_reference=$(parse_yaml_value "liftover_reference" "$config_file_host")
+
 # CLI overrides config
 if [[ -n "$outdir" ]]; then
   cfg_outdir="$outdir"
@@ -1202,6 +1207,25 @@ if [[ ! -d "$cfg_ld_reference" ]]; then
     exit 1
   fi
 
+# Liftover reference is required for dual-position mapfile
+if [[ -z "$cfg_liftover_reference" ]]; then
+  >&2 echo "Error: liftover_reference not found in config file"
+  >&2 echo "This file is required for the dual-position variant mapfile."
+  >&2 echo "Expected: references/liftover/dbsnp_cleansumstat_reference_GRCh37_GRCh38.txt.gz"
+  exit 1
+fi
+
+if [[ ! -f "$cfg_liftover_reference" ]]; then
+  >&2 echo "Error: Liftover reference file not found: $cfg_liftover_reference"
+  exit 1
+fi
+
+# Validate genotype_build value
+if [[ "$cfg_genotype_build" != "GRCh37" ]] && [[ "$cfg_genotype_build" != "GRCh38" ]]; then
+  >&2 echo "Error: genotype_build must be 'GRCh37' or 'GRCh38', got: $cfg_genotype_build"
+  exit 1
+fi
+
 # Genotypes required for scoring
 if [[ -z "$cfg_genotypes" ]] || [[ -z "$cfg_genotype_manifest" ]]; then
   >&2 echo "Warning: genotypes and genotype_manifest should be in config for scoring"
@@ -1240,6 +1264,9 @@ if [[ -n "$cfg_genotype_manifest" ]] && [[ -f "$cfg_genotype_manifest" ]]; then
 else
   genofile_host=""
 fi
+
+# Resolve liftover reference path
+liftover_reference_host=$(realpath "${cfg_liftover_reference}")
 
 if [[ -n "$infold" ]]; then
 infold_host=$(realpath "${infold}")

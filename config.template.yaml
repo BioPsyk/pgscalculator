@@ -1,9 +1,16 @@
-# pgscalculator v2.0.0 Configuration
+# pgscalculator v2.1.0 Configuration
 input: /path/to/cleansumstats/output
 outdir: /path/to/output
 genodir: /path/to/genotypes
 genofile: /path/to/genotype_manifest.tsv
 lddir: /path/to/ld_reference
+
+# Genome build of the genotype files (GRCh37 or GRCh38)
+genotype_build: GRCh37
+
+# Liftover reference file (required for dual-position mapfile)
+# Pre-sorted on column 1 with LC_ALL=C
+liftover_reference: /path/to/references/liftover/dbsnp_cleansumstat_reference_GRCh37_GRCh38.txt.gz
 
 # Variant inclusion lists (optional)
 filters:
