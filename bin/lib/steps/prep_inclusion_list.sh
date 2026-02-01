@@ -149,6 +149,9 @@ run_prep_inclusion_list() {
     
     log_info "Created inclusion list with ${inclusion_count} variants"
     log_info "Output directory: ${step_dir}"
+    
+    # Generate combined prep stepwise details
+    generate_prep_stepwise_details "$prep_dir" "$geno_dir"
 }
 
 # =============================================================================
@@ -170,17 +173,21 @@ create_chr_variant_map() {
     local ld_augmented="${augmented_dir}/chr${chr}_ld_augmented.tsv"
     local out_map="${step_dir}/chr${chr}_variant_map"
     
+    # Debug: Log the paths being checked
+    log_info "prep-inclusion-list chr${chr}: pvar_fmt=${pvar_fmt}"
+    log_info "prep-inclusion-list chr${chr}: ld_augmented=${ld_augmented}"
+    
     if [[ ! -f "$pvar_fmt" ]]; then
-        log_debug "Missing genotype data for chr${chr}, skipping"
+        log_warn "Missing genotype data for chr${chr}: ${pvar_fmt}"
         return 0
     fi
     
     if [[ ! -f "$ld_augmented" ]]; then
-        log_debug "Missing augmented LD reference for chr${chr}, skipping"
+        log_warn "Missing augmented LD reference for chr${chr}: ${ld_augmented}"
         return 0
     fi
     
-    log_debug "Creating variant map for chr${chr} (genotype_build: ${genotype_build})"
+    log_info "Creating variant map for chr${chr} (genotype_build: ${genotype_build})"
     
     # Augmented LD ref format: pos_b37, pos_b38, ldref_a1, ldref_a2, ldref_rsid (tab-separated)
     # Genotype format: chr:pos, a1, a2, snpid (tab-separated)
@@ -218,11 +225,7 @@ create_chr_variant_map() {
         k3 = match_key SUBSEP fa1 SUBSEP fa2
         k4 = match_key SUBSEP fa2 SUBSEP fa1
         
-        # Store data for each key variant
-        for (k in k1) {
-            ld_pos_b37[k1] = pos_b37; ld_pos_b38[k1] = pos_b38
-            ld_a1[k1] = la1; ld_a2[k1] = la2; ld_id[k1] = lid
-        }
+        # Store data for each key variant (all 4 allele orientations)
         ld_pos_b37[k1] = pos_b37; ld_pos_b38[k1] = pos_b38
         ld_a1[k1] = la1; ld_a2[k1] = la2; ld_id[k1] = lid
         
@@ -275,7 +278,7 @@ create_chr_variant_map() {
     
     local map_count
     map_count=$(wc -l < "$out_map")
-    log_debug "chr${chr}: ${map_count} variants mapped"
+    log_info "chr${chr}: ${map_count} variants mapped to ${out_map}"
 }
 
 write_chr_variant_maps() {
@@ -579,8 +582,73 @@ apply_maf_filter() {
     ' "$maf_file" "$input" > "$output"
 }
 
-
-
+generate_prep_stepwise_details() {
+    local prep_dir="$1"
+    local geno_dir="$2"
+    
+    local details_dir="${prep_dir}/details"
+    ensure_dir "$details_dir"
+    
+    local steps_file="${details_dir}/steps.tsv"
+    
+    # Count genotype variants
+    local n_geno=0
+    if [[ -f "${geno_dir}/snplist_sorted" ]]; then
+        n_geno=$(wc -l < "${geno_dir}/snplist_sorted")
+    fi
+    log_info "Genotype variants: ${n_geno}"
+    
+    # Count augmented LD ref variants
+    local n_ldref_augmented=0
+    local augmented_dir="${prep_dir}/ldref_augmented"
+    for chr in $(get_chromosomes); do
+        local aug_file="${augmented_dir}/chr${chr}_ld_augmented.tsv"
+        if [[ -f "$aug_file" ]]; then
+            local chr_count
+            chr_count=$(wc -l < "$aug_file")
+            n_ldref_augmented=$((n_ldref_augmented + chr_count))
+        fi
+    done
+    log_info "Augmented LD reference variants: ${n_ldref_augmented}"
+    
+    # Count final variant map (intersection of genotypes and augmented LD ref)
+    local n_variant_map=0
+    if [[ -f "${prep_dir}/variant_map.tsv" ]]; then
+        n_variant_map=$(wc -l < "${prep_dir}/variant_map.tsv")
+        n_variant_map=$((n_variant_map - 1))  # Subtract header
+    fi
+    log_info "Variant map (geno ∩ ldref): ${n_variant_map}"
+    
+    # Calculate match rate
+    local match_pct="0.00"
+    if [[ "$n_ldref_augmented" -gt 0 ]]; then
+        match_pct=$(awk "BEGIN {printf \"%.2f\", 100 * ${n_variant_map} / ${n_ldref_augmented}}")
+    fi
+    
+    # Read ldref steps if available
+    local n_liftover=0
+    local n_ldref=0
+    local n_ldref_after_join=0
+    local ldref_steps="${details_dir}/prep_ldref_steps.tsv"
+    if [[ -f "$ldref_steps" ]]; then
+        # Parse the ldref steps file to get counts
+        n_liftover=$(awk -F'\t' '$1=="liftover-reference" {print $2}' "$ldref_steps")
+        n_ldref=$(awk -F'\t' '$1=="ldref-extract" {print $2}' "$ldref_steps")
+        n_ldref_after_join=$(awk -F'\t' '$1=="ldref-augment" {print $3}' "$ldref_steps")
+    fi
+    
+    # Write combined prep steps file
+    {
+        echo -e "STEP\tN_BEFORE\tN_AFTER\tDESC"
+        echo -e "liftover-reference\t${n_liftover}\t${n_liftover}\tliftover reference file rows"
+        echo -e "ldref-extract\t${n_ldref}\t${n_ldref}\tLD reference variants extracted"
+        echo -e "ldref-augment\t${n_ldref}\t${n_ldref_after_join}\tLD ref ↔ liftover join"
+        echo -e "genotypes-extract\t${n_geno}\t${n_geno}\tgenotype variants extracted"
+        echo -e "geno-ldref-intersect\t${n_ldref_after_join}\t${n_variant_map}\tgeno ∩ augmented-ldref (match_rate=${match_pct}%)"
+    } > "$steps_file"
+    
+    log_info "Wrote prep stepwise details: ${steps_file}"
+}
 
 
 

@@ -160,6 +160,12 @@ augment_ldref_with_liftover() {
     
     ensure_dir "$augmented_dir"
     
+    # Prep details directory for stepwise rowcounts
+    local prep_dir
+    prep_dir=$(dirname "$augmented_dir")
+    local details_dir="${prep_dir}/details"
+    ensure_dir "$details_dir"
+    
     # Check if already augmented (all chromosomes present)
     local all_present=true
     for chr in $(get_chromosomes); do
@@ -176,40 +182,88 @@ augment_ldref_with_liftover() {
     
     log_info "Joining LD reference with liftover to add GRCh38 positions"
     
-    local augmented_count=0
+    # OPTIMIZATION: Process all chromosomes in ONE pass through the liftover file
+    # The liftover file is ~900M lines, so scanning it 22 times would be very slow.
+    # Instead: 1) concatenate all LD ref files, 2) sort, 3) join once, 4) split by chr
     
+    local all_ld_sorted="${augmented_dir}/all_ld_rsids_sorted.tsv"
+    local all_augmented="${augmented_dir}/all_ld_augmented.tsv"
+    
+    # Step 1: Concatenate all LD reference files and sort on chr:pos_b37
+    log_debug "Concatenating and sorting all LD reference files"
+    local chr
     for chr in $(get_chromosomes); do
         local ld_file="${ldref_dir}/chr${chr}_ld_rsids"
-        local out_file="${augmented_dir}/chr${chr}_ld_augmented.tsv"
-        
-        if [[ ! -f "$ld_file" ]]; then
-            log_warn "No LD reference file for chr${chr}, skipping"
-            continue
+        if [[ -f "$ld_file" ]]; then
+            cat "$ld_file"
         fi
-        
-        log_debug "Augmenting chr${chr} with GRCh38 positions"
-        
-        # LD ref format: chr:pos_b37, a1, a2, rsid (tab-separated)
-        # Liftover format: chr:pos_b37 chr:pos_b38 rsid a1 a2 (space-separated)
-        #
-        # Join on chr:pos_b37 (column 1 in both)
-        # Output: pos_b37, pos_b38, ldref_a1, ldref_a2, ldref_rsid
-        
-        LC_ALL=C join -t $'\t' -1 1 -2 1 \
-            <(LC_ALL=C sort -t $'\t' -k1,1 "$ld_file") \
-            <(zcat "$liftover_ref" | grep "^${chr}:" | tr ' ' '\t' | LC_ALL=C sort -t $'\t' -k1,1) \
-            2>/dev/null | \
-            awk -F'\t' -v OFS='\t' '{
-                # Input after join: pos_b37, ldref_a1, ldref_a2, ldref_rsid, pos_b38, liftover_rsid, liftover_a1, liftover_a2
-                # Output: pos_b37, pos_b38, ldref_a1, ldref_a2, ldref_rsid
-                print $1, $5, $2, $3, $4
-            }' > "$out_file"
-        
-        local chr_count
-        chr_count=$(wc -l < "$out_file")
-        augmented_count=$((augmented_count + chr_count))
-        log_debug "chr${chr}: ${chr_count} variants augmented with GRCh38 positions"
+    done | LC_ALL=C sort -t $'\t' -k1,1 > "$all_ld_sorted"
+    
+    local total_ld_variants
+    total_ld_variants=$(wc -l < "$all_ld_sorted")
+    log_debug "Total LD variants to augment: ${total_ld_variants}"
+    log_info "LD reference variants: ${total_ld_variants}"
+    
+    # Count liftover reference rows (informational - this is a large file)
+    log_debug "Counting liftover reference rows (this may take a moment for large files)"
+    local liftover_count
+    liftover_count=$(zcat "$liftover_ref" 2>/dev/null | wc -l || echo "0")
+    log_info "Liftover reference rows: ${liftover_count}"
+    
+    # Step 2: Join with pre-sorted liftover file (SINGLE PASS!)
+    # The liftover file is already sorted on col1 with LC_ALL=C - do NOT re-sort it
+    # LD ref format: chr:pos_b37, a1, a2, rsid (tab-separated)
+    # Liftover format: chr:pos_b37 chr:pos_b38 rsid a1 a2 (space-separated, sorted on col1)
+    # Note: join uses whitespace as default separator - no need for tr
+    log_debug "Joining with liftover file (single pass)"
+    
+    LC_ALL=C join \
+        "$all_ld_sorted" \
+        <(zcat "$liftover_ref") \
+        2>/dev/null | \
+        awk -v OFS='\t' '{
+            # Input after join: pos_b37, ldref_a1, ldref_a2, ldref_rsid, pos_b38, liftover_rsid, liftover_a1, liftover_a2
+            # Output: pos_b37, pos_b38, ldref_a1, ldref_a2, ldref_rsid
+            print $1, $5, $2, $3, $4
+        }' > "$all_augmented"
+    
+    local augmented_count
+    augmented_count=$(wc -l < "$all_augmented")
+    log_info "Augmented ${augmented_count} variants (from ${total_ld_variants} LD ref variants)"
+    
+    # Calculate match rate
+    local match_pct="0.00"
+    if [[ "$total_ld_variants" -gt 0 ]]; then
+        match_pct=$(awk "BEGIN {printf \"%.2f\", 100 * ${augmented_count} / ${total_ld_variants}}")
+    fi
+    log_info "Liftover match rate: ${match_pct}% (${augmented_count}/${total_ld_variants})"
+    
+    # Step 3: Split by chromosome
+    log_debug "Splitting augmented results by chromosome"
+    
+    # Clear any existing per-chromosome files first
+    for chr in $(get_chromosomes); do
+        rm -f "${augmented_dir}/chr${chr}_ld_augmented.tsv"
     done
+    
+    # Split by extracting chromosome from chr:pos in column 1
+    awk -F'\t' -v outdir="$augmented_dir" '{
+        chr = $1
+        sub(/:.*/, "", chr)
+        print >> (outdir "/chr" chr "_ld_augmented.tsv")
+    }' "$all_augmented"
+    
+    # Write prep details (liftover step)
+    {
+        echo -e "STEP\tN_BEFORE\tN_AFTER\tDESC"
+        echo -e "liftover-reference\t${liftover_count}\t${liftover_count}\tliftover reference file rows"
+        echo -e "ldref-extract\t${total_ld_variants}\t${total_ld_variants}\tLD reference variants extracted"
+        echo -e "ldref-augment\t${total_ld_variants}\t${augmented_count}\tLD ref ↔ liftover join (match_rate=${match_pct}%)"
+    } > "${details_dir}/prep_ldref_steps.tsv"
+    log_debug "Wrote prep ldref details: ${details_dir}/prep_ldref_steps.tsv"
+    
+    # Clean up temporary files
+    rm -f "$all_ld_sorted" "$all_augmented"
     
     log_info "Augmented LD reference created: ${augmented_count} total variants"
     log_info "Output directory: ${augmented_dir}"

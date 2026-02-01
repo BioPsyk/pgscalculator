@@ -85,19 +85,40 @@ for reuse across subsequent runs.
 
 **Augmentation within `prep-ldref`** (runs once, cached)
 
+**IMPORTANT: Efficiency considerations**
+- The liftover reference files are already sorted on column 1 using `LC_ALL=C sort`.
+- Do NOT re-sort the liftover file - use it directly with `join`.
+- Do NOT process chromosomes separately - this would require 22 scans of the huge liftover file.
+- Instead: concatenate all LD ref variants across chromosomes, join once, then split results.
+
 ```bash
-# Join LD reference (b37) with liftover file to add b38 positions
-# Input: LD reference chr:pos_b37, a1, a2, rsid
-# Liftover: chr:pos_b37, chr:pos_b38, rsid, a1, a2 (sorted on col1)
+# Step 1: Concatenate all LD reference files and sort on chr:pos_b37
+for chr in $(seq 1 22); do
+  cat prep/ldref/chr${chr}_ld_rsids
+done | LC_ALL=C sort -k1,1 > prep/ldref/all_ld_rsids_sorted.tsv
+
+# Step 2: Join with pre-sorted liftover file (single pass!)
+# Input: all LD ref positions (sorted on chr:pos_b37)
+# Liftover: chr:pos_b37, chr:pos_b38, rsid, a1, a2 (pre-sorted on col1, space-separated)
 # Output: Augmented LD reference with both positions
+# Note: join uses whitespace as default separator - no need for tr
 
-LC_ALL=C join -1 1 -2 1 \
-  <(awk -F'\t' '{print $1, $2, $3, $4}' ldref_chr10.tsv | LC_ALL=C sort -k1,1) \
+LC_ALL=C join \
+  prep/ldref/all_ld_rsids_sorted.tsv \
   <(zcat dbsnp_cleansumstat_reference_GRCh37_GRCh38.txt.gz) \
-  > ldref_augmented_chr10.tsv
+  > prep/ldref_augmented/all_ld_augmented.tsv
 
-# Output columns: chr:pos_b37, ldref_a1, ldref_a2, rsid, chr:pos_b38, liftover_rsid, liftover_a1, liftover_a2
+# Step 3: Split by chromosome
+awk -F'\t' '{
+  chr = $1; sub(/:.*/, "", chr)
+  print >> "prep/ldref_augmented/chr" chr "_ld_augmented.tsv"
+}' prep/ldref_augmented/all_ld_augmented.tsv
+
+# Output columns: chr:pos_b37, ldref_a1, ldref_a2, ldref_rsid, chr:pos_b38, liftover_rsid, liftover_a1, liftover_a2
 ```
+
+**Key insight**: By concatenating all LD ref variants first, we only scan the liftover file ONCE
+instead of 22 times. This is critical for performance since the liftover file is ~900M lines.
 
 **Output location:**
 ```
