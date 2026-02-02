@@ -159,9 +159,9 @@ ensure_rsid_mapping() {
     # Extract LDREF -> GENO mapping from variant_map
     awk -F'\t' -v OFS='\t' '
         NR > 1 {
-            # chr, pos, geno_snpid, geno_a1, geno_a2, ldref_snpid, ldref_a1, ldref_a2, ldref_a2freq
-            if ($6 != "NA" && $3 != "NA") {
-                print $6, $3  # ldref_id, genotype_id
+            # Schema: chr(1), pos_b37(2), pos_b38(3), geno_snpid(4), geno_a1(5), geno_a2(6), ldref_snpid(7), ldref_a1(8), ldref_a2(9), ldref_a2freq(10)
+            if ($7 != "NA" && $4 != "NA") {
+                print $7, $4  # ldref_id, genotype_id
             }
         }
     ' "$mapfile" | LC_ALL=C sort -k1,1 > "$tmp_out"

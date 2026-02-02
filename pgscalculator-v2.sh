@@ -1383,6 +1383,7 @@ lddir_container="/pgscalculator/$foldername"
 genodir_container="/pgscalculator/genodir"
 outdir_container="/pgscalculator/outdir"
 config_container="/pgscalculator/config"
+liftover_container="/pgscalculator/references/liftover_reference.gz"
 
 if [[ -n "$genofile_host" ]]; then
 genodir2_host=$(dirname "${genofile_host}")
@@ -1420,6 +1421,8 @@ outdir: ${outdir_container}
 lddir: ${lddir_container}
 genodir: ${genodir_container}
 genofile: ${genofile_container}
+genotype_build: ${cfg_genotype_build}
+liftover_reference: ${liftover_container}
 EOF
 
 # Copy parameters from user's config (skip path keys and references section - handled separately)
@@ -1428,7 +1431,7 @@ awk '
   /^references:/ { in_references = 1; next }
   /^[a-zA-Z]/ && in_references { in_references = 0 }
   in_references { next }
-  !/^(ld_reference|genotypes|genotype_manifest|outdir|input|lddir|genodir|genofile):/ {
+  !/^(ld_reference|genotypes|genotype_manifest|outdir|input|lddir|genodir|genofile|genotype_build|liftover_reference):/ {
     print
   }
 ' "$config_file_host" >> "${config_yaml_host}"
@@ -1517,6 +1520,11 @@ fi
 
 if [[ -n "$genodir2_host" ]] && [[ -d "$genodir2_host" ]]; then
   mount_opts="${mount_opts} ${mountflag} ${genodir2_host}:${genodir2_container}"
+fi
+
+# Mount liftover reference file (required for dual-position mapfile)
+if [[ -n "$liftover_reference_host" ]] && [[ -f "$liftover_reference_host" ]]; then
+  mount_opts="${mount_opts} ${mountflag} ${liftover_reference_host}:${liftover_container}"
 fi
 
 # Mount INFO file if provided (or allow "false" to explicitly disable)

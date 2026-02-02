@@ -9,11 +9,15 @@ ld_reference: /faststorage/project/ibp_migration_opengdk/PROJECT_pgscalculator/p
 genotypes: /faststorage/project/ibp_migration_opengdk/PROJECT_pgscalculator/pgscalculator/references/genotypes_test/plink2
 genotype_manifest: /faststorage/project/ibp_migration_opengdk/PROJECT_pgscalculator/pgscalculator/references/genotypes_test/mapfiles/plink2_genodir_genofiles.txt
 
+# Genome build and liftover reference (for dual-position variant map)
+genotype_build: GRCh37
+liftover_reference: /faststorage/project/ibp_pipeline_cleansumstats/cleansumstats/out_dbsnp/dbsnp_cleansumstat_reference_GRCh37_GRCh38.txt.gz
+
 # Outdir is inside this test folder for easy cleanup.
 outdir: /faststorage/project/ibp_pipeline_pgscalculator/pgscalculator/tests/smoke/v2.1-2026-01-11/out
 
 whichn: totalN
-chromosomes: 21-22
+chromosomes: 1-22
 
 filters:
   info_threshold: 0.8
@@ -43,10 +47,10 @@ slurm:
   partition: normal
 
   # Lightweight driver job; arrays use the step-specific resources below.
-  driver: { mem: 1g, cpus: 1, time: '02:00:00' }
+  driver: { mem: 5g, cpus: 1, time: '02:00:00' }
 
   prep: { mem: 16g, cpus: 4, time: '02:00:00' }
-  sumstat: { mem: 1g, cpus: 1, time: '00:30:00', max_parallel: 2 }
-  posteriors: { mem: 20g, cpus: 6, time: '04:00:00', max_parallel: 2 }
-  score: { mem: 10g, cpus: 4, time: '01:00:00', max_parallel: 2 }
+  sumstat: { mem: 1g, cpus: 1, time: '00:30:00', max_parallel: 22 }
+  posteriors: { mem: 20g, cpus: 6, time: '04:00:00', max_parallel: 22 }
+  score: { mem: 10g, cpus: 4, time: '01:00:00', max_parallel: 22 }
 

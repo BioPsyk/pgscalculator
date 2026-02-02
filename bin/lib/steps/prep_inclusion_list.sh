@@ -422,7 +422,7 @@ compute_maf_from_genotypes() {
     
     for chr in $(get_chromosomes); do
         # Optional: restrict MAF computation to variants in the combined variant map.
-        # variant_map format: chr, pos, geno_snpid, geno_a1, geno_a2, ldref_snpid, ldref_a1, ldref_a2, ldref_a2freq
+        # variant_map format: chr, pos_b37, pos_b38, geno_snpid, geno_a1, geno_a2, ldref_snpid, ldref_a1, ldref_a2, ldref_a2freq
         local tmpdir
         tmpdir=$(make_tmpdir "prep_inclusion_list_plink2_freq")
         local extract_ids=""
@@ -431,7 +431,8 @@ compute_maf_from_genotypes() {
             awk -F'\t' -v c="$chr" '
                 NR==1{next}
                 {
-                    if ($1==c) print $3
+                    # Schema: chr(1), pos_b37(2), pos_b38(3), geno_snpid(4), ...
+                    if ($1==c) print $4
                 }
             ' "$variant_map" | LC_ALL=C sort -u > "$extract_ids"
             # If no variants for this chromosome, skip plink entirely

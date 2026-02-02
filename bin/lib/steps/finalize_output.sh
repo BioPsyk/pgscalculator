@@ -218,9 +218,9 @@ generate_augmented_sumstat() {
     # Load variant map (sumstat_snpid -> ldref_snpid, geno_snpid)
     awk -F'\t' -v OFS='\t' '
         NR > 1 {
-            # chr, pos, sumstat_snpid, sumstat_effect, sumstat_other, geno_snpid, geno_a1, geno_a2, ldref_snpid, ldref_a1, ldref_a2, ldref_a2freq
-            if ($3 != "NA") {
-                print $3, $9, $6
+            # Schema: chr(1), pos_b37(2), pos_b38(3), sumstat_snpid(4), sumstat_effect(5), sumstat_other(6), geno_snpid(7), geno_a1(8), geno_a2(9), ldref_snpid(10), ldref_a1(11), ldref_a2(12), ldref_a2freq(13)
+            if ($4 != "NA") {
+                print $4, $10, $7  # sumstat_snpid, ldref_snpid, geno_snpid
             }
         }
     ' "$variant_map" > "${tmpdir}/varmap_lookup.tsv"
