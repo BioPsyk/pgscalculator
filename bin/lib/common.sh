@@ -532,6 +532,7 @@ build_sbayesr_options() {
     # Add flags
     [[ "${CFG_SBAYESR_EXCLUDE_MHC:-false}" == "true" ]] && options+=" --exclude-mhc"
     [[ "${CFG_SBAYESR_UNSCALE_GENOTYPE:-false}" == "true" ]] && options+=" --unscale-genotype"
+    [[ "${CFG_SBAYESR_NO_MCMC_BIN:-false}" == "true" ]] && options+=" --no-mcmc-bin"
     [[ "${CFG_SBAYESR_IMPUTE_N:-false}" == "true" ]] && options+=" --impute-n"
     
     echo "$options"

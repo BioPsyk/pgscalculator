@@ -61,10 +61,15 @@ sbayesr:
   pi: "0.95,0.02,0.02,0.01"
   burn_in: 2000
   chain_length: 10000
+  out_freq: 10
+  p_value: 0.99
+  rsq: 0.95
   threads: 6
   seed: 80851
+  thin: 10
   exclude_mhc: true
   unscale_genotype: true
+  no_mcmc_bin: false
   impute_n: false
 
 # Scoring columns (variant_id allele effect)
@@ -293,10 +298,15 @@ sbayesr:
   pi: "0.95,0.02,0.02,0.01"
   burn_in: 2000
   chain_length: 10000
+  out_freq: 10
+  p_value: 0.99
+  rsq: 0.95
   threads: 6
   seed: 80851
+  thin: 10
   exclude_mhc: true
   unscale_genotype: true
+  no_mcmc_bin: false
   impute_n: false
 
 # Scoring columns (variant_id allele effect)
