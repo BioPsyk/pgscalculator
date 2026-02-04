@@ -1018,14 +1018,24 @@ rc=\$?; echo \"[INFO] Finished ${step_profile} chr\${CHR} at \$(date) (exit=\$rc
     submit_array_for_step "score"
 
     # After score array finishes, run the non-parallel steps once to produce final outputs.
-    follow_steps="combine-scores,finalize-output"
-    echo "Running post-array finalization: ${follow_steps}"
-    follow_cmd="${project_dir}/pgscalculator-v2.sh --config ${config_file_host} --steps ${follow_steps}"
-    [[ -n "$infold" ]] && follow_cmd="${follow_cmd} -i ${infold}"
-    [[ -n "$outdir" ]] && follow_cmd="${follow_cmd} -o ${outdir}"
-    [[ -n "$devmode" ]] && follow_cmd="${follow_cmd} -d"
-    [[ -n "$force_mode" ]] && follow_cmd="${follow_cmd} --force"
-    eval "$follow_cmd"
+    # But only if scores were actually produced (skip if score array was skipped or all tasks failed).
+    scores_dir="${outdir_host}/sumstats/${sumstat_name}/work/scores"
+    n_scores=$(ls "${scores_dir}"/chr*.sscore 2>/dev/null | wc -l | awk '{print $1}')
+    if [[ "$n_scores" -gt 0 ]]; then
+      follow_steps="combine-scores,finalize-output"
+      echo "Running post-array finalization: ${follow_steps}"
+      follow_cmd="${project_dir}/pgscalculator-v2.sh --config ${config_file_host} --steps ${follow_steps}"
+      [[ -n "$infold" ]] && follow_cmd="${follow_cmd} -i ${infold}"
+      [[ -n "$outdir" ]] && follow_cmd="${follow_cmd} -o ${outdir}"
+      [[ -n "$devmode" ]] && follow_cmd="${follow_cmd} -d"
+      [[ -n "$force_mode" ]] && follow_cmd="${follow_cmd} --force"
+      eval "$follow_cmd"
+    else
+      >&2 echo ""
+      >&2 echo "Skipping combine-scores,finalize-output: no score files found in ${scores_dir}"
+      >&2 echo "This usually means posteriors failed or produced no variants."
+      >&2 echo "Check posteriors logs for errors."
+    fi
   fi
 
   # Optional cleanup (default is to keep work/tmp during development)
