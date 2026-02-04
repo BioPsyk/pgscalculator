@@ -24,6 +24,60 @@ check_filter_variants_deps() {
     require_file "${prep_dir}/variant_map.tsv" "Run 'pgscalculator prep-inclusion-list' first"
 }
 
+# Validate sumstat metadata has required N field for posterior calculations.
+# This is a safety net for non-sbatch runs (sbatch runs check earlier in pgscalculator-v2.sh).
+validate_sumstat_n_field() {
+    local metadata_file="$1"
+    local which_n="$2"
+    
+    if [[ ! -f "$metadata_file" ]]; then
+        log_error "Metadata file not found: ${metadata_file}"
+        log_error "The sumstat directory must contain a cleaned_metadata.yaml file (produced by cleansumstats)."
+        exit 1
+    fi
+    
+    local n_value=""
+    local n_field=""
+    local alt_fields=""
+    
+    if [[ "$which_n" == "effectiveN" ]]; then
+        n_field="stats_EffectiveN"
+        n_value=$(awk -F': ' '$1=="stats_EffectiveN"{gsub(/^[ \t]+|[ \t]+$/, "", $2); print $2; exit}' "$metadata_file")
+        alt_fields="stats_CaseN + stats_ControlN"
+        
+        # If effectiveN is missing, check if case/control counts are available (can derive effectiveN)
+        if [[ -z "$n_value" ]]; then
+            local case_n ctrl_n
+            case_n=$(awk -F': ' '$1=="stats_CaseN"{gsub(/^[ \t]+|[ \t]+$/, "", $2); print $2; exit}' "$metadata_file")
+            ctrl_n=$(awk -F': ' '$1=="stats_ControlN"{gsub(/^[ \t]+|[ \t]+$/, "", $2); print $2; exit}' "$metadata_file")
+            if [[ -n "$case_n" ]] && [[ -n "$ctrl_n" ]] && [[ "$case_n" =~ ^[0-9]+$ ]] && [[ "$ctrl_n" =~ ^[0-9]+$ ]]; then
+                # Can derive effectiveN from case/control
+                n_value="derivable"
+            fi
+        fi
+    else
+        # totalN (default)
+        n_field="stats_TotalN"
+        n_value=$(awk -F': ' '$1=="stats_TotalN"{gsub(/^[ \t]+|[ \t]+$/, "", $2); print $2; exit}' "$metadata_file")
+        alt_fields="stats_CaseN + stats_ControlN (for effectiveN)"
+    fi
+    
+    if [[ -z "$n_value" ]]; then
+        log_error "Required sample size field is missing or empty in metadata."
+        log_error ""
+        log_error "  Config:    whichn: ${which_n}"
+        log_error "  Expected:  ${n_field} (or ${alt_fields})"
+        log_error "  Metadata:  ${metadata_file}"
+        log_error ""
+        log_error "The posteriors calculation requires sample size (N) to be present."
+        log_error "Please ensure the cleansumstats output includes this field, or"
+        log_error "manually add '${n_field}: <value>' to the metadata file."
+        exit 1
+    fi
+    
+    log_debug "Metadata validated: ${n_field} = ${n_value}"
+}
+
 # =============================================================================
 # MAIN STEP FUNCTION
 # =============================================================================
@@ -50,6 +104,12 @@ run_filter_variants() {
     local step_dir
     step_dir=$(get_sumstat_step_dir "$sumstat_dir" "filtered")
     ensure_dir "$step_dir"
+    
+    # Early validation: check that metadata has required N fields (safety net for non-sbatch runs)
+    local input_dir="${CFG_INPUT}"
+    local metadata_file="${input_dir}/cleaned_metadata.yaml"
+    local which_n="${CFG_WHICHN:-totalN}"
+    validate_sumstat_n_field "$metadata_file" "$which_n"
     
     # Auto-detect single-chromosome runs from config (important for --sbatch-array mode)
     if [[ -z "$specific_chr" ]] && [[ -n "${CFG_CHROMOSOMES:-}" ]] && [[ "${CFG_CHROMOSOMES}" =~ ^(chr)?[0-9]+$ ]]; then

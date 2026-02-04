@@ -231,6 +231,72 @@ format_sbatch_settings() {
   fi
 }
 
+# Validate sumstat metadata has required N fields before processing.
+# This provides early feedback for missing sample size information.
+validate_sumstat_metadata() {
+  local sumstat_dir="$1"
+  local config_file="$2"
+  
+  local metadata_file="${sumstat_dir}/cleaned_metadata.yaml"
+  if [[ ! -f "$metadata_file" ]]; then
+    >&2 echo ""
+    >&2 echo "Error: Metadata file not found: ${metadata_file}"
+    >&2 echo ""
+    >&2 echo "The sumstat directory must contain a cleaned_metadata.yaml file"
+    >&2 echo "(produced by cleansumstats)."
+    >&2 echo ""
+    exit 1
+  fi
+  
+  # Determine which N field is needed based on config
+  local which_n
+  which_n=$(parse_yaml_value "whichn" "$config_file")
+  which_n="${which_n:-totalN}"
+  
+  local n_value=""
+  local n_field=""
+  local alt_fields=""
+  
+  if [[ "$which_n" == "effectiveN" ]]; then
+    n_field="stats_EffectiveN"
+    n_value=$(awk -F': ' '$1=="stats_EffectiveN"{gsub(/^[ \t]+|[ \t]+$/, "", $2); print $2; exit}' "$metadata_file")
+    alt_fields="stats_CaseN + stats_ControlN"
+    
+    # If effectiveN is missing, check if case/control counts are available (can derive effectiveN)
+    if [[ -z "$n_value" ]]; then
+      local case_n ctrl_n
+      case_n=$(awk -F': ' '$1=="stats_CaseN"{gsub(/^[ \t]+|[ \t]+$/, "", $2); print $2; exit}' "$metadata_file")
+      ctrl_n=$(awk -F': ' '$1=="stats_ControlN"{gsub(/^[ \t]+|[ \t]+$/, "", $2); print $2; exit}' "$metadata_file")
+      if [[ -n "$case_n" ]] && [[ -n "$ctrl_n" ]] && [[ "$case_n" =~ ^[0-9]+$ ]] && [[ "$ctrl_n" =~ ^[0-9]+$ ]]; then
+        # Can derive effectiveN from case/control
+        n_value="derivable"
+      fi
+    fi
+  else
+    # totalN (default)
+    n_field="stats_TotalN"
+    n_value=$(awk -F': ' '$1=="stats_TotalN"{gsub(/^[ \t]+|[ \t]+$/, "", $2); print $2; exit}' "$metadata_file")
+    alt_fields="stats_CaseN + stats_ControlN (for effectiveN)"
+  fi
+  
+  if [[ -z "$n_value" ]]; then
+    >&2 echo ""
+    >&2 echo "Error: Required sample size field is missing or empty in metadata."
+    >&2 echo ""
+    >&2 echo "  Config:    whichn: ${which_n}"
+    >&2 echo "  Expected:  ${n_field} (or ${alt_fields})"
+    >&2 echo "  Metadata:  ${metadata_file}"
+    >&2 echo ""
+    >&2 echo "The posteriors calculation requires sample size (N) to be present."
+    >&2 echo "Please ensure the cleansumstats output includes this field, or"
+    >&2 echo "manually add '${n_field}: <value>' to the metadata file."
+    >&2 echo ""
+    exit 1
+  fi
+  
+  echo "Metadata validated: ${n_field} = ${n_value}"
+}
+
 # Read paths from config (support new keys + legacy aliases)
 cfg_ld_reference=$(parse_yaml_value "ld_reference" "$config_file_host")
 cfg_lddir=$(parse_yaml_value "lddir" "$config_file_host")
@@ -1147,10 +1213,14 @@ if [[ "$use_sbatch" == true ]]; then
   fi
   infold_host=$(realpath "${infold}")
   if [[ ! -d "$infold_host" ]]; then
-  >&2 echo "Error: Input directory doesn't exist: $infold_host"
-  exit 1
-fi
+    >&2 echo "Error: Input directory doesn't exist: $infold_host"
+    exit 1
+  fi
   sumstat_name=$(basename "$infold_host")
+
+  # Early validation: check that metadata has required N fields before submitting job
+  # This provides fast feedback for a common misconfiguration issue
+  validate_sumstat_metadata "$infold_host" "$config_file_host"
 
   # Driver resources: default tiny; configurable via slurm.driver
   step_profile="driver"
