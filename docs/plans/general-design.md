@@ -1,4 +1,4 @@
-% Variant Mapping Plan (chr/pos + alleles)
+% General Design
 
 ## Purpose
 Define the required behavior for variant ID mapping so that sumstat, LD reference, and genotype
@@ -533,4 +533,3 @@ The driver job:
   explicit ID-space specifier (`ss`, `ld`, or `gt`), applied after mapfile reduction.
 - Conversions to/from LD reference and genotype IDs only use the mapfile.
 - Final output includes the full mapfile (`variant_map.tsv.gz`) with both position columns.
-
