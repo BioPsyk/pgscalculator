@@ -54,11 +54,12 @@ run_finalize_output() {
     posteriors_mapped_dir=$(get_sumstat_step_dir "$sumstat_dir" "posteriors_mapped")
     combine_posteriors "$posteriors_mapped_dir" "$posteriors_combined"
     
-    # Step 2: Generate sumstat_augmented.tsv.gz
+    # Step 2: Generate sumstat_augmented.tsv.gz (full) and augmented_sumstat.gz (v2 reduced schema)
     log_substep "Generating augmented sumstat"
     generate_augmented_sumstat "$sumstat_dir" "$prep_dir" "$posteriors_combined"
+    write_augmented_sumstat_v2 "$sumstat_dir" "$prep_dir" "$posteriors_combined"
     
-    # Step 3: Copy variant map to sumstat root (v1-compatible artifact)
+    # Step 3: Copy variant map to sumstat root (with rsid as col1)
     log_substep "Writing variant_map.tsv.gz"
     write_variant_map "$prep_dir" "$sumstat_dir"
 
@@ -100,7 +101,14 @@ write_variant_map() {
         return 0
     fi
 
-    gzip -c "$variant_map_src" > "$variant_map_out"
+    # Output variant_map with rsid (ldref_snpid) as column 1 for user-facing joins
+    # Sumstat map: chr, pos_b37, pos_b38, sumstat_snpid, sumstat_effect, sumstat_other, geno_snpid, geno_a1, geno_a2, ldref_snpid(10), ldref_a1, ldref_a2, ldref_a2freq
+    # Prep map: chr, pos_b37, pos_b38, geno_snpid, geno_a1, geno_a2, ldref_snpid(7), ldref_a1, ldref_a2, ldref_a2freq
+    awk -F'\t' -v OFS='\t' '
+        NR==1 { print "rsid", $0; next }
+        NF >= 13 { print $10, $0; next }
+        { print $7, $0 }
+    ' "$variant_map_src" | gzip -c > "$variant_map_out"
     log_debug "Wrote variant map: ${variant_map_out}"
 }
 
@@ -270,6 +278,80 @@ generate_augmented_sumstat() {
     log_info "Generated augmented sumstat with ${variant_count} variants"
 }
 
+# v2 output: augmented_sumstat.gz with same row set as variant map; schema RSID, EffectAllele, OtherAllele, B, SE, Z, P, MAF, postEffect, benchEffect
+write_augmented_sumstat_v2() {
+    local sumstat_dir="$1"
+    local prep_dir="$2"
+    local posteriors_file="$3"
+    local variant_map="${sumstat_dir}/variant_map.tsv"
+    [[ ! -f "$variant_map" ]] && variant_map="${prep_dir}/variant_map.tsv"
+    local full_augmented="${sumstat_dir}/sumstat_augmented.tsv.gz"
+    local maf_file="${prep_dir}/references/maf_computed.tsv"
+    local output_file="${sumstat_dir}/augmented_sumstat.gz"
+    
+    if [[ ! -f "$variant_map" ]]; then
+        log_warn "variant_map.tsv not found, skipping augmented_sumstat.gz"
+        return 0
+    fi
+    if [[ ! -f "$full_augmented" ]]; then
+        log_warn "sumstat_augmented.tsv.gz not found, skipping augmented_sumstat.gz"
+        return 0
+    fi
+    
+    # Driver: variant_map (same row set). Look up: sumstat (B,SE,Z,P by RSID), posteriors (postEffect by ldref_snpid), MAF (by geno_snpid).
+    # Variant map (13 cols): chr, pos_b37, pos_b38, sumstat_snpid, sumstat_effect, sumstat_other, geno_snpid, geno_a1, geno_a2, ldref_snpid, ldref_a1, ldref_a2, ldref_a2freq
+    awk -F'\t' -v OFS='\t' \
+        -v postfile="$posteriors_file" \
+        -v maffile="${maf_file}" '
+        BEGIN {
+            if (postfile != "") {
+                while ((getline < postfile) > 0) { if (FNR > 1) post_effect[$1] = $6 }
+                close(postfile)
+            }
+            if (maffile != "") {
+                while ((getline < maffile) > 0) { if (FNR > 1) maf[$1] = $2 }
+                close(maffile)
+            }
+        }
+        FNR==NR {
+            if (FNR == 1) {
+                for (i=1;i<=NF;i++) {
+                    if ($i == "RSID" || $i == "rsid" || $i == "SNP" || $i == "ID") rsid_c=i
+                    if ($i == "EffectAllele" || $i == "A1") ea_c=i
+                    if ($i == "OtherAllele" || $i == "A2") oa_c=i
+                    if ($i == "B" || $i == "BETA") b_c=i
+                    if ($i == "SE") se_c=i
+                    if ($i == "Z") z_c=i
+                    if ($i == "P" || $i == "PVAL") p_c=i
+                }
+                next
+            }
+            rsid = (rsid_c && rsid_c <= NF ? $rsid_c : "")
+            if (rsid != "") {
+                ss_b[rsid]=($b_c); ss_se[rsid]=($se_c); ss_z[rsid]=($z_c); ss_p[rsid]=($p_c)
+            }
+            next
+        }
+        FNR==1 {
+            print "RSID", "EffectAllele", "OtherAllele", "B", "SE", "Z", "P", "MAF", "postEffect", "benchEffect"
+            next
+        }
+        {
+            rsid = $10
+            ea = ($5 != "NA" && $5 != "" ? $5 : $11)
+            oa = ($6 != "NA" && $6 != "" ? $6 : $12)
+            b = (($4 in ss_b) ? ss_b[$4] : (rsid in ss_b ? ss_b[rsid] : "NA"))
+            se = (($4 in ss_se) ? ss_se[$4] : (rsid in ss_se ? ss_se[rsid] : "NA"))
+            z = (($4 in ss_z) ? ss_z[$4] : (rsid in ss_z ? ss_z[rsid] : "NA"))
+            p = (($4 in ss_p) ? ss_p[$4] : (rsid in ss_p ? ss_p[rsid] : "NA"))
+            maf_val = ($7 != "NA" && $7 != "" && $7 in maf ? maf[$7] : "NA")
+            pe = (rsid in post_effect ? post_effect[rsid] : "NA")
+            print rsid, ea, oa, b, se, z, p, maf_val, pe, "NA"
+        }
+    ' <(zcat "$full_augmented") "$variant_map" | gzip -c > "$output_file"
+    log_debug "Wrote v2 augmented sumstat (same row set as variant map): ${output_file}"
+}
+
 copy_config_to_details() {
     local outdir="$1"
     local details_dir="$2"
@@ -302,7 +384,15 @@ generate_run_summary() {
             score_count=$((score_count - 1))
             echo "  - scores.tsv.gz: ${score_count} samples"
         fi
-        
+        if [[ -f "${sumstat_dir}/main_raw_score_all.gz" ]]; then
+            echo "  - main_raw_score_all.gz: (v2 main score file)"
+        fi
+        if [[ -f "${sumstat_dir}/augmented_sumstat.gz" ]]; then
+            local aug_count
+            aug_count=$(zcat "${sumstat_dir}/augmented_sumstat.gz" | wc -l)
+            aug_count=$((aug_count - 1))
+            echo "  - augmented_sumstat.gz: ${aug_count} variants"
+        fi
         if [[ -f "${sumstat_dir}/sumstat_augmented.tsv.gz" ]]; then
             local var_count
             var_count=$(zcat "${sumstat_dir}/sumstat_augmented.tsv.gz" | wc -l)

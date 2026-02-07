@@ -12,7 +12,12 @@ check_calc_benchmark_deps() {
 
 run_calc_benchmark() {
     local sumstat_name="$1"
-    local maf_threshold="${2:-0.05}"
+    # Config from benchmark section (CFG_BENCHMARK_MAF_THRESHOLD, CFG_BENCHMARK_INDEP_PAIRWISE)
+    local maf_threshold="${CFG_BENCHMARK_MAF_THRESHOLD:-0.05}"
+    local indep_raw="${CFG_BENCHMARK_INDEP_PAIRWISE:-250 50 0.25}"
+    local indep_pairwise
+    indep_pairwise=$(echo "$indep_raw" | sed 's/[][]//g; s/,/ /g' | awk '{$1=$1;print}')
+    [[ -z "$indep_pairwise" ]] && indep_pairwise="250 50 0.25"
     
     log_step "Running calc-benchmark for: $sumstat_name"
     check_calc_benchmark_deps
@@ -37,14 +42,14 @@ run_calc_benchmark() {
     local genofile="${CFG_GENOFILE}"
     local inclusion_file="${prep_dir}/inclusion_list/variant_inclusion_list.tsv"
     
-    log_info "MAF threshold: ${maf_threshold}"
+    log_info "MAF threshold: ${maf_threshold}; indep-pairwise: ${indep_pairwise}"
     
     local success_count=0
     for chr in $(get_chromosomes); do
         local filtered_file="${filtered_dir}/chr${chr}_filtered.tsv"
         [[ ! -f "$filtered_file" ]] && continue
         log_substep "Processing chromosome ${chr}"
-        if process_benchmark_chr "$chr" "$filtered_file" "$genodir" "$genofile" "$step_dir" "$maf_threshold" "$inclusion_file"; then
+        if process_benchmark_chr "$chr" "$filtered_file" "$genodir" "$genofile" "$step_dir" "$maf_threshold" "$inclusion_file" "$indep_pairwise"; then
             ((success_count++))
         fi
     done
@@ -56,7 +61,7 @@ run_calc_benchmark() {
 
 process_benchmark_chr() {
     local chr="$1" filtered_file="$2" genodir="$3" genofile="$4"
-    local step_dir="$5" maf_threshold="$6" inclusion_file="$7"
+    local step_dir="$5" maf_threshold="$6" inclusion_file="$7" indep_pairwise="${8:-250 50 0.25}"
     
     local chr_workdir="${step_dir}/work_chr${chr}"
     mkdir -p "$chr_workdir"
@@ -95,9 +100,9 @@ process_benchmark_chr() {
         plink_threads=1
     fi
 
-    # LD pruning
+    # LD pruning (window step r2 from config: benchmark.indep_pairwise)
     plink2 $geno_opt "$geno_prefix" --extract "${chr_workdir}/variants.txt" \
-        --maf "$maf_threshold" --indep-pairwise 250 50 0.25 \
+        --maf "$maf_threshold" --indep-pairwise $indep_pairwise \
         --out "${chr_workdir}/pruned" --threads "${plink_threads}" > "${chr_workdir}/prune.log" 2>&1 || return 1
     
     [[ ! -f "${chr_workdir}/pruned.prune.in" ]] && return 0

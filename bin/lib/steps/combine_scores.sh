@@ -60,10 +60,11 @@ run_combine_scores() {
     if [[ ${#score_files[@]} -eq 0 ]]; then
         # Continue-on-failure behavior: if scoring produced no per-chromosome outputs,
         # still write an empty scores.tsv.gz so downstream steps (finalize-output) can run.
-        log_warn "No score files found in ${scores_dir}; writing empty scores.tsv.gz (header-only)."
+        log_warn "No score files found in ${scores_dir}; writing empty scores (header-only)."
         local empty_merged="${step_dir}/merged.sscore"
-        echo -e "IID\tSCORE_SUM\tALLELE_CT\tN_VARIANTS" > "$empty_merged"
+        echo -e "IID\tALLELE_CT\tNAMED_ALLELE_DOSAGE_SUM\tSCORE1_AVG\tSCORE1_SUM\tFILE_SUM" > "$empty_merged"
         create_final_scores "$empty_merged" "${sumstat_dir}/scores.tsv.gz"
+        create_main_raw_score_all "$empty_merged" "${sumstat_dir}/main_raw_score_all.gz"
         mark_step_completed "$step_dir"
         log_info "Wrote empty scores file: ${sumstat_dir}/scores.tsv.gz"
         return 0
@@ -86,9 +87,10 @@ run_combine_scores() {
     local merged_file="${step_dir}/merged.sscore"
     combine_chromosome_scores "$ref_file" "${scores_dir}" "$merged_file" "$total_nvar"
     
-    # Step 3: Create final scores.tsv.gz in sumstat root
-    log_substep "Creating final scores.tsv.gz"
+    # Step 3: Create final scores.tsv.gz and main_raw_score_all.gz (v2) in sumstat root
+    log_substep "Creating final score files"
     create_final_scores "$merged_file" "${sumstat_dir}/scores.tsv.gz"
+    create_main_raw_score_all "$merged_file" "${sumstat_dir}/main_raw_score_all.gz"
     
     # Mark step as completed
     mark_step_completed "$step_dir"
@@ -235,11 +237,21 @@ compute_total_scored_variants() {
 create_final_scores() {
     local merged_file="$1"
     local output_file="$2"
-    
-    # Gzip the final output
     gzip -c "$merged_file" > "$output_file"
-    
     log_debug "Created final scores file: $output_file"
+}
+
+# v2: main_raw_score_all.gz with IID, ALLELE_CT, NAMED_ALLELE_DOSAGE_SUM, SCORE1_AVG, SCORE1_SUM, FILE_SUM (no FID)
+create_main_raw_score_all() {
+    local merged_file="$1"
+    local output_file="$2"
+    # merged_file from combine_chromosome_scores now has: IID, ALLELE_CT, NAMED_ALLELE_DOSAGE_SUM, SCORE1_AVG, SCORE1_SUM, FILE_SUM
+    if [[ ! -f "$merged_file" ]]; then
+        log_warn "Merged score file not found, skipping main_raw_score_all.gz"
+        return 0
+    fi
+    gzip -c "$merged_file" > "$output_file"
+    log_debug "Created main_raw_score_all.gz: $output_file"
 }
 
 

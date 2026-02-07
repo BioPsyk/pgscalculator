@@ -16,7 +16,7 @@ Notes:
 - No sorting requirement is imposed for runtime use.
 - The mapfile may include non-key frequency columns used for EAF filling/auditing.
 - Both `pos_b37` and `pos_b38` are always populated from liftover reference files during prep.
-- The mapfile only contains variants present in **both** genotypes and LD reference (intersection).
+- The mapfile contains **all** LD reference variants that could be lifted over; genotype columns are `NA` where no genotype match, and sumstat columns are `NA` where no sumstat match (per-sumstat step).
 
 ## Genome build handling
 
@@ -169,7 +169,7 @@ step only needs a simple join - no liftover processing required during the main 
    - If `genotype_build == GRCh38`:
      - Match genotypes ↔ augmented LD ref by **chr:pos_b38 + alleles**.
    - Both `pos_b37` and `pos_b38` come from the pre-augmented LD ref.
-   - Only intersection variants are kept.
+   - **All** augmented LD ref variants are kept (left join from LD ref); genotype columns are `NA` where no genotype match.
    - No liftover join needed during this step.
 
 4. **format-sumstat**: Simplified - just split `cleaned_GRCh38.gz` by chromosome.
@@ -204,6 +204,8 @@ done
 ```
 
 ### Genotype ↔ Augmented LD ref matching (prep-inclusion-list)
+
+The mapfile must retain **all** augmented LD ref rows (left join from LD ref). Use a join that keeps every augmented LD ref variant and sets genotype columns to `NA` where no genotype match.
 
 **For GRCh37 genotypes:**
 ```bash
@@ -240,12 +242,12 @@ If liftover produces few matches (e.g., <10% of genotype variants):
 2. Continue processing with matched variants.
 
 ## Filtering order (planned)
-1) **prep** (`--steps prep`) builds base mapfiles from the **intersection** of genotype + LD reference variants,
+1) **prep** (`--steps prep`) builds base mapfiles from **all** LD reference variants that could be lifted over (augmented LD ref),
    including LD reference EAF (`ldref_a2freq`) and both position columns (`pos_b37`, `pos_b38`).
    - `prep-ldref` creates augmented LD reference with both positions (via liftover, cached).
    - `prep-genotypes` extracts genotype positions in their native build.
-   - `prep-inclusion-list` matches genotypes ↔ augmented LD ref (no liftover needed here).
-   - Only variants present in **both** genotypes and LD ref are kept (intersection).
+   - `prep-inclusion-list` joins genotypes onto augmented LD ref (left join from LD ref); genotype columns are `NA` where no match.
+   - **All** augmented LD ref variants are kept in the mapfile.
    - Write **chromosome-specific mapfiles** only (e.g., `prep/variant_map/chrN.tsv`) for parallel use.
    - Do **not** create a combined prep mapfile during processing.
 2) **sumstat** attaches `sumstat_*` columns via `chr/pos_b38 + alleles` into **chromosome-specific**
@@ -272,8 +274,8 @@ If liftover produces few matches (e.g., <10% of genotype variants):
    - Joins LD ref (b37) with liftover file to add `pos_b38`.
    - Cached: if augmented files exist, skip liftover join.
 2) `prep-genotypes`: Extract positions from genotypes in their native build.
-3) `prep-inclusion-list`: Build per-chromosome mapfiles from **intersection** of genotype + augmented LD ref.
-   - Match by `pos_b37` (if genotype_build=GRCh37) or `pos_b38` (if genotype_build=GRCh38).
+3) `prep-inclusion-list`: Build per-chromosome mapfiles from **all** augmented LD ref variants (left join from LD ref).
+   - Match by `pos_b37` (if genotype_build=GRCh37) or `pos_b38` (if genotype_build=GRCh38); genotype columns `NA` where no match.
    - Both `pos_b37` and `pos_b38` come from augmented LD ref.
 4) Populate geno/ldref columns, dual positions, and LD reference EAF (`ldref_a2freq`).
 3) No sumstat columns are added at prep, and no combined prep mapfile is required.
@@ -308,7 +310,7 @@ Each chromosome process should only load its corresponding `prep/variant_map/chr
 2) Attach `sumstat_*` columns using `chr/pos_b38 + alleles` to match against the variant_map.
    - Sumstat uses native GRCh38 coordinates; variant_map has `pos_b38` from prep.
 3) Fill missing sumstat `EAF` from mapfile `ldref_a2freq` when needed (allele-aware).
-4) The mapfile number of rows remains; same as in prep mapfile ; no reduction to the sumstat intersection.
+4) The mapfile row set is unchanged (all LD ref liftover variants); sumstat_* columns are attached, `NA` where no sumstat match.
 5) Apply a **user-provided inclusion list** (replacing INFO/MAF filtering):
    - Users may provide **three separate inclusion lists**, one for each ID space:
      `gt` (genotype), `ss` (sumstat), and `ld` (ldref).
@@ -320,6 +322,9 @@ Each chromosome process should only load its corresponding `prep/variant_map/chr
 All downstream conversions use the mapfile directly (no chr/pos matching at this stage):
 - Before posterior calc: `sumstat_snpid` -> `ldref_snpid`
 - After posterior calc: `ldref_snpid` -> `geno_snpid`
+
+## Scoring (no separate inclusion list)
+There is **no separate inclusion list for scoring**. Only variants that were sent to the posterior step (filtered sumstat matched to the mapfile) are in the posteriors file; those variants are already restricted to genotype-matched mapfile rows. The score step uses the **posteriors file** to obtain variant IDs for plink `--extract` and `--score`. No prep-derived inclusion list is required for scoring.
 
 ## EAF handling (current behavior)
 - LD reference EAF is extracted in `prep-ldref` into `prep/references/ldref_eaf.tsv`
@@ -342,9 +347,100 @@ Source ideas consistent with the mapfile plan:
   fill `EAF` while it reduces to mapfile variants. This avoids any dependence on `EAF_1KG`.
 - Keep LD_EAF in output mapfile.
 
+## Output files (v2)
+
+### augmented_sumstat.gz
+
+Per-sumstat file for auditing and back-tracing. **Same row set as the variant map** (one row per variant in `variant_map.tsv.gz`), so users can join on `RSID`. Contains only the sumstat columns needed for interpretation plus calculated MAF, posterior effect, and (when available) benchmark effect. CHR, POS, and genoID are omitted because **RSID is the key** for lookups in the variant map.
+
+**Schema:**
+```
+RSID  EffectAllele  OtherAllele  B  SE  Z  P  MAF  postEffect  [benchEffect]
+```
+
+- **From sumstat:** `RSID`, `EffectAllele`, `OtherAllele`, `B`, `SE`, `Z`, `P` (NA where sumstat did not match).
+- **Added:** `MAF` (calculated from genotypes; NA where no genotype match).
+- **Added:** `postEffect` (posterior effect).
+- **Added when feature exists:** `benchEffect` (benchmark effect).
+
+Users who need chr/pos or genotype IDs join on `RSID` against the variant map.
+
+### main_raw_score_all.gz
+
+Primary PGS score output. Name and column set are unchanged from v1.
+
+**Schema:**
+```
+IID  ALLELE_CT  NAMED_ALLELE_DOSAGE_SUM  SCORE1_AVG  SCORE1_SUM  FILE_SUM
+```
+
+- `IID`: Sample identifier (FID is not included).
+- `ALLELE_CT`, `NAMED_ALLELE_DOSAGE_SUM`, `SCORE1_AVG`, `SCORE1_SUM`, `FILE_SUM`: as in current v1.
+
+### variant_map.tsv.gz
+
+Sumstat-specific variant map for joining output files. **Column 1 is RSID** (from the liftover reference), so users can use it as a single key to map between augmented sumstat, score inputs, and any other outputs.
+
+**Row set:** **All** variants in the LD reference that could be lifted over (full augmented LD ref). Variants not found in genotype have genotype columns set to `NA`; variants not matched when joining the sumstat have sumstat columns set to `NA`.
+
+**Schema (RSID as col1, then canonical mapfile columns):**
+```
+rsid  chr  pos_b37  pos_b38  sumstat_snpid  sumstat_effectallele  sumstat_otherallele  geno_snpid  geno_a1  geno_a2  ldref_snpid  ldref_a1  ldref_a2  ldref_a2freq
+```
+
+- `rsid`: From liftover reference; **key for user-facing joins** between output files.
+- Remaining columns: same as current v2 sumstat-specific variant map (chr, dual positions, per-source SNP IDs and alleles, LD ref EAF).
+
+## Benchmark weights and scores (v2)
+
+The benchmark provides a comparison PGS using **observed GWAS effects** (no Bayesian shrinkage) on a **pruned variant set**, following the same ideas as v1.
+
+### Purpose
+- Compare the main (sBayesR) score against a simple sum-of-effects score on LD-pruned variants.
+- Use the same genotype data and the same filtered sumstat (effect estimates), but no posterior step.
+
+### Benchmark weights
+- **Source:** Filtered sumstat (same as posterior input): variant ID, allele, and effect (B or BETA).
+- **Mapping:** RSID (or sumstat SNP ID) → genotype ID via the variant map (or prep-derived RSID→geno list for genotypes-matched variants only).
+- **No shrinkage:** Weights are the raw GWAS effects; no sBayesR posteriors.
+
+### Benchmark score computation (v1-style, carried into v2)
+1. **Input:** Filtered sumstat (per chromosome) and variant map (or RSID→geno list) so that each sumstat row has a genotype ID.
+2. **Restrict to genotype-matched variants:** Only variants present in genotypes are scored.
+3. **MAF filter:** Apply a MAF threshold (e.g. 0.05) so that very rare variants are excluded from the benchmark.
+4. **LD pruning:** Run plink `--indep-pairwise` (e.g. 250 50 0.25) on the genotype-matched variant set to obtain a pruned list.
+5. **Benchmark sumstat:** Build a 3-column file (genotype ID, allele, effect) for **pruned variants only**.
+6. **Score:** Run plink `--score` with that file (no dosage denominator in v1-style; or cols=scoresums) to obtain per-sample benchmark scores.
+7. **Combine:** Aggregate per-chromosome benchmark scores into a single benchmark score file (e.g. `benchmark.sscore` or combined table).
+
+### Outputs
+- **Benchmark weights:** Effectively the filtered sumstat restricted to pruned, genotype-matched variants, with genotype ID for scoring.
+- **Benchmark scores:** Per-sample scores (e.g. `benchmark.sscore` or equivalent), comparable to the main score for correlation/QC.
+
+### Integration with augmented sumstat
+- When the benchmark step has been run, **benchEffect** can be filled in the augmented sumstat (effect used in the benchmark score for that variant, or NA if not in the pruned set). This allows users to compare posterior vs benchmark effect per variant.
+
+### Benchmark configuration
+- **maf_threshold:** MAF filter for benchmark variant set (e.g. 0.05).
+- **indep_pairwise:** LD pruning parameters for plink `--indep-pairwise` as `[window_kb, step, r2]` (e.g. 250, 50, 0.25). Configurable in `config.yaml` under `benchmark:`.
+
+## Weights step (renamed from posteriors)
+
+The step that produces scoring weights is named **weights** (not "posteriors") so that it covers both (1) **sBayesR posterior weights** and (2) **benchmark weights** (observed effects, LD-pruned). Both are run in the same phase and can be executed in parallel.
+
+### Two array jobs, independent resource config
+- **sBayesR weights array:** Runs `calc-posteriors` and `format-posteriors` per chromosome (posterior effects from sBayesR, mapped to genotype IDs). Resource configuration: **`slurm.weights_sbayesr`** (mem, cpus, time, max_parallel).
+- **Benchmark weights array:** Runs `calc-benchmark` per chromosome (observed effects, MAF filter, LD pruning, benchmark score). Resource configuration: **`slurm.weights_benchmark`** (mem, cpus, time, max_parallel).
+
+The driver submits **two separate SLURM array jobs** when `--steps weights` is requested, so sBayesR and benchmark can be tuned independently (e.g. more memory/cpus for sBayesR, lighter resources for benchmark). Both arrays run in the same step phase; the score step uses the sBayesR weights (posteriors_mapped); benchmark scores are written alongside.
+
+### Step group and CLI
+- **Step group:** `weights` (replaces `posteriors`). Running `--steps weights` runs: calc-posteriors, format-posteriors, calc-benchmark (all per-chromosome where applicable).
+- **Concrete steps** remain: `calc-posteriors`, `format-posteriors`, `calc-benchmark` for direct invocation.
+
 ## Final output
 Only at final output time, combine per-chromosome files into consolidated outputs
-(`variant_map.tsv.gz`, augmented sumstat, etc.) for auditing and back-tracing.
+(`variant_map.tsv.gz`, augmented sumstat, main score file, etc.) for auditing and back-tracing.
 
 ## SLURM submission system (`--sbatch`)
 
@@ -364,11 +460,12 @@ workflows: **prep jobs** and **per-sumstat driver jobs**.
    - Resources configured via `slurm.prep: { mem, cpus, time, max_parallel }`.
    - Logs written to `<outdir>/prep/logs/slurm/`.
 
-2. **Per-sumstat driver job** (`--sbatch --steps sumstat,posteriors,score -i <sumstat>`):
+2. **Per-sumstat driver job** (`--sbatch --steps sumstat,weights,score -i <sumstat>`):
    - Submits a lightweight **driver job** that orchestrates the full per-sumstat workflow.
    - The driver job runs `sumstat` directly (not chromosome-parallel).
-   - For `posteriors` and `score` steps, the driver submits **SLURM array jobs**
-     (one task per chromosome) and waits for completion before proceeding.
+   - For `weights`, the driver submits **two** SLURM array jobs (sBayesR weights and benchmark weights),
+     each independently configurable. For `score`, it submits one array. The driver waits for each array
+     to complete before proceeding.
    - Resources for the driver configured via `slurm.driver: { mem, cpus, time }`.
    - Logs written to `<outdir>/sumstats/<sumstat_name>/logs/slurm/`.
 
@@ -378,7 +475,7 @@ workflows: **prep jobs** and **per-sumstat driver jobs**.
 User submission                     SLURM cluster
      │
      ▼
-./pgscalculator-v2.sh --sbatch --steps sumstat,posteriors,score -i sumstat_814
+./pgscalculator-v2.sh --sbatch --steps sumstat,weights,score -i sumstat_814
      │
      └──► Driver job (pgs_sumstat_814_driver) ──────────────────────────────────►
               │
@@ -388,13 +485,18 @@ User submission                     SLURM cluster
               │       └── Per-chr: mapfile join, EAF fill, filter, reduce
               │       └── Waits for all tasks to complete
               │
-              ├── [3] Submits posteriors array (1-22%max_parallel)
+              ├── [3] Submits weights_sbayesr array (1-22%max_parallel)
+              │       └── Per-chr: calc-posteriors, format-posteriors
               │       └── Waits for all tasks to complete
               │
-              ├── [4] Submits score array (1-N%max_parallel)
+              ├── [4] Submits weights_benchmark array (1-22%max_parallel)
+              │       └── Per-chr: calc-benchmark
               │       └── Waits for all tasks to complete
               │
-              └── [5] Runs combine-scores, finalize-output directly
+              ├── [5] Submits score array (1-N%max_parallel)
+              │       └── Waits for all tasks to complete
+              │
+              └── [6] Runs combine-scores, finalize-output directly
 ```
 
 ### Array job details
@@ -414,7 +516,7 @@ slurm:
   account: ibp_pipeline_pgscalculator
   partition: normal
 
-  # Lightweight driver job (submits arrays for sumstat/posteriors/score)
+  # Lightweight driver job (submits arrays for sumstat/weights/score)
   driver: { mem: 1g, cpus: 1, time: '02:00:00' }
 
   # Prep driver + array (sumstat-agnostic)
@@ -423,11 +525,17 @@ slurm:
   # Sumstat array (one task per chromosome, after format-sumstat splits)
   sumstat: { mem: 1g, cpus: 1, time: '00:30:00', max_parallel: 22 }
 
-  # Posteriors array (one task per chromosome)
-  posteriors: { mem: 20g, cpus: 6, time: '01:00:00', max_parallel: 22 }
+  # Weights: two array jobs, independently configurable
+  weights_sbayesr:  { mem: 20g, cpus: 6, time: '01:00:00', max_parallel: 22 }
+  weights_benchmark: { mem: 2g, cpus: 2, time: '00:30:00', max_parallel: 22 }
 
   # Score array (one task per chromosome with mapped posteriors)
   score: { mem: 10g, cpus: 4, time: '01:00:00', max_parallel: 22 }
+
+# Benchmark calculation (MAF and LD pruning)
+benchmark:
+  maf_threshold: 0.05
+  indep_pairwise: [250, 50, 0.25]   # window_kb, step, r2 for plink --indep-pairwise
 ```
 
 ### Log locations
@@ -481,7 +589,7 @@ This allows downstream steps to:
 The driver job:
 1. **Submits array** and polls `squeue` until all tasks finish.
 2. **Counts failures**: Uses `sacct` to detect FAILED/TIMEOUT/OOM tasks.
-3. **Logs warning**: `"Warning: SLURM array job X for step 'posteriors' had failed/unknown task(s)."`.
+3. **Logs warning**: `"Warning: SLURM array job X for step 'weights_sbayesr' (or 'weights_benchmark') had failed/unknown task(s)."`.
 4. **Continues**: Does not abort; downstream arrays are submitted.
 5. **Sanity-checks outputs**: After each array, verifies expected files exist; logs warning if missing.
 
@@ -493,7 +601,7 @@ The driver job:
 - `ldref_missing`: LD reference files not found for chromosome.
 - `sbayesr_failed`: gctb/sbayesR exited non-zero.
 - `sbayesr_no_output`: gctb ran but produced no `.snpRes` output.
-- `posteriors_missing`: Posteriors file missing for format step.
+- `posteriors_missing`: Posteriors file missing for format-posteriors step.
 - `mapped_posteriors_missing`: Mapped posteriors missing for score step.
 
 #### Implications
@@ -512,8 +620,8 @@ The driver job:
 ./pgscalculator-v2.sh --config config.yaml --steps prep --sbatch
 
 # Step 2: Per-sumstat (can submit many in parallel; each gets its own driver job)
-./pgscalculator-v2.sh --config config.yaml --steps sumstat,posteriors,score -i /path/to/sumstat_814 --sbatch
-./pgscalculator-v2.sh --config config.yaml --steps sumstat,posteriors,score -i /path/to/sumstat_815 --sbatch
+./pgscalculator-v2.sh --config config.yaml --steps sumstat,weights,score -i /path/to/sumstat_814 --sbatch
+./pgscalculator-v2.sh --config config.yaml --steps sumstat,weights,score -i /path/to/sumstat_815 --sbatch
 # ... etc
 ```
 
@@ -522,7 +630,7 @@ The driver job:
 ## Criteria checklist
 - Mapfile uses a single `chr` with **dual position columns** (`pos_b37`, `pos_b38`) for build support.
 - Mapfile contains all three source SNP IDs and their allele columns.
-- Prep step is sumstat-agnostic and builds a union map for geno + ldref only.
+- Prep step is sumstat-agnostic; mapfile contains all LD ref liftover variants (genotype columns NA where no match).
 - Prep step supports **GRCh38 genotypes** via pre-augmented LD reference (liftover done once in `prep-ldref`).
 - Matching is always by **chr:pos + alleles** (using appropriate position column based on genotype build).
 - SNP inclusion lists are always derived from the mapfile (prep or sumstat mapfile).
@@ -533,3 +641,6 @@ The driver job:
   explicit ID-space specifier (`ss`, `ld`, or `gt`), applied after mapfile reduction.
 - Conversions to/from LD reference and genotype IDs only use the mapfile.
 - Final output includes the full mapfile (`variant_map.tsv.gz`) with both position columns.
+- Output files (v2): augmented_sumstat.gz has **same row set as variant map**, RSID + sumstat effect columns + MAF + postEffect (+ benchEffect when added); main_raw_score_all.gz has IID and score columns (no FID); variant_map.tsv.gz has RSID (liftover-derived) as col1 and **all LD ref liftover variants**, with genotype/sumstat columns NA where no match.
+- Scoring uses posteriors file only (no separate inclusion list for scoring).
+- Benchmark: LD pruning + MAF filter + plink --score with observed effects; benchmark weights/scores as in v1-style.

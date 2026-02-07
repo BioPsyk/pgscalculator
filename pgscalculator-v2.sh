@@ -13,16 +13,16 @@ function general_usage(){
  echo ""
   echo "Required:"
   echo "  --config <file>   Path to config.yaml with all settings"
-  echo "  --steps <list>    Steps to run: prep, sumstat, posteriors, score"
+  echo "  --steps <list>    Steps to run: prep, sumstat, weights, score"
   echo ""
   echo "Optional:"
   echo "  -i <dir>          Path to sumstats folder (required for non-prep steps)"
   echo "  -o <dir>          Path to output directory (overrides config)"
   echo "  --force           Force re-run of steps even if already completed"
   echo "  --sbatch          Submit as SLURM job using sbatch settings from config"
-  echo "                   For per-sumstat steps (sumstat/posteriors/score), this submits a"
+  echo "                   For per-sumstat steps (sumstat/weights/score), this submits a"
   echo "                   lightweight *driver job* that runs sumstat and launches/monitors"
-  echo "                   chromosome-parallel arrays for posteriors/score."
+  echo "                   chromosome-parallel arrays for weights (sBayesR + benchmark) and score."
   echo "  -d                Dev mode (verbose output)"
   echo "  --cleanup         After a successful run/driver job, remove per-run work/ and tmp/ folders"
   echo "                   (Default for now: keep work/tmp, which is useful during development)"
@@ -32,7 +32,7 @@ function general_usage(){
   echo "Step groups:"
   echo "  prep        Run prep steps (genotypes, ldref, inclusion-list)"
   echo "  sumstat     Format and filter sumstat"
-  echo "  posteriors  Calculate posteriors with sbayesR"
+  echo "  weights     sBayesR posteriors + benchmark weights (two array jobs, independently configured)"
   echo "  score       Calculate PGS scores"
   echo ""
  echo "Config file (config.yaml) should contain:"
@@ -41,26 +41,30 @@ function general_usage(){
  echo "  genofile: /path/to/manifest.txt"
  echo "  outdir: /path/to/output"
  echo ""
-  echo "  # Optional: SLURM settings for --sbatch / --sbatch-array"
+  echo "  # Optional: SLURM settings for --sbatch (weights = two array jobs)"
   echo "  slurm:"
   echo "    account: my_account"
   echo "    partition: normal"
-  echo "    driver:     { mem: 1g, cpus: 1, time: '2:00:00' }"
-  echo "    prep:       { mem: 10g, cpus: 1, time: '1:00:00', max_parallel: 22 }"
-  echo "    sumstat:    { mem: 1g, cpus: 1, time: '0:30:00', max_parallel: 22 }"
-  echo "    posteriors: { mem: 20g, cpus: 6, time: '2:00:00', max_parallel: 22 }"
-  echo "    score:      { mem: 10g, cpus: 4, time: '0:30:00', max_parallel: 22 }"
+  echo "    driver:            { mem: 1g, cpus: 1, time: '2:00:00' }"
+  echo "    prep:              { mem: 10g, cpus: 1, time: '1:00:00', max_parallel: 22 }"
+  echo "    sumstat:          { mem: 1g, cpus: 1, time: '0:30:00', max_parallel: 22 }"
+  echo "    weights_sbayesr:  { mem: 20g, cpus: 6, time: '2:00:00', max_parallel: 22 }"
+  echo "    weights_benchmark: { mem: 2g, cpus: 2, time: '0:30:00', max_parallel: 22 }"
+  echo "    score:            { mem: 10g, cpus: 4, time: '0:30:00', max_parallel: 22 }"
+  echo "  benchmark:"
+  echo "    maf_threshold: 0.05"
+  echo "    indep_pairwise: [250, 50, 0.25]"
  echo ""
  echo "Examples:"
   echo "  # Step 1: Run prep (once per project)"
   echo "  ./pgscalculator-v2.sh --config config.yaml --steps prep"
  echo ""
   echo "  # Step 2: Run per-sumstat steps"
-  echo "  ./pgscalculator-v2.sh --config config.yaml --steps sumstat,posteriors,score -i /path/to/sumstat_814"
+  echo "  ./pgscalculator-v2.sh --config config.yaml --steps sumstat,weights,score -i /path/to/sumstat_814"
  echo ""
   echo "  # Or submit as SLURM jobs"
   echo "  ./pgscalculator-v2.sh --config config.yaml --steps prep --sbatch"
-  echo "  ./pgscalculator-v2.sh --config config.yaml --steps sumstat,posteriors,score -i /path/to/sumstat_814 --sbatch"
+  echo "  ./pgscalculator-v2.sh --config config.yaml --steps sumstat,weights,score -i /path/to/sumstat_814 --sbatch"
 }
 
 ################################################################################
@@ -166,12 +170,12 @@ if [[ -z "$steps_arg" ]]; then
   >&2 echo "Available steps:"
   >&2 echo "  prep        - Prepare genotypes and LD reference (run once)"
   >&2 echo "  sumstat     - Format and filter sumstat"
-  >&2 echo "  posteriors  - Calculate posteriors with sbayesR"
+  >&2 echo "  weights     - sBayesR posteriors + benchmark weights (two array jobs)"
   >&2 echo "  score       - Calculate PGS scores"
   >&2 echo ""
   >&2 echo "Examples:"
   >&2 echo "  ./pgscalculator-v2.sh --config config.yaml --steps prep"
-  >&2 echo "  ./pgscalculator-v2.sh --config config.yaml --steps sumstat,posteriors,score -i /path/to/sumstat"
+  >&2 echo "  ./pgscalculator-v2.sh --config config.yaml --steps sumstat,weights,score -i /path/to/sumstat"
   exit 1
 fi
 
@@ -518,12 +522,12 @@ if [[ "$driver_run" == true ]]; then
   #   --steps sumstat,posteriors,score
   # Order is enforced: sumstat -> posteriors -> score
   if [[ -z "${steps_arg:-}" ]]; then
-    >&2 echo "Error: --_driver-run requires --steps (prep, sumstat, posteriors, score, or combinations thereof)"
+    >&2 echo "Error: --_driver-run requires --steps (prep, sumstat, weights, score, or combinations thereof)"
     exit 1
   fi
   has_prep=false
   has_sumstat=false
-  has_posteriors=false
+  has_weights=false
   has_score=false
   IFS=',' read -r -a _sbatch_steps <<< "$steps_arg"
   for _s in "${_sbatch_steps[@]}"; do
@@ -533,21 +537,21 @@ if [[ "$driver_run" == true ]]; then
       has_prep=true
     elif [[ "$_s" == "sumstat" ]]; then
       has_sumstat=true
-    elif [[ "$_s" == "posteriors" ]]; then
-      has_posteriors=true
+    elif [[ "$_s" == "weights" ]]; then
+      has_weights=true
     elif [[ "$_s" == "score" ]]; then
       has_score=true
     else
-      >&2 echo "Error: driver mode only supports --steps prep, sumstat, posteriors, score (or combinations) (got: '${steps_arg}')"
+      >&2 echo "Error: driver mode only supports --steps prep, sumstat, weights, score (or combinations) (got: '${steps_arg}')"
       exit 1
     fi
   done
-  if [[ "$has_prep" == true && ( "$has_sumstat" == true || "$has_posteriors" == true || "$has_score" == true ) ]]; then
+  if [[ "$has_prep" == true && ( "$has_sumstat" == true || "$has_weights" == true || "$has_score" == true ) ]]; then
     >&2 echo "Error: prep must be run on its own (do not include prep with other steps in driver jobs)"
     exit 1
   fi
-  if [[ "$has_prep" != true && "$has_sumstat" != true && "$has_posteriors" != true && "$has_score" != true ]]; then
-    >&2 echo "Error: --_driver-run requires --steps to include prep and/or sumstat/posteriors/score"
+  if [[ "$has_prep" != true && "$has_sumstat" != true && "$has_weights" != true && "$has_score" != true ]]; then
+    >&2 echo "Error: --_driver-run requires --steps to include prep and/or sumstat/weights/score"
     exit 1
   fi
 
@@ -563,7 +567,7 @@ if [[ "$driver_run" == true ]]; then
   # For non-prep steps, compute sumstat_name here so watcher sanity-checks can run.
   if [[ "$has_prep" != true ]]; then
     if [[ -z "${infold:-}" ]]; then
-      >&2 echo "Error: --_driver-run requires -i <sumstat_dir> for sumstat/posteriors/score"
+      >&2 echo "Error: --_driver-run requires -i <sumstat_dir> for sumstat/weights/score"
       exit 1
     fi
 infold_host=$(realpath "${infold}")
@@ -587,7 +591,7 @@ infold_host=$(realpath "${infold}")
   chr_count=$(echo "$chr_list" | wc -w | awk '{print $1}')
 
   # Keep SLURM logs contained within the appropriate folder.
-  # (prep is shared; sumstat/posteriors/score are per-sumstat)
+  # (prep is shared; sumstat/weights/score are per-sumstat)
   if [[ "$has_prep" == true ]]; then
     log_dir="${outdir_host}/prep/logs/slurm"
   else
@@ -864,6 +868,14 @@ infold_host=$(realpath "${infold}")
       slurm_mem="${slurm_mem:-10g}"
       slurm_cpus="${slurm_cpus:-2}"
       slurm_time="${slurm_time:-2:00:00}"
+    elif [[ "$step_profile" == "weights_sbayesr" ]]; then
+      slurm_mem="${slurm_mem:-20g}"
+      slurm_cpus="${slurm_cpus:-8}"
+      slurm_time="${slurm_time:-2:00:00}"
+    elif [[ "$step_profile" == "weights_benchmark" ]]; then
+      slurm_mem="${slurm_mem:-2g}"
+      slurm_cpus="${slurm_cpus:-2}"
+      slurm_time="${slurm_time:-0:30:00}"
     else
       slurm_mem="${slurm_mem:-20g}"
       slurm_cpus="${slurm_cpus:-8}"
@@ -926,7 +938,8 @@ infold_host=$(realpath "${infold}")
 
     # In array mode, we must only run chromosome-parallel work.
     # - sumstat: filter-variants per-chromosome (format-sumstat already ran in driver)
-    # - posteriors: safe (calc-posteriors + format-posteriors are chr-parallel)
+    # - weights_sbayesr: calc-posteriors + format-posteriors per chr
+    # - weights_benchmark: calc-benchmark per chr
     # - score: only calc-score is chr-parallel; combine-scores/finalize-output must be run once after
     steps_arg_for_task="${step_profile}"
     if [[ "$step_profile" == "sumstat" ]]; then
@@ -935,6 +948,10 @@ infold_host=$(realpath "${infold}")
       steps_arg_for_task="calc-score"
     elif [[ "$step_profile" == "prep" ]]; then
       steps_arg_for_task="prep-inclusion-list"
+    elif [[ "$step_profile" == "weights_sbayesr" ]]; then
+      steps_arg_for_task="calc-posteriors,format-posteriors"
+    elif [[ "$step_profile" == "weights_benchmark" ]]; then
+      steps_arg_for_task="calc-benchmark"
     fi
 
     run_cmd="${project_dir}/pgscalculator-v2.sh --config ${config_file_host} --steps ${steps_arg_for_task}"
@@ -1000,11 +1017,11 @@ rc=\$?; echo \"[INFO] Finished ${step_profile} chr\${CHR} at \$(date) (exit=\$rc
           >&2 echo "  Expected >=${step_chr_count} files in: ${base_sumstat_out}/filtered/chr*_filtered.tsv (found ${n_filtered})"
           >&2 echo "Check logs under: ${log_dir}/"
         fi
-      elif [[ "$step_profile" == "posteriors" ]]; then
+      elif [[ "$step_profile" == "weights_sbayesr" ]]; then
         n_post=$(ls "${base_sumstat_out}/posteriors"/chr*.snpRes 2>/dev/null | wc -l | awk '{print $1}')
         n_mapped=$(ls "${base_sumstat_out}/posteriors_mapped"/chr*.snpRes 2>/dev/null | wc -l | awk '{print $1}')
         if [[ "$n_post" -lt "$step_chr_count" || "$n_mapped" -lt "$step_chr_count" ]]; then
-          >&2 echo "Warning: posteriors array finished but outputs are missing (continuing)."
+          >&2 echo "Warning: weights_sbayesr array finished but outputs are missing (continuing)."
           >&2 echo "  Expected >=${step_chr_count} files in:"
           >&2 echo "    - ${base_sumstat_out}/posteriors/chr*.snpRes   (found ${n_post})"
           >&2 echo "    - ${base_sumstat_out}/posteriors_mapped/chr*.snpRes (found ${n_mapped})"
@@ -1022,11 +1039,11 @@ rc=\$?; echo \"[INFO] Finished ${step_profile} chr\${CHR} at \$(date) (exit=\$rc
     echo ""
   }
 
-  # Always run posteriors before score if both requested
+  # Always run weights before score if both requested
   # In driver mode:
   # - format-sumstat runs directly (GRCh37 paste + chromosome split)
   # - filter-variants runs as a SLURM array (per-chromosome)
-  # - posteriors and score run as SLURM arrays (per-chromosome)
+  # - weights (sBayesR + benchmark) and score run as SLURM arrays (per-chromosome)
   run_base="${project_dir}/pgscalculator-v2.sh --config ${config_file_host}"
   [[ -n "$infold" ]] && run_base="${run_base} -i ${infold}"
   [[ -n "$outdir" ]] && run_base="${run_base} -o ${outdir}"
@@ -1077,8 +1094,9 @@ rc=\$?; echo \"[INFO] Finished ${step_profile} chr\${CHR} at \$(date) (exit=\$rc
       exit 1
     fi
   fi
-  if [[ "$has_posteriors" == true ]]; then
-    submit_array_for_step "posteriors"
+  if [[ "$has_weights" == true ]]; then
+    submit_array_for_step "weights_sbayesr"
+    submit_array_for_step "weights_benchmark"
   fi
   if [[ "$has_score" == true ]]; then
     submit_array_for_step "score"
@@ -1099,8 +1117,8 @@ rc=\$?; echo \"[INFO] Finished ${step_profile} chr\${CHR} at \$(date) (exit=\$rc
     else
       >&2 echo ""
       >&2 echo "Skipping combine-scores,finalize-output: no score files found in ${scores_dir}"
-      >&2 echo "This usually means posteriors failed or produced no variants."
-      >&2 echo "Check posteriors logs for errors."
+      >&2 echo "This usually means weights (sBayesR) failed or produced no variants."
+      >&2 echo "Check weights_sbayesr logs for errors."
     fi
   fi
 
@@ -1142,7 +1160,7 @@ if [[ "$use_sbatch" == true ]]; then
     >&2 echo "Error: prep must be run on its own. Run:"
     >&2 echo "  --steps prep --sbatch"
     >&2 echo "and then separately:"
-    >&2 echo "  --steps sumstat,posteriors,score --sbatch -i <sumstat_dir>"
+    >&2 echo "  --steps sumstat,weights,score --sbatch -i <sumstat_dir>"
     exit 1
   fi
 
@@ -1318,9 +1336,9 @@ if [[ -z "$cfg_outdir" ]]; then
 fi
 
 # Input sumstat: required for non-prep steps
-if [[ -z "$infold" ]] && [[ "$steps_arg" != "prep" ]]; then
+  if [[ -z "$infold" ]] && [[ "$steps_arg" != "prep" ]]; then
   # Check if we're only running prep
-  if [[ -z "$steps_arg" ]] || [[ "$steps_arg" == *"sumstat"* ]] || [[ "$steps_arg" == *"posteriors"* ]] || [[ "$steps_arg" == *"score"* ]]; then
+  if [[ -z "$steps_arg" ]] || [[ "$steps_arg" == *"sumstat"* ]] || [[ "$steps_arg" == *"weights"* ]] || [[ "$steps_arg" == *"score"* ]]; then
     >&2 echo "Error: -i (sumstat input) is required for non-prep steps"
     exit 1
   fi
@@ -1403,8 +1421,8 @@ if [[ "$needs_prep_check" -eq 1 ]]; then
   fi
 fi
 
-# Check sumstat prerequisite for posteriors
-if [[ "$steps_arg" == *"posteriors"* ]] && [[ "$steps_arg" != *"sumstat"* ]]; then
+# Check sumstat prerequisite for weights
+if [[ "$steps_arg" == *"weights"* ]] && [[ "$steps_arg" != *"sumstat"* ]]; then
   missing_sumstat=$(check_sumstat_exists "$outdir_host" "$sumstat_name")
   if [[ $? -ne 0 ]]; then
     >&2 echo "Error: Sumstat formatting not completed."
@@ -1416,25 +1434,25 @@ if [[ "$steps_arg" == *"posteriors"* ]] && [[ "$steps_arg" != *"sumstat"* ]]; th
     >&2 echo "  ./pgscalculator-v2.sh --config ${config_file} --steps sumstat -i ${infold}"
     >&2 echo ""
     >&2 echo "Or include sumstat in your steps:"
-    >&2 echo "  ./pgscalculator-v2.sh --config ${config_file} --steps sumstat,posteriors -i ${infold}"
+    >&2 echo "  ./pgscalculator-v2.sh --config ${config_file} --steps sumstat,weights -i ${infold}"
     exit 1
   fi
 fi
 
-# Check posteriors prerequisite for score
-if [[ "$steps_arg" == *"score"* ]] && [[ "$steps_arg" != *"posteriors"* ]]; then
+# Check weights (posteriors output) prerequisite for score
+if [[ "$steps_arg" == *"score"* ]] && [[ "$steps_arg" != *"weights"* ]]; then
   missing_posteriors=$(check_posteriors_exists "$outdir_host" "$sumstat_name")
   if [[ $? -ne 0 ]]; then
-    >&2 echo "Error: Posteriors calculation not completed."
+    >&2 echo "Error: Weights (posteriors) calculation not completed."
     >&2 echo ""
     >&2 echo "Missing:"
     >&2 echo "$missing_posteriors"
     >&2 echo ""
-    >&2 echo "Run posteriors step first:"
-    >&2 echo "  ./pgscalculator-v2.sh --config ${config_file} --steps posteriors -i ${infold}"
+    >&2 echo "Run weights step first:"
+    >&2 echo "  ./pgscalculator-v2.sh --config ${config_file} --steps weights -i ${infold}"
     >&2 echo ""
-    >&2 echo "Or include posteriors in your steps:"
-    >&2 echo "  ./pgscalculator-v2.sh --config ${config_file} --steps posteriors,score -i ${infold}"
+    >&2 echo "Or include weights in your steps:"
+    >&2 echo "  ./pgscalculator-v2.sh --config ${config_file} --steps weights,score -i ${infold}"
   exit 1
   fi
 fi

@@ -11,7 +11,7 @@ _Created by Jesper R. Gådin, Morten Dybdahl Krebs, and Andrew Schork (IBP)_
 - **Prerequisite checks**: Helpful errors if prep/previous steps not done
 - **Reusable prep**: Run prep once, reuse across multiple sumstats
 - **SLURM integration**: `--sbatch` flag auto-submits with config settings
-- **SLURM driver jobs**: `--sbatch` submits one *driver job* per sumstat which runs `sumstat` and launches chromosome-parallel arrays for `posteriors` and `score`. Parallelism is controlled by `slurm.<step>.max_parallel` (set `max_parallel: 1` to disable parallelism).
+- **SLURM driver jobs**: `--sbatch` submits one *driver job* per sumstat which runs `sumstat` and launches chromosome-parallel arrays for `weights` (sBayesR + benchmark, two arrays) and `score`. Parallelism is controlled by `slurm.<step>.max_parallel` (set `max_parallel: 1` to disable parallelism).
 - **Simplified CLI**: Just `--config`, `--steps`, and `-i`
 
 ## Quick Start
@@ -79,16 +79,21 @@ score_columns: 1 2 5
 plink:
   threads: 4
 
-# Optional: SLURM settings for --sbatch
+# Benchmark calculation (MAF and LD pruning for benchmark scores)
+benchmark:
+  maf_threshold: 0.05
+  indep_pairwise: [250, 50, 0.25]   # window_kb, step, r2 for plink --indep-pairwise
+
+# Optional: SLURM settings for --sbatch (weights = two array jobs, independently configured)
 slurm:
   account: my_account
   partition: normal
-  driver:     { mem: 1g, cpus: 1, time: '2:00:00' }
-  prep:       { mem: 10g, cpus: 1, time: '1:00:00', max_parallel: 22 }
-  sumstat:    { mem: 1g, cpus: 1, time: '0:30:00', max_parallel: 22 }
-  # Optional: per-step max concurrent array tasks for chromosome-parallel arrays (default: 22)
-  posteriors: { mem: 20g, cpus: 6, time: '2:00:00', max_parallel: 22 }
-  score:      { mem: 10g, cpus: 4, time: '0:30:00', max_parallel: 22 }
+  driver:             { mem: 1g, cpus: 1, time: '2:00:00' }
+  prep:               { mem: 10g, cpus: 1, time: '1:00:00', max_parallel: 22 }
+  sumstat:            { mem: 1g, cpus: 1, time: '0:30:00', max_parallel: 22 }
+  weights_sbayesr:    { mem: 20g, cpus: 6, time: '2:00:00', max_parallel: 22 }
+  weights_benchmark:   { mem: 2g, cpus: 2, time: '0:30:00', max_parallel: 22 }
+  score:              { mem: 10g, cpus: 4, time: '0:30:00', max_parallel: 22 }
 ```
 
 ### Run Pipeline
@@ -98,21 +103,21 @@ slurm:
 ./pgscalculator-v2.sh --config config.yaml --steps prep
 
 # Step 2: Run per-sumstat steps (for each trait)
-./pgscalculator-v2.sh --config config.yaml --steps sumstat,posteriors,score -i /path/to/sumstat_TRAIT
+./pgscalculator-v2.sh --config config.yaml --steps sumstat,weights,score -i /path/to/sumstat_TRAIT
 
 # Or submit as SLURM jobs (uses slurm settings from config)
 ./pgscalculator-v2.sh --config config.yaml --steps prep --sbatch
-./pgscalculator-v2.sh --config config.yaml --steps sumstat,posteriors,score -i /path/to/sumstat_TRAIT --sbatch
+./pgscalculator-v2.sh --config config.yaml --steps sumstat,weights,score -i /path/to/sumstat_TRAIT --sbatch
 
 # Or submit as a SLURM driver job (recommended for running many sumstats in parallel)
 # - prep must be run on its own
-# - per sumstat: driver runs sumstat, launches posteriors/score arrays, then combine+finalize
+# - per sumstat: driver runs sumstat, launches weights (sBayesR + benchmark) and score arrays, then combine+finalize
 # - parallelism is controlled via slurm.<step>.max_parallel (set 1 to serialize)
-./pgscalculator-v2.sh --config config.yaml --steps sumstat,posteriors,score -i /path/to/sumstat_TRAIT --sbatch
+./pgscalculator-v2.sh --config config.yaml --steps sumstat,weights,score -i /path/to/sumstat_TRAIT --sbatch
 
 # You can also run subsets via the same driver mechanism:
 ./pgscalculator-v2.sh --config config.yaml --steps sumstat -i /path/to/sumstat_TRAIT --sbatch
-./pgscalculator-v2.sh --config config.yaml --steps posteriors,score -i /path/to/sumstat_TRAIT --sbatch
+./pgscalculator-v2.sh --config config.yaml --steps weights,score -i /path/to/sumstat_TRAIT --sbatch
 ```
 
 ### Batch Processing Multiple Sumstats
@@ -124,7 +129,7 @@ slurm:
 # Wait for prep to complete, then submit per-sumstat jobs
 for sumstat in /path/to/sumstat_*; do
   ./pgscalculator-v2.sh --config config.yaml \
-    --steps sumstat,posteriors,score \
+    --steps sumstat,weights,score \
     -i "$sumstat" \
     --sbatch
 done
@@ -194,13 +199,13 @@ The wrapper script (`pgscalculator-v2.sh`) uses a config-first approach:
 ./pgscalculator-v2.sh --config config.yaml --steps prep
 
 # Run per-sumstat steps
-./pgscalculator-v2.sh --config config.yaml --steps sumstat,posteriors,score -i /path/to/sumstat_TRAIT
+./pgscalculator-v2.sh --config config.yaml --steps sumstat,weights,score -i /path/to/sumstat_TRAIT
 
 # Run specific steps only (prerequisite checking will warn if previous steps missing)
-./pgscalculator-v2.sh --config config.yaml --steps posteriors,score -i /path/to/sumstat_TRAIT
+./pgscalculator-v2.sh --config config.yaml --steps weights,score -i /path/to/sumstat_TRAIT
 
 # Submit as SLURM job (uses slurm settings from config)
-./pgscalculator-v2.sh --config config.yaml --steps sumstat,posteriors,score -i /path/to/sumstat_TRAIT --sbatch
+./pgscalculator-v2.sh --config config.yaml --steps sumstat,weights,score -i /path/to/sumstat_TRAIT --sbatch
 ```
 
 #### Wrapper Script Options
@@ -208,7 +213,7 @@ The wrapper script (`pgscalculator-v2.sh`) uses a config-first approach:
 | Option | Description |
 |--------|-------------|
 | `--config <file>` | **Required**: Path to config.yaml with reference paths |
-| `--steps <list>` | **Required**: Steps to run: `prep`, `sumstat`, `posteriors`, `score` |
+| `--steps <list>` | **Required**: Steps to run: `prep`, `sumstat`, `weights`, `score` |
 | `-i <dir>` | Path to sumstat folder (required for non-prep steps) |
 | `-o <dir>` | Output directory (overrides config) |
 | `--force` | Force re-run of steps even if already completed |
@@ -223,11 +228,10 @@ The wrapper script (`pgscalculator-v2.sh`) uses a config-first approach:
 |------|-------------|
 | `prep` | Prepare genotypes and LD reference (run once per project) |
 | `sumstat` | Format and filter sumstat |
-| `posteriors` | Calculate posteriors with sbayesR |
+| `weights` | sBayesR posteriors + benchmark weights (two array jobs, independently configured) |
 | `score` | Calculate PGS scores |
-| `benchmark` | Calculate benchmark scores (LD-pruned + MAF-filtered, optional) |
 
-> **Note:** `benchmark` is optional and not included in `--all`. Run explicitly with `--steps benchmark`.
+> **Note:** `weights` runs both sBayesR (calc-posteriors, format-posteriors) and benchmark (calc-benchmark) as two separate SLURM array jobs when using `--sbatch`.
 
 #### Prerequisite Checking
 
@@ -316,15 +320,21 @@ score_columns: 1 2 5
 plink:
   threads: 4
 
-# Optional: SLURM settings for --sbatch
+# Benchmark calculation (MAF and LD pruning for benchmark scores)
+benchmark:
+  maf_threshold: 0.05
+  indep_pairwise: [250, 50, 0.25]   # window_kb, step, r2 for plink --indep-pairwise
+
+# Optional: SLURM settings for --sbatch (weights = two array jobs, independently configured)
 slurm:
   account: my_account
   partition: normal
-  driver:     { mem: 1g, cpus: 1, time: '2:00:00' }
-  prep:       { mem: 10g, cpus: 1, time: '1:00:00', max_parallel: 22 }
-  sumstat:    { mem: 1g, cpus: 1, time: '0:30:00', max_parallel: 22 }
-  posteriors: { mem: 20g, cpus: 6, time: '2:00:00', max_parallel: 22 }
-  score:      { mem: 10g, cpus: 4, time: '0:30:00', max_parallel: 22 }
+  driver:             { mem: 1g, cpus: 1, time: '2:00:00' }
+  prep:                { mem: 10g, cpus: 1, time: '1:00:00', max_parallel: 22 }
+  sumstat:             { mem: 1g, cpus: 1, time: '0:30:00', max_parallel: 22 }
+  weights_sbayesr:     { mem: 20g, cpus: 6, time: '2:00:00', max_parallel: 22 }
+  weights_benchmark:    { mem: 2g, cpus: 2, time: '0:30:00', max_parallel: 22 }
+  score:               { mem: 10g, cpus: 4, time: '0:30:00', max_parallel: 22 }
 ```
 
 ## Testing

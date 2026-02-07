@@ -1,6 +1,6 @@
 #!/bin/bash
 # pgscalculator v2 - prep-inclusion-list step
-# Create variant inclusion list by intersecting genotypes with LD reference and applying filters
+# Build variant map from all LD reference (liftover) variants; genotype columns NA where no match (left join from LD ref)
 
 # This script is sourced by the main pgscalculator CLI
 
@@ -192,9 +192,8 @@ create_chr_variant_map() {
     # Augmented LD ref format: pos_b37, pos_b38, ldref_a1, ldref_a2, ldref_rsid (tab-separated)
     # Genotype format: chr:pos, a1, a2, snpid (tab-separated)
     #
-    # Match strategy:
-    #   - If genotype_build == GRCh37: match geno chr:pos to ld pos_b37
-    #   - If genotype_build == GRCh38: match geno chr:pos to ld pos_b38
+    # Row set: ALL augmented LD ref variants (left join from LD ref). Genotype columns NA where no match.
+    # Match strategy: If genotype_build == GRCh37 match on pos_b37; if GRCh38 match on pos_b38.
     #
     # Output: chr, pos_b37, pos_b38, geno_snpid, geno_a1, geno_a2, ldref_snpid, ldref_a1, ldref_a2
     
@@ -202,76 +201,59 @@ create_chr_variant_map() {
     BEGIN {
         c["A"] = "T"; c["T"] = "A"; c["G"] = "C"; c["C"] = "G"
     }
-    # Load augmented LD reference
+    # Load augmented LD reference (all rows; we output one row per LD ref)
     FNR==NR {
-        # Format: pos_b37, pos_b38, ldref_a1, ldref_a2, ldref_rsid
         pos_b37 = $1
         pos_b38 = $2
         la1 = toupper($3); la2 = toupper($4); lid = $5
-        
-        # Determine match key based on which position we will join on
+        n_ld++
+        ld_pos_b37[n_ld] = pos_b37
+        ld_pos_b38[n_ld] = pos_b38
+        ld_a1[n_ld] = la1
+        ld_a2[n_ld] = la2
+        ld_id[n_ld] = lid
         if (build == "GRCh38") {
-            match_key = pos_b38
+            match_key[n_ld] = pos_b38
         } else {
-            match_key = pos_b37
+            match_key[n_ld] = pos_b37
         }
-        
-        # Store with allele variations for matching (all 4 orientations)
-        # direct
-        k1 = match_key SUBSEP la1 SUBSEP la2
-        k2 = match_key SUBSEP la2 SUBSEP la1
-        # strand flip
-        fa1 = c[la1]; fa2 = c[la2]
-        k3 = match_key SUBSEP fa1 SUBSEP fa2
-        k4 = match_key SUBSEP fa2 SUBSEP fa1
-        
-        # Store data for each key variant (all 4 allele orientations)
-        ld_pos_b37[k1] = pos_b37; ld_pos_b38[k1] = pos_b38
-        ld_a1[k1] = la1; ld_a2[k1] = la2; ld_id[k1] = lid
-        
-        ld_pos_b37[k2] = pos_b37; ld_pos_b38[k2] = pos_b38
-        ld_a1[k2] = la1; ld_a2[k2] = la2; ld_id[k2] = lid
-        
-        ld_pos_b37[k3] = pos_b37; ld_pos_b38[k3] = pos_b38
-        ld_a1[k3] = fa1; ld_a2[k3] = fa2; ld_id[k3] = lid
-        
-        ld_pos_b37[k4] = pos_b37; ld_pos_b38[k4] = pos_b38
-        ld_a1[k4] = fa1; ld_a2[k4] = fa2; ld_id[k4] = lid
         next
     }
-    # Process genotypes
-    {
+    # Load genotypes into lookup (key -> gid, ga1, ga2); only for second file
+    FNR != NR {
         chrpos = $1
         ga1 = toupper($2); ga2 = toupper($3); gid = $4
-        
-        # Try all allele orientations
         k1 = chrpos SUBSEP ga1 SUBSEP ga2
         k2 = chrpos SUBSEP ga2 SUBSEP ga1
         fa1 = c[ga1]; fa2 = c[ga2]
         k3 = chrpos SUBSEP fa1 SUBSEP fa2
         k4 = chrpos SUBSEP fa2 SUBSEP fa1
-        
-        matched = ""
-        if (k1 in ld_id) matched = k1
-        else if (k2 in ld_id) matched = k2
-        else if (k3 in ld_id) matched = k3
-        else if (k4 in ld_id) matched = k4
-        
-        if (matched != "" && !(matched in already_matched)) {
-            already_matched[matched] = 1
-            
-            # Extract chr from chrpos
-            split(chrpos, cp, ":")
-            chr_v = cp[1]
-            
-            # Extract position numbers from chr:pos strings
-            split(ld_pos_b37[matched], pb37, ":")
-            split(ld_pos_b38[matched], pb38, ":")
+        geno_id[k1] = gid; geno_a1[k1] = ga1; geno_a2[k1] = ga2
+        geno_id[k2] = gid; geno_a1[k2] = ga1; geno_a2[k2] = ga2
+        geno_id[k3] = gid; geno_a1[k3] = fa1; geno_a2[k3] = fa2
+        geno_id[k4] = gid; geno_a1[k4] = fa1; geno_a2[k4] = fa2
+        next
+    }
+    END {
+        for (i = 1; i <= n_ld; i++) {
+            mk = match_key[i]
+            la1 = ld_a1[i]; la2 = ld_a2[i]
+            k1 = mk SUBSEP la1 SUBSEP la2
+            k2 = mk SUBSEP la2 SUBSEP la1
+            fa1 = c[la1]; fa2 = c[la2]
+            k3 = mk SUBSEP fa1 SUBSEP fa2
+            k4 = mk SUBSEP fa2 SUBSEP fa1
+            gid = "NA"; ga1 = "NA"; ga2 = "NA"
+            if (k1 in geno_id) { gid = geno_id[k1]; ga1 = geno_a1[k1]; ga2 = geno_a2[k1] }
+            else if (k2 in geno_id) { gid = geno_id[k2]; ga1 = geno_a1[k2]; ga2 = geno_a2[k2] }
+            else if (k3 in geno_id) { gid = geno_id[k3]; ga1 = geno_a1[k3]; ga2 = geno_a2[k3] }
+            else if (k4 in geno_id) { gid = geno_id[k4]; ga1 = geno_a1[k4]; ga2 = geno_a2[k4] }
+            split(ld_pos_b37[i], pb37, ":")
+            split(ld_pos_b38[i], pb38, ":")
+            chr_v = pb37[1]
             pos_b37_v = pb37[2]
             pos_b38_v = pb38[2]
-            
-            # Output: chr, pos_b37, pos_b38, geno_snpid, geno_a1, geno_a2, ldref_snpid, ldref_a1, ldref_a2
-            print chr_v, pos_b37_v, pos_b38_v, gid, ga1, ga2, ld_id[matched], ld_a1[matched], ld_a2[matched]
+            print chr_v, pos_b37_v, pos_b38_v, gid, ga1, ga2, ld_id[i], ld_a1[i], ld_a2[i]
         }
     }
     ' "$ld_augmented" "$pvar_fmt" > "$out_map"
@@ -356,14 +338,14 @@ create_final_inclusion_list() {
     input_count=$(awk 'NR > 1' "$variant_map" | wc -l)
     log_info "Starting with ${input_count} variants from variant map"
     
-    # Create inclusion list with essential columns
-    # New schema: chr(1), pos_b37(2), pos_b38(3), geno_snpid(4), geno_a1(5), geno_a2(6), ldref_snpid(7), ...
+    # Create inclusion list with essential columns (only rows with genotype match; used for scoring)
+    # Schema: chr(1), pos_b37(2), pos_b38(3), geno_snpid(4), geno_a1(5), geno_a2(6), ldref_snpid(7), ...
     # Format: ldref_snpid, geno_snpid, chr, pos_b37, pos_b38
     echo -e "ldref_snpid\tgeno_snpid\tchr\tpos_b37\tpos_b38" > "${step_dir}/variant_inclusion_list.tsv"
-    awk -F'\t' -v OFS='\t' 'NR > 1 { print $7, $4, $1, $2, $3 }' "$variant_map" >> "${step_dir}/variant_inclusion_list.tsv"
+    awk -F'\t' -v OFS='\t' 'NR > 1 && $4 != "NA" { print $7, $4, $1, $2, $3 }' "$variant_map" >> "${step_dir}/variant_inclusion_list.tsv"
     
-    # Create sorted LDREF list for fast lookups (internal file)
-    awk -F'\t' 'NR > 1 && $1 != "NA" {print $1}' "${step_dir}/variant_inclusion_list.tsv" | \
+    # Create sorted LDREF list for fast lookups (internal file; only rows with genotype match)
+    awk -F'\t' 'NR > 1 && $4 != "NA" && $7 != "NA" {print $7}' "$variant_map" | \
         LC_ALL=C sort -u > "${step_dir}/.rsid_index"
     
     log_info "Created inclusion list with ${input_count} variants"
@@ -404,7 +386,7 @@ compute_maf_from_genotypes() {
     local maf_output="${ref_dir}/maf_computed.tsv"
 
     if [[ -z "$variant_map" ]] || [[ ! -s "$variant_map" ]]; then
-        log_error "variant_map.tsv is required to compute MAF (genotype ∩ LD-ref)."
+        log_error "variant_map.tsv is required to compute MAF (rows with genotype match)."
         log_error "Got: ${variant_map:-<empty>}"
         return 1
     fi
@@ -430,9 +412,9 @@ compute_maf_from_genotypes() {
             extract_ids="${tmpdir}/chr${chr}.extract_ids.txt"
             awk -F'\t' -v c="$chr" '
                 NR==1{next}
-                {
+                $4 != "NA" && $1 == c {
                     # Schema: chr(1), pos_b37(2), pos_b38(3), geno_snpid(4), ...
-                    if ($1==c) print $4
+                    print $4
                 }
             ' "$variant_map" | LC_ALL=C sort -u > "$extract_ids"
             # If no variants for this chromosome, skip plink entirely
@@ -612,18 +594,24 @@ generate_prep_stepwise_details() {
     done
     log_info "Augmented LD reference variants: ${n_ldref_augmented}"
     
-    # Count final variant map (intersection of genotypes and augmented LD ref)
+    # Count final variant map (all LD ref liftover variants; genotype NA where no match)
     local n_variant_map=0
     if [[ -f "${prep_dir}/variant_map.tsv" ]]; then
         n_variant_map=$(wc -l < "${prep_dir}/variant_map.tsv")
         n_variant_map=$((n_variant_map - 1))  # Subtract header
     fi
-    log_info "Variant map (geno ∩ ldref): ${n_variant_map}"
+    log_info "Variant map (all LD ref liftover): ${n_variant_map}"
+
+    local n_geno_matched=0
+    if [[ -f "${prep_dir}/variant_map.tsv" ]]; then
+        n_geno_matched=$(awk -F'\t' 'NR > 1 && $4 != "NA" {count++} END {print count+0}' "${prep_dir}/variant_map.tsv")
+    fi
+    log_info "Variants with genotype match: ${n_geno_matched}"
     
-    # Calculate match rate
+    # Calculate match rate (genotype match vs augmented LD ref)
     local match_pct="0.00"
     if [[ "$n_ldref_augmented" -gt 0 ]]; then
-        match_pct=$(awk "BEGIN {printf \"%.2f\", 100 * ${n_variant_map} / ${n_ldref_augmented}}")
+        match_pct=$(awk "BEGIN {printf \"%.2f\", 100 * ${n_geno_matched} / ${n_ldref_augmented}}")
     fi
     
     # Read ldref steps if available
@@ -632,7 +620,6 @@ generate_prep_stepwise_details() {
     local n_ldref_after_join=0
     local ldref_steps="${details_dir}/prep_ldref_steps.tsv"
     if [[ -f "$ldref_steps" ]]; then
-        # Parse the ldref steps file to get counts
         n_liftover=$(awk -F'\t' '$1=="liftover-reference" {print $2}' "$ldref_steps")
         n_ldref=$(awk -F'\t' '$1=="ldref-extract" {print $2}' "$ldref_steps")
         n_ldref_after_join=$(awk -F'\t' '$1=="ldref-augment" {print $3}' "$ldref_steps")
@@ -645,7 +632,7 @@ generate_prep_stepwise_details() {
         echo -e "ldref-extract\t${n_ldref}\t${n_ldref}\tLD reference variants extracted"
         echo -e "ldref-augment\t${n_ldref}\t${n_ldref_after_join}\tLD ref ↔ liftover join"
         echo -e "genotypes-extract\t${n_geno}\t${n_geno}\tgenotype variants extracted"
-        echo -e "geno-ldref-intersect\t${n_ldref_after_join}\t${n_variant_map}\tgeno ∩ augmented-ldref (match_rate=${match_pct}%)"
+        echo -e "geno-ldref-map\t${n_ldref_after_join}\t${n_variant_map}\tall LD ref in map; geno_matched=${n_geno_matched} (${match_pct}%)"
     } > "$steps_file"
     
     log_info "Wrote prep stepwise details: ${steps_file}"

@@ -2,8 +2,8 @@
 # pgscalculator v2 - run command
 
 declare -A STEP_GROUPS
-STEP_GROUPS=([prep]="prep-genotypes prep-ldref prep-inclusion-list" [sumstat]="format-sumstat filter-variants" [posteriors]="calc-posteriors format-posteriors" [score]="calc-score combine-scores finalize-output" [benchmark]="calc-benchmark")
-STEP_GROUP_ORDER=("prep" "sumstat" "posteriors" "score")
+STEP_GROUPS=([prep]="prep-genotypes prep-ldref prep-inclusion-list" [sumstat]="format-sumstat filter-variants" [weights]="calc-posteriors format-posteriors calc-benchmark" [score]="calc-score combine-scores finalize-output")
+STEP_GROUP_ORDER=("prep" "sumstat" "weights" "score")
 
 format_elapsed() {
     local secs="$1"
@@ -86,7 +86,7 @@ run_single_step() {
         calc-score) source "${STEPS_DIR}/calc_score.sh"; run_calc_score "$sumstat_name" ""; rc=$?;;
         combine-scores) source "${STEPS_DIR}/combine_scores.sh"; run_combine_scores "$sumstat_name"; rc=$?;;
         finalize-output) source "${STEPS_DIR}/finalize_output.sh"; run_finalize_output "$sumstat_name"; rc=$?;;
-        calc-benchmark) source "${STEPS_DIR}/calc_benchmark.sh"; run_calc_benchmark "$sumstat_name" ""; rc=$?;;
+        calc-benchmark) source "${STEPS_DIR}/calc_benchmark.sh"; run_calc_benchmark "$sumstat_name"; rc=$?;;
         *) rc=1;;
     esac
     step_end_ts=$(date +%s)
