@@ -319,7 +319,7 @@ run_filter_variants_chr() {
     if [[ ! -f "$chr_input" ]]; then
         log_warn "chr${chr}: no formatted input file: ${chr_input}"
         # Write placeholder
-        echo "CHR	POS	RSID	EffectAllele	OtherAllele	EAF	B	SE	P	N	LDREF_SNPID" > "$chr_output"
+        echo "CHR	POS	RSID	EffectAllele	OtherAllele	EAF	B	SE	P	N	LDREF_SNPID	GENO_ID" > "$chr_output"
         echo "formatted_missing" > "${step_dir}/FAILED_chr${chr}"
         return 1
     fi
@@ -357,11 +357,14 @@ run_filter_variants_chr() {
     
     if [[ ! -s "$reduced_tmp" ]] || [[ $(wc -l < "$reduced_tmp") -le 1 ]]; then
         log_warn "chr${chr}: no variants after mapfile reduction"
-        echo "CHR	POS	RSID	EffectAllele	OtherAllele	EAF	B	SE	P	N	LDREF_SNPID" > "$chr_output"
+        echo "CHR	POS	RSID	EffectAllele	OtherAllele	EAF	B	SE	P	N	LDREF_SNPID	GENO_ID" > "$chr_output"
         echo "no_variants_after_reduction" > "${step_dir}/FAILED_chr${chr}"
         rm -rf "$tmpdir"
         return 1
     fi
+    
+    # Save pre-filter matched sumstat for finalize reuse (avoids re-joining full formatted sumstat)
+    cp "$reduced_tmp" "${step_dir}/chr${chr}_matched.tsv"
     
     # Derive stats
     local derived_tmp="${tmpdir}/derived.tsv"
@@ -369,7 +372,7 @@ run_filter_variants_chr() {
     
     if [[ ! -s "$derived_tmp" ]] || [[ $(wc -l < "$derived_tmp") -le 1 ]]; then
         log_warn "chr${chr}: no variants after stat derivation"
-        echo "CHR	POS	RSID	EffectAllele	OtherAllele	EAF	B	SE	P	N	LDREF_SNPID" > "$chr_output"
+        echo "CHR	POS	RSID	EffectAllele	OtherAllele	EAF	B	SE	P	N	LDREF_SNPID	GENO_ID" > "$chr_output"
         echo "no_variants_after_derivation" > "${step_dir}/FAILED_chr${chr}"
         rm -rf "$tmpdir"
         return 1
@@ -479,7 +482,7 @@ build_sumstat_map_and_reduce_chr() {
             out = $1
             for (i=2;i<=NF;i++) out = out OFS $i
             if (header_extra!="") out = out OFS header_extra
-            out = out OFS "LDREF_SNPID"
+            out = out OFS "LDREF_SNPID" OFS "GENO_ID"
             print out > out_sumstat
             next
         }
@@ -520,7 +523,7 @@ build_sumstat_map_and_reduce_chr() {
             out = $1
             for (i=2;i<=NF;i++) out = out OFS $i
             if (header_extra!="") out = out OFS eaf_v
-            out = out OFS ld_id[matched_idx]
+            out = out OFS ld_id[matched_idx] OFS geno_id[matched_idx]
             print out > out_sumstat
             # record sumstat columns for mapfile
             if (!(matched_idx in sum_snp)) {
@@ -589,7 +592,7 @@ concatenate_chr_filtered() {
     
     if [[ "$first" == true ]]; then
         # No files found, write empty header
-        echo "CHR	POS	RSID	EffectAllele	OtherAllele	EAF	B	SE	P	N	LDREF_SNPID" > "$tmpfile"
+        echo "CHR	POS	RSID	EffectAllele	OtherAllele	EAF	B	SE	P	N	LDREF_SNPID	GENO_ID" > "$tmpfile"
     fi
     
     gzip -c "$tmpfile" > "$output"
@@ -683,11 +686,11 @@ build_sumstat_map_and_reduce() {
                 eaf_c = NF + 1
                 header_extra="EAF"
             }
-            # Write header with appended LDREF_SNPID
+            # Write header with appended LDREF_SNPID and GENO_ID
             out = $1
             for (i=2;i<=NF;i++) out = out OFS $i
             if (header_extra!="") out = out OFS header_extra
-            out = out OFS "LDREF_SNPID"
+            out = out OFS "LDREF_SNPID" OFS "GENO_ID"
             print out > out_sumstat
             next
         }
@@ -728,7 +731,7 @@ build_sumstat_map_and_reduce() {
             out = $1
             for (i=2;i<=NF;i++) out = out OFS $i
             if (header_extra!="") out = out OFS eaf_v
-            out = out OFS ld_id[idx]
+            out = out OFS ld_id[idx] OFS geno_id[idx]
             print out > out_sumstat
             # record sumstat columns for mapfile
             if (!(idx in sum_snp)) {

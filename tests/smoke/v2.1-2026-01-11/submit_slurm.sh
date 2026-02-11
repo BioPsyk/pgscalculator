@@ -27,6 +27,6 @@ echo "== Submitting: prep (SLURM) =="
 "$WRAPPER" --config "$CONFIG" --steps prep --sbatch
 
 echo ""
-echo "== Submitting: sumstat,posteriors,score (SLURM driver job) =="
-"$WRAPPER" --config "$CONFIG" --steps sumstat,posteriors,score --sbatch -i "$SUMSTAT_DIR"
+echo "== Submitting: sumstat,weights,score,finalize (SLURM driver job) =="
+"$WRAPPER" --config "$CONFIG" --steps sumstat,weights,score,finalize --sbatch -i "$SUMSTAT_DIR"
 

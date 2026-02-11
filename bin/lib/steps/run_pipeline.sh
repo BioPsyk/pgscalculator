@@ -2,8 +2,8 @@
 # pgscalculator v2 - run command
 
 declare -A STEP_GROUPS
-STEP_GROUPS=([prep]="prep-genotypes prep-ldref prep-inclusion-list" [sumstat]="format-sumstat filter-variants" [weights]="calc-posteriors format-posteriors calc-benchmark" [score]="calc-score combine-scores finalize-output")
-STEP_GROUP_ORDER=("prep" "sumstat" "weights" "score")
+STEP_GROUPS=([prep]="prep-genotypes prep-ldref prep-inclusion-list" [sumstat]="format-sumstat filter-variants" [weights]="calc-posteriors format-posteriors calc-benchmark" [score]="calc-score" [finalize]="combine-scores finalize-output")
+STEP_GROUP_ORDER=("prep" "sumstat" "weights" "score" "finalize")
 
 format_elapsed() {
     local secs="$1"

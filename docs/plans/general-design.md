@@ -349,6 +349,15 @@ Source ideas consistent with the mapfile plan:
 
 ## Output files (v2)
 
+### sumstat_augmented.tsv.gz vs augmented_sumstat.gz
+
+| | **sumstat_augmented.tsv.gz** | **augmented_sumstat.gz** |
+|--|------------------------------|---------------------------|
+| **Row set** | Variant map intersection (one row per variant present in both the mapfile and the formatted sumstat — **not** all sumstat variants; inner join on sumstat ⋈ variant_map). | Variant map (one row per variant in the LD reference that could be lifted over). |
+| **Columns** | All columns from the formatted sumstat plus GENO_ID, POST_EFFECT, POST_PIP, IN_ANALYSIS. | Reduced: RSID, EffectAllele, OtherAllele, B, SE, Z, P, MAF, postEffect, benchEffect only. |
+| **Purpose** | Full augmented sumstat for internal/debug use; row set restricted to mapfile variants for performance and relevance. | User-facing, compact file for auditing; same row set as variant_map so users can join on RSID. |
+| **Built from** | Per-chr matched files from filter-variants (already mapfile-restricted, with LDREF_SNPID + GENO_ID) ⋈ posteriors (left join). ⋈ variant_map (inner join) ⋈ posteriors. | variant_map ⋈ sumstat (B,SE,Z,P) ⋈ posteriors ⋈ MAF; uses sumstat_augmented as source for B,SE,Z,P. |
+
 ### augmented_sumstat.gz
 
 Per-sumstat file for auditing and back-tracing. **Same row set as the variant map** (one row per variant in `variant_map.tsv.gz`), so users can join on `RSID`. Contains only the sumstat columns needed for interpretation plus calculated MAF, posterior effect, and (when available) benchmark effect. CHR, POS, and genoID are omitted because **RSID is the key** for lookups in the variant map.
@@ -364,6 +373,8 @@ RSID  EffectAllele  OtherAllele  B  SE  Z  P  MAF  postEffect  [benchEffect]
 - **Added when feature exists:** `benchEffect` (benchmark effect).
 
 Users who need chr/pos or genotype IDs join on `RSID` against the variant map.
+
+**Memory use (finalize-output):** Building `augmented_sumstat.gz` used to load the full `sumstat_augmented.tsv.gz` (B, SE, Z, P by RSID) into awk arrays keyed by RSID, then stream the variant map and look up. On large sumstats (e.g. hundreds of MB uncompressed) that caused finalize to OOM even with 16g. **Fix:** use a Unix **sort + join** pipeline: extract (key, B, SE, Z, P) from the sumstat in a streaming way and sort by key; sort the variant map by sumstat_snpid; `join` on the key so the sumstat is never loaded into memory. Only posteriors and MAF (small) are kept in memory for the final column assembly. This keeps finalize memory low and independent of sumstat size.
 
 ### main_raw_score_all.gz
 
@@ -441,6 +452,108 @@ The driver submits **two separate SLURM array jobs** when `--steps weights` is r
 ## Final output
 Only at final output time, combine per-chromosome files into consolidated outputs
 (`variant_map.tsv.gz`, augmented sumstat, main score file, etc.) for auditing and back-tracing.
+
+## Separate finalize step (final output creation) — implemented
+
+**Problem:** Today `score` includes calc-score (array) plus combine-scores and finalize-output run **in the driver process** after the score array. Finalize-output is memory-heavy (large awk over variant_map + full augmented sumstat); with a small driver (e.g. 5g) it can OOM on large sumstats.
+
+**Idea:** Introduce a dedicated **finalize** step group so final output creation is a separate phase and can be given its own resources (including higher memory when submitted as a SLURM job).
+
+### 1. Step group and order
+
+- **score** = `calc-score` only (per-chromosome scoring; array when using --sbatch).
+- **finalize** = `combine-scores` + `finalize-output` (single, non-array: merge chr scores, then build all final deliverables).
+- **STEP_GROUP_ORDER:** `prep` → `sumstat` → `weights` → `score` → **`finalize`**.
+
+So:
+
+- `--steps score` runs only the calc-score step (and, in current implementation, nothing merges scores yet; see below).
+- `--steps score,finalize` (or `--steps sumstat,weights,score,finalize`) runs calc-score then combine-scores then finalize-output.
+- `--all` would run prep, sumstat, weights, score, **finalize**.
+
+Concrete steps inside **finalize**:
+
+- **combine-scores:** Merge per-chr `work/scores/chr*.sscore` → `scores.tsv.gz`, `main_raw_score_all.gz`.
+- **finalize-output:** Combine posteriors, build `sumstat_augmented.tsv.gz`, `augmented_sumstat.gz`, `variant_map.tsv.gz`, copy config, run summary, stepwise details.
+
+#### Joins in the finalize step
+
+All joins in finalize are done so that **no large dataset is fully loaded into memory**; large inputs are either streamed or joined via Unix `sort` + `join`.
+
+| Sub-step | Inputs | Join strategy | Memory |
+|----------|--------|----------------|--------|
+| **combine-scores** | Per-chr `chr*.sscore` | No join; concatenate/aggregate score files. | One stream at a time. |
+| **Combine posteriors** | Per-chr `chr*.snpRes`, `ldref_to_genoid.tsv` | No join; concatenate chr files. Optional GENO_ID via small in-memory lookup (RSID → geno_snpid). | Small (lookup only). |
+| **sumstat_augmented.tsv.gz** | Per-chr matched files (`filtered/chr*_matched.tsv`), posteriors_combined | **Approach B (reuse filter-variants output):** Concatenate per-chr matched files (already mapfile-restricted, ~1M rows total, with LDREF_SNPID + GENO_ID). Rearrange so LDREF_SNPID is col 1, sort, left-join with posteriors. No re-sorting of the full formatted sumstat. | Concatenation + sort of ~1M rows; no large file processed. |
+| **augmented_sumstat.gz** | sumstat_augmented.tsv.gz, variant_map, posteriors, MAF | **Sort + Unix join:** (1) Extract (key, B, SE, Z, P) from sumstat_augmented in a streaming awk; sort by key. (2) Sort variant_map by col4 (sumstat_snpid). (3) Unix `join` (tab-separated, -1 4 -2 1) on key → one row per variant_map row with B,SE,Z,P. (4) One awk adds MAF and postEffect via small in-memory lookups (posteriors by ldref_snpid, MAF by geno_snpid). Row set = variant_map; the large sumstat is never loaded. | Small (posteriors + MAF only); sumstat only in sort/join temp files on disk. |
+| **variant_map.tsv.gz** | variant_map.tsv (from prep or sumstat) | No join; reorder columns so RSID (ldref_snpid) is col1, then gzip. | One line at a time. |
+
+Since `sumstat_augmented.tsv.gz` is built from the per-chr matched files (already mapfile-restricted during filter-variants), its row count matches the mapfile (~1M variants) rather than the full sumstat (~17M). The expensive chr:pos+alleles matching was already done per-chromosome during filter-variants; finalize just concatenates and joins with posteriors. This keeps both `sumstat_augmented.tsv.gz` itself and the downstream `augmented_sumstat.gz` (which reads it) fast.
+
+#### Plan: All joins via Unix join
+
+**Goal:** Every join in finalize uses Unix `sort` + `join` only; no in-memory hash lookups for join keys. Memory stays flat regardless of file size.
+
+**Conventions:** Tab-separated. **All sort and join in finalize must use `LC_ALL=C`** for locale-independent, byte-order-consistent ordering and matching (same as prep): run `LC_ALL=C sort ...` and `LC_ALL=C join ...` for every sort and join. Example: `LC_ALL=C sort -t $'\\t' -k<keycol>,<keycol>`; `LC_ALL=C join -t $'\\t' ...`. Strip headers before sort/join; prepend header to final output. One temp dir for intermediates.
+
+**1. Combine posteriors (add GENO_ID)** — One join. Concatenate chr posterior files (skip headers), output RSID, A1, A2, FREQ, EFFECT, SE, PIP; `LC_ALL=C sort` by RSID. `LC_ALL=C sort` ldref_to_genoid by RSID. `LC_ALL=C join -1 1 -2 1` on RSID → RSID, GENO_ID, A1, A2, FREQ, EFFECT, SE, PIP. Prepend header. No in-memory lookup.
+
+**2. sumstat_augmented.tsv.gz** — **Approach B: reuse filter-variants output.** Filter-variants saves per-chr matched files (`filtered/chr*_matched.tsv`) containing all sumstat columns + LDREF_SNPID + GENO_ID, already restricted to mapfile variants (~1M rows). At finalize: concatenate matched files, rearrange so LDREF_SNPID is col 1, `LC_ALL=C sort`, left-join with posteriors (`-a 1 -e NA`), emit sumstat cols + GENO_ID + POST_EFFECT + POST_PIP + IN_ANALYSIS; gzip. No re-sorting of the full formatted sumstat (~17M). **Key design rule: `sumstat_augmented.tsv.gz` must contain only mapfile variants, not the full sumstat.** This avoids sorting 17M+ rows and keeps downstream `augmented_sumstat.gz` (which reads `sumstat_augmented.tsv.gz`) fast.
+
+**3. augmented_sumstat.gz** — Three joins. (a) variant_map `LC_ALL=C sort` by sumstat_snpid; sumstat_augmented: extract key, B, SE, Z, P (streaming), `LC_ALL=C sort` by key. `LC_ALL=C join -1 4 -2 1` → variant_map + B, SE, Z, P; output with ldref_snpid in known col, `LC_ALL=C sort` by ldref_snpid. (b) posteriors: RSID, EFFECT; `LC_ALL=C sort` by RSID. `LC_ALL=C join` on ldref_snpid/RSID → + postEffect; `LC_ALL=C sort` by geno_snpid. (c) MAF `LC_ALL=C sort` by geno_snpid. `LC_ALL=C join` on geno_snpid → + MAF. One awk to emit final 10 columns; prepend header; gzip. No in-memory lookups.
+
+**4. variant_map.tsv.gz** — No join; reorder cols so RSID is col 1, gzip.
+
+**Efficiency:** (1) Sort each input file once; reuse the same sorted file if it is joined multiple times (e.g. posteriors sorted by RSID can feed both sumstat_augmented and augmented_sumstat pipelines). (2) When writing join output, put the *next* join key in column 1 so the next step is a single `LC_ALL=C sort -k1,1` with no column reordering. (3) Use one temp dir for all intermediates; delete at end of finalize-output. (4) For sumstat/formatted inputs, use a single streaming awk to extract or normalize (key, rest); avoid reading the full file into memory. (5) combine-scores stays concatenate-only (no join). (6) Use `join -a 1 -e NA` only where the driver row set must be preserved (e.g. variant_map as driver in augmented_sumstat.gz); inner join elsewhere is simpler and sufficient where missing rows are acceptable. **(7) Critical: `sumstat_augmented.tsv.gz` must contain only mapfile variants, not the full sumstat. The primary strategy (Approach B) achieves this by reusing the per-chr matched files saved during filter-variants — no re-join with the formatted sumstat needed.  Including all sumstat variants (~17M) would make sorting and all downstream joins needlessly slow; the mapfile intersection (~1M) is the relevant row set.** **(8) Filter-variants saves `filtered/chr*_matched.tsv` (pre-QC matched sumstat with LDREF_SNPID + GENO_ID) alongside the filtered outputs. This small I/O cost during filter-variants eliminates the most expensive finalize operation (sort+join of the full formatted sumstat).**
+
+### 2. SLURM behaviour (--sbatch)
+
+- **Driver** runs: format-sumstat → sumstat array → weights_sbayesr array → weights_benchmark array → score array. It does **not** run combine-scores or finalize-output in-process.
+- After the **score array** completes, the driver **submits one SLURM job** for the **finalize** step (single job, no array), with its own resources, e.g.:
+  - **slurm.finalize:** `{ mem: 16g, cpus: 1, time: 1:00:00 }` (configurable; higher mem for large sumstats).
+- The driver **waits** for this finalize job to complete (same pattern as for arrays), then exits. Optionally it could run cleanup if `--cleanup` is set.
+
+So:
+
+- Driver stays small and only orchestrates; it never runs the heavy finalize-output.
+- Final output creation always runs in a dedicated job with `slurm.finalize`, avoiding driver OOM.
+
+### 3. Config
+
+```yaml
+slurm:
+  # ... existing keys ...
+  score:    { mem: 10g, cpus: 4, time: '01:00:00', max_parallel: 22 }
+  finalize: { mem: 16g, cpus: 1, time: '1:00:00' }   # single job, no array
+```
+
+### 4. CLI (implemented: explicit finalize)
+
+- **Default for per-sumstat pipeline:** Users today run `--steps sumstat,weights,score`. With the new split, to get the same end-to-end result they would run `--steps sumstat,weights,score,finalize` (or we keep “score” in the CLI to mean “score + finalize” for backward compatibility and only split internally for SLURM; see below).
+- **Option A (explicit finalize):** Require `finalize` in `--steps` when final outputs are desired. Docs and examples use `sumstat,weights,score,finalize`.
+- **Option B (score implies finalize):** When user requests `--steps score`, the pipeline runs both the score group (calc-score) and the finalize group (combine-scores, finalize-output). For **--sbatch** only, we still submit finalize as a **separate job** with slurm.finalize, so the driver never runs finalize in-process. So CLI stays “score” but SLURM gains a dedicated finalize job.
+
+Recommendation: **Option B** — keep `--steps score` meaning “score + finalize” for CLI/docs; implement the split only in the SLURM path (submit finalize as a separate job with slurm.finalize after the score array). That way we fix the OOM and resource story without changing user-facing step names.
+
+### 5. Summary
+
+| Aspect | Current | Proposed |
+|--------|--------|----------|
+| score group | calc-score, combine-scores, finalize-output | calc-score only (finalize = separate group) |
+| finalize group | (none) | combine-scores, finalize-output |
+| --sbatch after score array | Driver runs combine-scores + finalize-output (can OOM) | Driver submits one **finalize job** (slurm.finalize); driver waits. |
+| Config | slurm.score only | slurm.score + **slurm.finalize** (e.g. mem: 16g) |
+
+**Status:** Finalize step group, slurm.finalize, and driver finalize job are implemented. CLI uses explicit `finalize` in `--steps`.
+
+### What needs to be done (finalize and outputs)
+
+1. **Plan: All joins via Unix join** — **Implemented.** Every join in finalize uses `LC_ALL=C sort` + `LC_ALL=C join` only; no in-memory hash lookups for join keys.
+   - **Combine posteriors:** One `LC_ALL=C sort` + `LC_ALL=C join` on RSID (ldref_to_genoid).
+   - **sumstat_augmented.tsv.gz:** **Approach B** — concatenate per-chr matched files from filter-variants (already mapfile-restricted, with LDREF_SNPID + GENO_ID), one `LC_ALL=C sort` + `LC_ALL=C join` with posteriors; one awk reorders columns and adds IN_ANALYSIS. 
+   - **augmented_sumstat.gz:** Three Unix joins with LC_ALL=C (variant_map ⋈ sumstat extract, then ⋈ posteriors, then ⋈ MAF); one awk emits final 10 columns. No in-memory MAF/postEffect lookups.
+
+2. **benchEffect in augmented_sumstat.gz** — When the benchmark step has been run, fill the benchEffect column from benchmark outputs (effect used in benchmark score per variant); currently output as `NA`.
 
 ## SLURM submission system (`--sbatch`)
 

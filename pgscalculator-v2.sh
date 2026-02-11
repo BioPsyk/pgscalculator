@@ -13,7 +13,7 @@ function general_usage(){
  echo ""
   echo "Required:"
   echo "  --config <file>   Path to config.yaml with all settings"
-  echo "  --steps <list>    Steps to run: prep, sumstat, weights, score"
+  echo "  --steps <list>    Steps to run: prep, sumstat, weights, score, finalize"
   echo ""
   echo "Optional:"
   echo "  -i <dir>          Path to sumstats folder (required for non-prep steps)"
@@ -60,11 +60,11 @@ function general_usage(){
   echo "  ./pgscalculator-v2.sh --config config.yaml --steps prep"
  echo ""
   echo "  # Step 2: Run per-sumstat steps"
-  echo "  ./pgscalculator-v2.sh --config config.yaml --steps sumstat,weights,score -i /path/to/sumstat_814"
+  echo "  ./pgscalculator-v2.sh --config config.yaml --steps sumstat,weights,score,finalize -i /path/to/sumstat_814"
  echo ""
   echo "  # Or submit as SLURM jobs"
   echo "  ./pgscalculator-v2.sh --config config.yaml --steps prep --sbatch"
-  echo "  ./pgscalculator-v2.sh --config config.yaml --steps sumstat,weights,score -i /path/to/sumstat_814 --sbatch"
+  echo "  ./pgscalculator-v2.sh --config config.yaml --steps sumstat,weights,score,finalize -i /path/to/sumstat_814 --sbatch"
 }
 
 ################################################################################
@@ -175,7 +175,7 @@ if [[ -z "$steps_arg" ]]; then
   >&2 echo ""
   >&2 echo "Examples:"
   >&2 echo "  ./pgscalculator-v2.sh --config config.yaml --steps prep"
-  >&2 echo "  ./pgscalculator-v2.sh --config config.yaml --steps sumstat,weights,score -i /path/to/sumstat"
+  >&2 echo "  ./pgscalculator-v2.sh --config config.yaml --steps sumstat,weights,score,finalize -i /path/to/sumstat"
   exit 1
 fi
 
@@ -522,13 +522,14 @@ if [[ "$driver_run" == true ]]; then
   #   --steps sumstat,posteriors,score
   # Order is enforced: sumstat -> posteriors -> score
   if [[ -z "${steps_arg:-}" ]]; then
-    >&2 echo "Error: --_driver-run requires --steps (prep, sumstat, weights, score, or combinations thereof)"
+    >&2 echo "Error: --_driver-run requires --steps (prep, sumstat, weights, score, finalize, or combinations thereof)"
     exit 1
   fi
   has_prep=false
   has_sumstat=false
   has_weights=false
   has_score=false
+  has_finalize=false
   IFS=',' read -r -a _sbatch_steps <<< "$steps_arg"
   for _s in "${_sbatch_steps[@]}"; do
     _s="$(echo "$_s" | awk '{$1=$1;print}')"
@@ -541,17 +542,19 @@ if [[ "$driver_run" == true ]]; then
       has_weights=true
     elif [[ "$_s" == "score" ]]; then
       has_score=true
+    elif [[ "$_s" == "finalize" ]]; then
+      has_finalize=true
     else
-      >&2 echo "Error: driver mode only supports --steps prep, sumstat, weights, score (or combinations) (got: '${steps_arg}')"
+      >&2 echo "Error: driver mode only supports --steps prep, sumstat, weights, score, finalize (or combinations) (got: '${steps_arg}')"
       exit 1
     fi
   done
-  if [[ "$has_prep" == true && ( "$has_sumstat" == true || "$has_weights" == true || "$has_score" == true ) ]]; then
+  if [[ "$has_prep" == true && ( "$has_sumstat" == true || "$has_weights" == true || "$has_score" == true || "$has_finalize" == true ) ]]; then
     >&2 echo "Error: prep must be run on its own (do not include prep with other steps in driver jobs)"
     exit 1
   fi
-  if [[ "$has_prep" != true && "$has_sumstat" != true && "$has_weights" != true && "$has_score" != true ]]; then
-    >&2 echo "Error: --_driver-run requires --steps to include prep and/or sumstat/weights/score"
+  if [[ "$has_prep" != true && "$has_sumstat" != true && "$has_weights" != true && "$has_score" != true && "$has_finalize" != true ]]; then
+    >&2 echo "Error: --_driver-run requires --steps to include prep and/or sumstat/weights/score/finalize"
     exit 1
   fi
 
@@ -984,7 +987,7 @@ rc=\$?; echo \"[INFO] Finished ${step_profile} chr\${CHR} at \$(date) (exit=\$rc
     echo "  Job name: ${job_name}"
     echo "  Step: ${step_profile}"
     if [[ "$step_profile" == "score" ]]; then
-      echo "  Note: array mode runs 'calc-score' only; combine/finalize will run once after the score array finishes."
+      echo "  Note: array runs 'calc-score' only; run finalize step (separate job) for combine-scores + finalize-output."
     fi
     echo "  $(format_sbatch_settings "1-${step_chr_count}%${max_parallel}" "${max_parallel}")"
     echo "  Chromosomes: ${step_chr_list}"
@@ -1032,6 +1035,83 @@ rc=\$?; echo \"[INFO] Finished ${step_profile} chr\${CHR} at \$(date) (exit=\$rc
         if [[ "$n_scores" -lt "$step_chr_count" ]]; then
           >&2 echo "Warning: score array finished but outputs are missing (continuing)."
           >&2 echo "  Expected >=${step_chr_count} files in: ${base_sumstat_out}/scores/chr*.sscore (found ${n_scores})"
+          >&2 echo "Check logs under: ${log_dir}/"
+        fi
+      fi
+    fi
+    echo ""
+  }
+
+  submit_finalize_job() {
+    base_sumstat_out="${outdir_host}/sumstats/${sumstat_name}/work"
+    scores_dir="${base_sumstat_out}/scores"
+    n_scores=$(ls "${scores_dir}"/chr*.sscore 2>/dev/null | wc -l | awk '{print $1}')
+    if [[ "$n_scores" -eq 0 ]]; then
+      >&2 echo "Error: cannot run finalize: no score files in ${scores_dir}"
+      >&2 echo "Run the score step first (e.g. --steps score,finalize or run score then --steps finalize)."
+      exit 1
+    fi
+
+    step_settings=$(parse_yaml_nested "slurm" "finalize" "$config_file_host")
+    slurm_mem=""
+    slurm_cpus=""
+    slurm_time=""
+    if [[ -n "$step_settings" ]]; then
+      slurm_mem=$(parse_inline_dict "$step_settings" "mem")
+      slurm_cpus=$(parse_inline_dict "$step_settings" "cpus")
+      slurm_time=$(parse_inline_dict "$step_settings" "time")
+    fi
+    slurm_mem="${slurm_mem:-16g}"
+    slurm_cpus="${slurm_cpus:-1}"
+    slurm_time="${slurm_time:-1:00:00}"
+
+    if [[ -n "$infold" ]]; then
+      job_name="pgs_$(basename "$infold")_finalize"
+    else
+      job_name="pgs_finalize"
+    fi
+    log_dir="${outdir_host}/sumstats/${sumstat_name}/logs/slurm"
+    mkdir -p "$log_dir"
+
+    run_cmd="${project_dir}/pgscalculator-v2.sh --config ${config_file_host} --steps combine-scores,finalize-output"
+    [[ -n "$infold" ]] && run_cmd="${run_cmd} -i ${infold}"
+    [[ -n "$outdir" ]] && run_cmd="${run_cmd} -o ${outdir}"
+    [[ -n "$devmode" ]] && run_cmd="${run_cmd} -d"
+    [[ -n "$force_mode" ]] && run_cmd="${run_cmd} --force"
+
+    sbatch_args=(--parsable)
+    sbatch_args+=(--mem="${slurm_mem}")
+    sbatch_args+=(--cpus-per-task="${slurm_cpus}")
+    sbatch_args+=(--time="${slurm_time}")
+    sbatch_args+=(--job-name="${job_name}")
+    sbatch_args+=(--output="${log_dir}/${job_name}_%j.out")
+    sbatch_args+=(--error="${log_dir}/${job_name}_%j.err")
+    [[ -n "$slurm_account" ]] && sbatch_args+=(--account="${slurm_account}")
+    [[ -n "$slurm_partition" ]] && sbatch_args+=(--partition="${slurm_partition}")
+    sbatch_args+=(--wrap="${run_cmd}")
+
+    echo "Submitting SLURM finalize job (combine-scores + finalize-output)..."
+    echo "  Job name: ${job_name}"
+    echo "  Resources: mem=${slurm_mem}, cpus=${slurm_cpus}, time=${slurm_time}"
+    echo "  Logs: ${log_dir}/${job_name}_<jobid>.out/.err"
+    echo ""
+
+    finalize_jobid=$(sbatch "${sbatch_args[@]}")
+    if [[ -z "$finalize_jobid" ]]; then
+      >&2 echo "Error: failed to submit SLURM finalize job"
+      exit 1
+    fi
+    echo "Submitted finalize job: ${finalize_jobid}"
+
+    if command -v squeue >/dev/null 2>&1; then
+      echo "Waiting for finalize job to finish..."
+      while squeue -j "$finalize_jobid" -h 2>/dev/null | grep -q .; do
+        sleep 10
+      done
+      if command -v sacct >/dev/null 2>&1; then
+        st=$(sacct -j "$finalize_jobid" --format=State -n -P 2>/dev/null | head -n 1 || true)
+        if [[ -n "$st" && "$st" != COMPLETED* ]]; then
+          >&2 echo "Warning: finalize job ${finalize_jobid} finished with state: ${st}"
           >&2 echo "Check logs under: ${log_dir}/"
         fi
       fi
@@ -1100,26 +1180,9 @@ rc=\$?; echo \"[INFO] Finished ${step_profile} chr\${CHR} at \$(date) (exit=\$rc
   fi
   if [[ "$has_score" == true ]]; then
     submit_array_for_step "score"
-
-    # After score array finishes, run the non-parallel steps once to produce final outputs.
-    # But only if scores were actually produced (skip if score array was skipped or all tasks failed).
-    scores_dir="${outdir_host}/sumstats/${sumstat_name}/work/scores"
-    n_scores=$(ls "${scores_dir}"/chr*.sscore 2>/dev/null | wc -l | awk '{print $1}')
-    if [[ "$n_scores" -gt 0 ]]; then
-      follow_steps="combine-scores,finalize-output"
-      echo "Running post-array finalization: ${follow_steps}"
-      follow_cmd="${project_dir}/pgscalculator-v2.sh --config ${config_file_host} --steps ${follow_steps}"
-      [[ -n "$infold" ]] && follow_cmd="${follow_cmd} -i ${infold}"
-      [[ -n "$outdir" ]] && follow_cmd="${follow_cmd} -o ${outdir}"
-      [[ -n "$devmode" ]] && follow_cmd="${follow_cmd} -d"
-      [[ -n "$force_mode" ]] && follow_cmd="${follow_cmd} --force"
-      eval "$follow_cmd"
-    else
-      >&2 echo ""
-      >&2 echo "Skipping combine-scores,finalize-output: no score files found in ${scores_dir}"
-      >&2 echo "This usually means weights (sBayesR) failed or produced no variants."
-      >&2 echo "Check weights_sbayesr logs for errors."
-    fi
+  fi
+  if [[ "$has_finalize" == true ]]; then
+    submit_finalize_job
   fi
 
   # Optional cleanup (default is to keep work/tmp during development)
@@ -1160,7 +1223,7 @@ if [[ "$use_sbatch" == true ]]; then
     >&2 echo "Error: prep must be run on its own. Run:"
     >&2 echo "  --steps prep --sbatch"
     >&2 echo "and then separately:"
-    >&2 echo "  --steps sumstat,weights,score --sbatch -i <sumstat_dir>"
+    >&2 echo "  --steps sumstat,weights,score,finalize --sbatch -i <sumstat_dir>"
     exit 1
   fi
 
@@ -1274,12 +1337,14 @@ if [[ "$use_sbatch" == true ]]; then
   sbatch_args+=(--error="${log_dir}/${job_name}_%j.err")
   [[ -n "$slurm_account" ]] && sbatch_args+=(--account="${slurm_account}")
   [[ -n "$slurm_partition" ]] && sbatch_args+=(--partition="${slurm_partition}")
+  [[ -n "${SLURM_DEPENDENCY:-}" ]] && sbatch_args+=(--dependency="${SLURM_DEPENDENCY}")
   sbatch_args+=(--wrap="${run_cmd}")
 
   echo "Submitting SLURM driver job..."
   echo "  Job name: ${job_name}"
   echo "  $(format_sbatch_settings "none")"
   echo "  Resources: mem=${slurm_mem}, cpus=${slurm_cpus}, time=${slurm_time}"
+  [[ -n "${SLURM_DEPENDENCY:-}" ]] && echo "  Dependency: ${SLURM_DEPENDENCY}"
   echo "  Command: ${run_cmd}"
   echo ""
 

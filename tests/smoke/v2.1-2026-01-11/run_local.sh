@@ -27,8 +27,8 @@ echo "== Running: prep (interactive) =="
 "$WRAPPER" --config "$CONFIG" --steps prep
 
 echo ""
-echo "== Running: sumstat,posteriors,score (interactive) =="
-"$WRAPPER" --config "$CONFIG" --steps sumstat,posteriors,score -i "$SUMSTAT_DIR"
+echo "== Running: sumstat,weights,score,finalize (interactive) =="
+"$WRAPPER" --config "$CONFIG" --steps sumstat,weights,score,finalize -i "$SUMSTAT_DIR"
 
 echo ""
 echo "Done. Outdir:"

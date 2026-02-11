@@ -94,6 +94,7 @@ slurm:
   weights_sbayesr:    { mem: 20g, cpus: 6, time: '2:00:00', max_parallel: 22 }
   weights_benchmark:   { mem: 2g, cpus: 2, time: '0:30:00', max_parallel: 22 }
   score:              { mem: 10g, cpus: 4, time: '0:30:00', max_parallel: 22 }
+  finalize:           { mem: 16g, cpus: 1, time: '1:00:00' }
 ```
 
 ### Run Pipeline
@@ -103,17 +104,17 @@ slurm:
 ./pgscalculator-v2.sh --config config.yaml --steps prep
 
 # Step 2: Run per-sumstat steps (for each trait)
-./pgscalculator-v2.sh --config config.yaml --steps sumstat,weights,score -i /path/to/sumstat_TRAIT
+./pgscalculator-v2.sh --config config.yaml --steps sumstat,weights,score,finalize -i /path/to/sumstat_TRAIT
 
 # Or submit as SLURM jobs (uses slurm settings from config)
 ./pgscalculator-v2.sh --config config.yaml --steps prep --sbatch
-./pgscalculator-v2.sh --config config.yaml --steps sumstat,weights,score -i /path/to/sumstat_TRAIT --sbatch
+./pgscalculator-v2.sh --config config.yaml --steps sumstat,weights,score,finalize -i /path/to/sumstat_TRAIT --sbatch
 
 # Or submit as a SLURM driver job (recommended for running many sumstats in parallel)
 # - prep must be run on its own
-# - per sumstat: driver runs sumstat, launches weights (sBayesR + benchmark) and score arrays, then combine+finalize
+# - per sumstat: driver runs sumstat, weights (sBayesR + benchmark) and score arrays, then a separate finalize job (combine-scores + finalize-output)
 # - parallelism is controlled via slurm.<step>.max_parallel (set 1 to serialize)
-./pgscalculator-v2.sh --config config.yaml --steps sumstat,weights,score -i /path/to/sumstat_TRAIT --sbatch
+./pgscalculator-v2.sh --config config.yaml --steps sumstat,weights,score,finalize -i /path/to/sumstat_TRAIT --sbatch
 
 # You can also run subsets via the same driver mechanism:
 ./pgscalculator-v2.sh --config config.yaml --steps sumstat -i /path/to/sumstat_TRAIT --sbatch
@@ -335,6 +336,7 @@ slurm:
   weights_sbayesr:     { mem: 20g, cpus: 6, time: '2:00:00', max_parallel: 22 }
   weights_benchmark:    { mem: 2g, cpus: 2, time: '0:30:00', max_parallel: 22 }
   score:               { mem: 10g, cpus: 4, time: '0:30:00', max_parallel: 22 }
+  finalize:            { mem: 16g, cpus: 1, time: '1:00:00' }
 ```
 
 ## Testing

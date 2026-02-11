@@ -115,49 +115,39 @@ write_variant_map() {
 combine_posteriors() {
     local posteriors_dir="$1"
     local output_file="$2"
-    
-    # The mapped posterior files are written as TSVs with header:
-    #   ID  A1  A2  Freq  Effect  SE  PIP
-    # We enrich them with GENO_ID using the ldref->genoid mapping produced during mapping.
-    # This makes the combined file stable for downstream consumers (augmented sumstat join).
-    echo -e "RSID\tGENO_ID\tA1\tA2\tFREQ\tEFFECT\tSE\tPIP" > "$output_file"
-    
-    local total_variants=0
-
-    local rsid_to_genoid="${posteriors_dir}/ldref_to_genoid.tsv"
-    if [[ ! -f "$rsid_to_genoid" ]]; then
-        log_warn "ldref_to_genoid.tsv not found at: ${rsid_to_genoid}; GENO_ID will be NA in posteriors_combined.tsv"
-    fi
-    
+    # Use LC_ALL=C sort + join (no in-memory lookup). Posteriors: ID, A1, A2, Freq, Effect, SE, PIP → RSID, A1, A2, FREQ, EFFECT, SE, PIP. ldref_to_genoid: RSID, GENO_ID.
+    local tmpdir
+    tmpdir=$(make_tmpdir "combine_posteriors")
+    local post_body="${tmpdir}/post_body.tsv"
     for chr in $(get_chromosomes); do
-        local posterior_file="${posteriors_dir}/chr${chr}.snpRes"
-        if [[ -f "$posterior_file" ]]; then
-            # Append without header, and inject GENO_ID as 2nd column
-            # Input columns:  ID, A1, A2, Freq, Effect, SE, PIP
-            # Output columns: RSID, GENO_ID, A1, A2, FREQ, EFFECT, SE, PIP
-            awk -F'\t' -v OFS='\t' -v mapfile="$rsid_to_genoid" '
-                BEGIN {
-                    if (mapfile != "" ) {
-                        while ((getline < mapfile) > 0) {
-                            # mapfile format: RSID \t GENO_ID
-                            rsid2gid[$1] = $2
-                        }
-                        close(mapfile)
-                    }
-                }
-                NR==1 { next } # skip header
-                {
-                    rsid = $1
-                    gid = (rsid in rsid2gid) ? rsid2gid[rsid] : "NA"
-                    print rsid, gid, $2, $3, $4, $5, $6, $7
-                }
-            ' "$posterior_file" >> "$output_file"
-            local chr_count
-            chr_count=$(tail -n +2 "$posterior_file" | wc -l)
-            total_variants=$((total_variants + chr_count))
-        fi
+        local f="${posteriors_dir}/chr${chr}.snpRes"
+        [[ -f "$f" ]] && tail -n +2 "$f" >> "$post_body"
     done
-    
+    if [[ ! -s "$post_body" ]]; then
+        echo -e "RSID\tGENO_ID\tA1\tA2\tFREQ\tEFFECT\tSE\tPIP" > "$output_file"
+        rm -rf "$tmpdir"
+        log_info "Combined 0 posterior variants (no chr files)"
+        return 0
+    fi
+    LC_ALL=C sort -t $'\t' -k1,1 "$post_body" > "${tmpdir}/post_sorted.tsv"
+    local rsid_to_genoid="${posteriors_dir}/ldref_to_genoid.tsv"
+    if [[ -f "$rsid_to_genoid" ]]; then
+        tail -n +2 "$rsid_to_genoid" | LC_ALL=C sort -t $'\t' -k1,1 > "${tmpdir}/genoid_sorted.tsv"
+        {
+            echo -e "RSID\tGENO_ID\tA1\tA2\tFREQ\tEFFECT\tSE\tPIP"
+            LC_ALL=C join -t $'\t' -a 1 -e NA -o 1.1,2.2,1.2,1.3,1.4,1.5,1.6,1.7 "${tmpdir}/post_sorted.tsv" "${tmpdir}/genoid_sorted.tsv"
+        } > "$output_file"
+    else
+        log_warn "ldref_to_genoid.tsv not found; GENO_ID will be NA in posteriors_combined.tsv"
+        {
+            echo -e "RSID\tGENO_ID\tA1\tA2\tFREQ\tEFFECT\tSE\tPIP"
+            awk -F'\t' -v OFS='\t' '{ print $1, "NA", $2, $3, $4, $5, $6, $7 }' "${tmpdir}/post_sorted.tsv"
+        } > "$output_file"
+    fi
+    local total_variants
+    total_variants=$(wc -l < "$output_file")
+    total_variants=$((total_variants - 1))
+    rm -rf "$tmpdir"
     log_info "Combined ${total_variants} posterior variants"
 }
 
@@ -165,113 +155,86 @@ generate_augmented_sumstat() {
     local sumstat_dir="$1"
     local prep_dir="$2"
     local posteriors_file="$3"
-    
-    migrate_sumstat_step_dir "$sumstat_dir" "formatted"
-    local formatted_sumstat
-    local formatted_dir
-    formatted_dir="$(get_sumstat_step_dir "$sumstat_dir" "formatted")"
-    formatted_sumstat="${formatted_dir}/sumstat_formatted.tsv.gz"
-    local variant_map="${sumstat_dir}/variant_map.tsv"
-    if [[ ! -f "$variant_map" ]]; then
-        variant_map="${prep_dir}/variant_map.tsv"
-    fi
     local output_file="${sumstat_dir}/sumstat_augmented.tsv.gz"
-    
-    if [[ ! -f "$formatted_sumstat" ]]; then
-        local formatted_chr_glob="${formatted_dir}/chr*.tsv"
-        if compgen -G "$formatted_chr_glob" >/dev/null 2>&1; then
-            log_warn "Formatted sumstat not found; building from per-chromosome files"
-            {
-                local first=1
-                local chr_file=""
-                for chr in $(get_chromosomes); do
-                    chr_file="${formatted_dir}/chr${chr}.tsv"
-                    [[ -f "$chr_file" ]] || continue
-                    if [[ "$first" -eq 1 ]]; then
-                        cat "$chr_file"
-                        first=0
-                    else
-                        tail -n +2 "$chr_file"
-                    fi
-                done
-            } | gzip > "$formatted_sumstat"
-        else
-            log_warn "Formatted sumstat not found, skipping augmented sumstat generation"
-            return 0
-        fi
-    fi
-    
-    # Join formatted sumstat with posteriors and variant map
-    # Output: all columns from formatted sumstat + GENO_ID + POST_EFFECT + POST_PIP + IN_ANALYSIS
-    
+
+    # Reuse per-chr matched files from filter-variants (Approach B).
+    # These files contain all sumstat columns + LDREF_SNPID + GENO_ID, already restricted
+    # to variant-map variants.  Concatenating them avoids re-sorting/re-joining the full
+    # formatted sumstat (~17M rows); only the matched set (~1M rows) is sorted + joined
+    # with posteriors.
+
+    migrate_sumstat_step_dir "$sumstat_dir" "filtered"
+    local filtered_dir
+    filtered_dir="$(get_sumstat_step_dir "$sumstat_dir" "filtered")"
+
     local tmpdir
     tmpdir=$(make_tmpdir "finalize_output")
-    
-    # Load posteriors into lookup (RSID -> EFFECT, PIP)
-    awk -F'\t' -v OFS='\t' '
-        NR > 1 {
-            rsid = $1
-            effect = $6
-            pip = $8
-            post_effect[rsid] = effect
-            post_pip[rsid] = pip
-        }
-        END {
-            for (rsid in post_effect) {
-                print rsid, post_effect[rsid], post_pip[rsid]
+
+    # Concatenate per-chr matched files (header from first, body from all)
+    local first_chr=true
+    for chr in $(get_chromosomes); do
+        local mf="${filtered_dir}/chr${chr}_matched.tsv"
+        [[ -f "$mf" ]] || continue
+        if [[ "$first_chr" == true ]]; then
+            head -1 "$mf" > "${tmpdir}/header_raw.txt"
+            tail -n +2 "$mf"
+            first_chr=false
+        else
+            tail -n +2 "$mf"
+        fi
+    done > "${tmpdir}/matched_body.tsv"
+
+    if [[ "$first_chr" == true ]]; then
+        log_error "No per-chr matched files (chr*_matched.tsv) found in ${filtered_dir}. Run filter-variants first."
+        rm -rf "$tmpdir"; return 1
+    fi
+
+    # Determine LDREF_SNPID and GENO_ID column positions from header
+    local ldref_col geno_col
+    ldref_col=$(awk -F'\t' '{for(i=1;i<=NF;i++) if($i=="LDREF_SNPID"){print i; exit}}' "${tmpdir}/header_raw.txt")
+    geno_col=$(awk -F'\t' '{for(i=1;i<=NF;i++) if($i=="GENO_ID"){print i; exit}}' "${tmpdir}/header_raw.txt")
+
+    # Rearrange: put LDREF_SNPID in col 1, strip it and GENO_ID from original positions,
+    # then append GENO_ID at the end.  This gives a predictable layout for join.
+    awk -F'\t' -v OFS='\t' -v lc="$ldref_col" -v gc="$geno_col" '{
+        printf "%s", $lc
+        for (i=1; i<=NF; i++) if (i != lc && i != gc) printf "%s%s", OFS, $i
+        printf "%s%s\n", OFS, $gc
+    }' "${tmpdir}/matched_body.tsv" | LC_ALL=C sort -t $'\t' -k1,1 > "${tmpdir}/ldref_sorted.tsv"
+
+    # Posteriors: RSID, EFFECT, PIP; sort by RSID.
+    tail -n +2 "$posteriors_file" | awk -F'\t' -v OFS='\t' '{print $1, $6, $8}' | \
+        LC_ALL=C sort -t $'\t' -k1,1 > "${tmpdir}/pp_sorted.tsv"
+
+    # Join on LDREF_SNPID/RSID; -a 1 keeps all matched variants.
+    LC_ALL=C join -t $'\t' -a 1 -e NA -o auto "${tmpdir}/ldref_sorted.tsv" "${tmpdir}/pp_sorted.tsv" > "${tmpdir}/joined.tsv"
+
+    # Emit: original sumstat cols (minus LDREF_SNPID) + GENO_ID + POST_EFFECT + POST_PIP + IN_ANALYSIS
+    # joined layout: ldref_snpid(1), <sumstat cols>(2..NF-3), GENO_ID(NF-2), EFFECT(NF-1), PIP(NF)
+    {
+        # Header: strip LDREF_SNPID and GENO_ID, re-add GENO_ID with the augmented columns
+        awk -F'\t' -v OFS='\t' -v lc="$ldref_col" -v gc="$geno_col" '{
+            out = ""
+            for (i=1; i<=NF; i++) {
+                if (i == lc || i == gc) continue
+                if (out != "") out = out OFS
+                out = out $i
             }
-        }
-    ' "$posteriors_file" > "${tmpdir}/posteriors_lookup.tsv"
-    
-    # Load variant map (sumstat_snpid -> ldref_snpid, geno_snpid)
-    awk -F'\t' -v OFS='\t' '
-        NR > 1 {
-            # Schema: chr(1), pos_b37(2), pos_b38(3), sumstat_snpid(4), sumstat_effect(5), sumstat_other(6), geno_snpid(7), geno_a1(8), geno_a2(9), ldref_snpid(10), ldref_a1(11), ldref_a2(12), ldref_a2freq(13)
-            if ($4 != "NA") {
-                print $4, $10, $7  # sumstat_snpid, ldref_snpid, geno_snpid
-            }
-        }
-    ' "$variant_map" > "${tmpdir}/varmap_lookup.tsv"
-    
-    # Join with formatted sumstat
-    zcat "$formatted_sumstat" | awk -F'\t' -v OFS='\t' '
-        # Load posteriors lookup
-        ARGIND == 1 {
-            post_effect[$1] = $2
-            post_pip[$1] = $3
-            next
-        }
-        # Load variant map lookup
-        ARGIND == 2 {
-            ldref_id[$1] = $2
-            geno_id[$1] = $3
-            next
-        }
-        # Process sumstat
-        ARGIND == 3 {
-            if (FNR == 1) {
-                # Find SNP/RSID column
-                for (i=1; i<=NF; i++) {
-                    if ($i == "SNP" || $i == "RSID" || $i == "rsid" || $i == "ID") snp_col = i
-                }
-                print $0, "GENO_ID", "POST_EFFECT", "POST_PIP", "IN_ANALYSIS"
-                next
-            }
-            
-            rsid = $snp_col
-            gid = (rsid in geno_id) ? geno_id[rsid] : "NA"
-            ldid = (rsid in ldref_id) ? ldref_id[rsid] : "NA"
-            pe = (ldid in post_effect) ? post_effect[ldid] : "NA"
-            pp = (ldid in post_pip) ? post_pip[ldid] : "NA"
-            in_analysis = (pe != "NA") ? "Y" : "N"
-            
-            print $0, gid, pe, pp, in_analysis
-        }
-    ' "${tmpdir}/posteriors_lookup.tsv" "${tmpdir}/varmap_lookup.tsv" - | gzip > "$output_file"
-    
-    # Clean up
+            print out OFS "GENO_ID" OFS "POST_EFFECT" OFS "POST_PIP" OFS "IN_ANALYSIS"
+        }' "${tmpdir}/header_raw.txt"
+
+        # Data: skip col 1 (ldref_snpid); cols 2..NF-3 are sumstat; NF-2=GENO_ID, NF-1=EFFECT, NF=PIP
+        awk -F'\t' -v OFS='\t' '{
+            geno = $(NF-2); pe = $(NF-1); pp = $NF
+            in_analysis = (pe != "NA" ? "Y" : "N")
+            n = NF - 3
+            for (i = 2; i <= n; i++) printf "%s%s", $i, (i < n ? OFS : "")
+            printf "%s%s%s%s%s%s%s%s\n", OFS, geno, OFS, pe, OFS, pp, OFS, in_analysis
+        }' "${tmpdir}/joined.tsv"
+    } | gzip > "$output_file"
+
     rm -rf "$tmpdir"
-    
+
     local variant_count
     variant_count=$(zcat "$output_file" | wc -l)
     variant_count=$((variant_count - 1))
@@ -298,57 +261,93 @@ write_augmented_sumstat_v2() {
         return 0
     fi
     
-    # Driver: variant_map (same row set). Look up: sumstat (B,SE,Z,P by RSID), posteriors (postEffect by ldref_snpid), MAF (by geno_snpid).
-    # Variant map (13 cols): chr, pos_b37, pos_b38, sumstat_snpid, sumstat_effect, sumstat_other, geno_snpid, geno_a1, geno_a2, ldref_snpid, ldref_a1, ldref_a2, ldref_a2freq
-    awk -F'\t' -v OFS='\t' \
-        -v postfile="$posteriors_file" \
-        -v maffile="${maf_file}" '
-        BEGIN {
-            if (postfile != "") {
-                while ((getline < postfile) > 0) { if (FNR > 1) post_effect[$1] = $6 }
-                close(postfile)
-            }
-            if (maffile != "") {
-                while ((getline < maffile) > 0) { if (FNR > 1) maf[$1] = $2 }
-                close(maffile)
-            }
-        }
-        FNR==NR {
-            if (FNR == 1) {
-                for (i=1;i<=NF;i++) {
-                    if ($i == "RSID" || $i == "rsid" || $i == "SNP" || $i == "ID") rsid_c=i
-                    if ($i == "EffectAllele" || $i == "A1") ea_c=i
-                    if ($i == "OtherAllele" || $i == "A2") oa_c=i
-                    if ($i == "B" || $i == "BETA") b_c=i
-                    if ($i == "SE") se_c=i
-                    if ($i == "Z") z_c=i
-                    if ($i == "P" || $i == "PVAL") p_c=i
-                }
-                next
-            }
-            rsid = (rsid_c && rsid_c <= NF ? $rsid_c : "")
-            if (rsid != "") {
-                ss_b[rsid]=($b_c); ss_se[rsid]=($se_c); ss_z[rsid]=($z_c); ss_p[rsid]=($p_c)
-            }
-            next
-        }
-        FNR==1 {
-            print "RSID", "EffectAllele", "OtherAllele", "B", "SE", "Z", "P", "MAF", "postEffect", "benchEffect"
+    # Use sort+join pipeline — never loads the large sumstat into memory (avoids OOM).
+    # Strategy: build a small base table from variant_map, then chain three joins:
+    #   vm_base ⋈ sumstat (B,SE,Z,P)  ⋈ posteriors (postEffect)  ⋈ MAF
+    # Each join rearranges so the next join key is in field 1, giving a predictable column layout.
+    local tmpdir
+    tmpdir=$(make_tmpdir "finalize_augmented_v2")
+    
+    # Detect variant map column count.
+    local vm_ncol
+    vm_ncol=$(awk -F'\t' 'NR==1{print NF; exit}' "$variant_map")
+    
+    # Step 1: Extract base table from variant_map.
+    # Output 5 columns: join_key, ldref_snpid, geno_snpid, EffectAllele, OtherAllele
+    # 13-col map: join_key=sumstat_snpid($4); ea/oa prefer sumstat alleles with ldref fallback
+    # 10-col map: join_key=ldref_snpid($7) — works when sumstat RSIDs are rsIDs matching ldref
+    tail -n +2 "$variant_map" | awk -F'\t' -v OFS='\t' -v nc="$vm_ncol" '
+        nc >= 13 {
+            key=$4; ldref=$10; geno=$7
+            ea = ($5!="NA" && $5!="" ? $5 : $11)
+            oa = ($6!="NA" && $6!="" ? $6 : $12)
+            if (key != "NA" && key != "") print key, ldref, geno, ea, oa
             next
         }
         {
-            rsid = $10
-            ea = ($5 != "NA" && $5 != "" ? $5 : $11)
-            oa = ($6 != "NA" && $6 != "" ? $6 : $12)
-            b = (($4 in ss_b) ? ss_b[$4] : (rsid in ss_b ? ss_b[rsid] : "NA"))
-            se = (($4 in ss_se) ? ss_se[$4] : (rsid in ss_se ? ss_se[rsid] : "NA"))
-            z = (($4 in ss_z) ? ss_z[$4] : (rsid in ss_z ? ss_z[rsid] : "NA"))
-            p = (($4 in ss_p) ? ss_p[$4] : (rsid in ss_p ? ss_p[rsid] : "NA"))
-            maf_val = ($7 != "NA" && $7 != "" && $7 in maf ? maf[$7] : "NA")
-            pe = (rsid in post_effect ? post_effect[rsid] : "NA")
-            print rsid, ea, oa, b, se, z, p, maf_val, pe, "NA"
+            key=$7; ldref=$7; geno=$4
+            ea=$8; oa=$9
+            if (key != "NA" && key != "") print key, ldref, geno, ea, oa
         }
-    ' <(zcat "$full_augmented") "$variant_map" | gzip -c > "$output_file"
+    ' | LC_ALL=C sort -t $'\t' -k1,1 > "${tmpdir}/vm_base.tsv"
+    
+    # Step 2: Extract sumstat values from sumstat_augmented.tsv.gz (now correctly aligned).
+    # Output 5 columns: RSID, B, SE, Z, P (SE may be NA if the sumstat lacks it).
+    zcat "$full_augmented" | awk -F'\t' -v OFS='\t' '
+        NR==1 {
+            for (i=1; i<=NF; i++) {
+                if ($i=="RSID"||$i=="rsid"||$i=="SNP"||$i=="ID") rsid_c=i
+                if ($i=="B"||$i=="BETA") b_c=i
+                if ($i=="SE") se_c=i
+                if ($i=="Z") z_c=i
+                if ($i=="P"||$i=="PVAL") p_c=i
+            }
+            next
+        }
+        {
+            rsid = (rsid_c ? $rsid_c : "NA")
+            b    = (b_c    ? $b_c    : "NA")
+            se   = (se_c   ? $se_c   : "NA")
+            z    = (z_c    ? $z_c    : "NA")
+            p    = (p_c    ? $p_c    : "NA")
+            print rsid, b, se, z, p
+        }
+    ' | LC_ALL=C sort -t $'\t' -k1,1 > "${tmpdir}/ss_sorted.tsv"
+    
+    # Step 3: Join variant_map base with sumstat on join_key/RSID (-a 1 keeps all vm rows).
+    # -o auto ensures unmatched rows get NA-filled columns from file 2.
+    # Result (9 cols): key(1), ldref(2), geno(3), ea(4), oa(5), B(6), SE(7), Z(8), P(9)
+    LC_ALL=C join -t $'\t' -a 1 -e NA -o auto "${tmpdir}/vm_base.tsv" "${tmpdir}/ss_sorted.tsv" > "${tmpdir}/j1.tsv"
+    
+    # Step 4: Rearrange to put ldref in field 1 and join with posteriors.
+    # posteriors: RSID(=ldref_snpid), EFFECT
+    tail -n +2 "$posteriors_file" | awk -F'\t' -v OFS='\t' '{print $1, $6}' | \
+        LC_ALL=C sort -t $'\t' -k1,1 > "${tmpdir}/pp_sorted.tsv"
+    awk -F'\t' -v OFS='\t' '{print $2, $1, $3, $4, $5, $6, $7, $8, $9}' "${tmpdir}/j1.tsv" | \
+        LC_ALL=C sort -t $'\t' -k1,1 > "${tmpdir}/j1_ld.tsv"
+    # Result (10 cols): ldref(1), key(2), geno(3), ea(4), oa(5), B(6), SE(7), Z(8), P(9), postEffect(10)
+    LC_ALL=C join -t $'\t' -a 1 -e NA -o auto "${tmpdir}/j1_ld.tsv" "${tmpdir}/pp_sorted.tsv" > "${tmpdir}/j2.tsv"
+    
+    # Step 5: Rearrange to put geno in field 1 and join with MAF.
+    # MAF file: GENO_ID(1), MAF(2)
+    awk -F'\t' -v OFS='\t' '{print $3, $1, $2, $4, $5, $6, $7, $8, $9, $10}' "${tmpdir}/j2.tsv" | \
+        LC_ALL=C sort -t $'\t' -k1,1 > "${tmpdir}/j2_geno.tsv"
+    if [[ -f "${maf_file}" ]]; then
+        tail -n +2 "${maf_file}" | LC_ALL=C sort -t $'\t' -k1,1 > "${tmpdir}/maf_sorted.tsv"
+        LC_ALL=C join -t $'\t' -a 1 -e NA -o auto "${tmpdir}/j2_geno.tsv" "${tmpdir}/maf_sorted.tsv" > "${tmpdir}/j3.tsv"
+    else
+        awk -F'\t' -v OFS='\t' '{print $0, "NA"}' "${tmpdir}/j2_geno.tsv" > "${tmpdir}/j3.tsv"
+    fi
+    # j3 layout (11 cols): geno(1), ldref(2), key(3), ea(4), oa(5), B(6), SE(7), Z(8), P(9), postEffect(10), MAF(11)
+    
+    # Step 6: Emit final output.
+    {
+        echo -e "RSID\tEffectAllele\tOtherAllele\tB\tSE\tZ\tP\tMAF\tpostEffect\tbenchEffect"
+        awk -F'\t' -v OFS='\t' '{
+            print $2, $4, $5, $6, $7, $8, $9, $11, $10, "NA"
+        }' "${tmpdir}/j3.tsv"
+    } | gzip -c > "$output_file"
+    rm -rf "$tmpdir"
     log_debug "Wrote v2 augmented sumstat (same row set as variant map): ${output_file}"
 }
 
