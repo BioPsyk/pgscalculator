@@ -139,6 +139,12 @@ run_prep_inclusion_list() {
     log_substep "Creating final variant inclusion list"
     create_final_inclusion_list "$step_dir" "$prep_dir"
     
+    # Step 5: Compute MAF from genotypes (runs once during prep, not per sumstat)
+    log_substep "Computing MAF from genotypes"
+    local ref_dir="${prep_dir}/references"
+    ensure_dir "$ref_dir"
+    compute_maf_from_genotypes "$prep_dir" "$ref_dir" "${prep_dir}/variant_map.tsv"
+    
     # Mark step as completed
     mark_step_completed "$step_dir"
     
@@ -313,7 +319,7 @@ combine_variant_maps() {
     
     # Concatenate all chromosome maps (skip header)
     if compgen -G "${in_dir}/chr*.tsv" > /dev/null; then
-        awk -F'\t' 'NR==1{next} {print}' "${in_dir}"/chr*.tsv >> "${prep_dir}/variant_map.tsv"
+        awk -F'\t' 'FNR==1{next} {print}' "${in_dir}"/chr*.tsv >> "${prep_dir}/variant_map.tsv"
     fi
     
     local total_count
@@ -372,6 +378,12 @@ run_prep_inclusion_list_combine() {
     log_substep "Creating final variant inclusion list"
     create_final_inclusion_list "$step_dir" "$prep_dir"
     
+    # Compute MAF from genotypes (runs once during prep, not per sumstat)
+    log_substep "Computing MAF from genotypes"
+    local ref_dir="${prep_dir}/references"
+    ensure_dir "$ref_dir"
+    compute_maf_from_genotypes "$prep_dir" "$ref_dir" "${prep_dir}/variant_map.tsv"
+    
     mark_step_completed "$step_dir"
     log_info "prep-inclusion-list combine completed"
 }
@@ -390,8 +402,12 @@ compute_maf_from_genotypes() {
         log_error "Got: ${variant_map:-<empty>}"
         return 1
     fi
+
+    if [[ -f "$maf_output" ]] && [[ $(wc -l < "$maf_output") -gt 1 ]]; then
+        log_info "maf_computed.tsv already exists with data, skipping (use --force to recompute)"
+        return 0
+    fi
     
-    # Check if plink2 is available
     if ! command -v plink2 &> /dev/null; then
         log_warn "plink2 not available, cannot compute MAF from genotypes"
         return 1
@@ -502,67 +518,6 @@ compute_maf_from_genotypes() {
     done
     
     log_info "Computed MAF for ${total_variants} variants"
-}
-
-apply_info_filter() {
-    local input="$1"
-    local info_file="$2"
-    local threshold="$3"
-    local output="$4"
-    
-    # INFO file format: GENO_ID, INFO
-    # Variant map format: chrpos, pvar_a1, pvar_a2, pvar_snpid, ld_a1, ld_a2, ld_rsid
-    # Filter: keep variants where INFO >= threshold
-    
-    awk -F'\t' -v OFS='\t' -v threshold="$threshold" '
-        # Load INFO scores (GENO_ID -> INFO)
-        ARGIND == 1 && FNR > 1 {
-            info[$1] = $2
-            next
-        }
-        # Process variant map
-        ARGIND == 2 && FNR == 1 {
-            print  # Header
-            next
-        }
-        ARGIND == 2 {
-            geno_id = $4  # pvar_snpid
-            # Keep if no INFO data OR INFO >= threshold
-            if (!(geno_id in info) || info[geno_id] >= threshold) {
-                print
-            }
-        }
-    ' "$info_file" "$input" > "$output"
-}
-
-apply_maf_filter() {
-    local input="$1"
-    local maf_file="$2"
-    local threshold="$3"
-    local output="$4"
-    
-    # MAF file format: GENO_ID, MAF
-    # Filter: keep variants where MAF >= threshold
-    
-    awk -F'\t' -v OFS='\t' -v threshold="$threshold" '
-        # Load MAF values (GENO_ID -> MAF)
-        ARGIND == 1 && FNR > 1 {
-            maf[$1] = $2
-            next
-        }
-        # Process variant map
-        ARGIND == 2 && FNR == 1 {
-            print  # Header
-            next
-        }
-        ARGIND == 2 {
-            geno_id = $4  # pvar_snpid
-            # Keep if no MAF data OR MAF >= threshold
-            if (!(geno_id in maf) || maf[geno_id] >= threshold) {
-                print
-            }
-        }
-    ' "$maf_file" "$input" > "$output"
 }
 
 generate_prep_stepwise_details() {

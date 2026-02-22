@@ -19,14 +19,7 @@ outdir: /faststorage/project/ibp_pipeline_pgscalculator/pgscalculator/tests/smok
 whichn: totalN
 chromosomes: 1-22
 
-filters:
-  info_threshold: 0.8
-  maf_threshold: 0.01
-
-# Explicitly disable optional reference filters (newer config behavior).
-references:
-  info_file: false
-  maf_file: false
+filters: {}
 
 plink:
   threads: 4

@@ -363,12 +363,36 @@ run_filter_variants_chr() {
         return 1
     fi
     
-    # Save pre-filter matched sumstat for finalize reuse (avoids re-joining full formatted sumstat)
-    cp "$reduced_tmp" "${step_dir}/chr${chr}_matched.tsv"
-    
-    # Derive stats
+    # Derive stats (produces the QC-filtered output for posteriors)
     local derived_tmp="${tmpdir}/derived.tsv"
     derive_stats "$reduced_tmp" "$derived_tmp" "$metadata_file" "$which_n" "$prep_dir" ""
+
+    # Save matched sumstat for finalize reuse: derive SE (via add_beta_se) but keep
+    # all rows (no QC filtering). Strip the "0" column (cleansumstats row reference).
+    local matched_with_se="${tmpdir}/matched_with_se.tsv"
+    add_beta_se "$reduced_tmp" "$matched_with_se"
+    awk -F'\t' -v OFS='\t' '
+        NR==1 {
+            for (i=1; i<=NF; i++) { if ($i == "0") skip_col = i }
+            first = 1
+            for (i=1; i<=NF; i++) {
+                if (i == skip_col) continue
+                printf "%s%s", (first ? "" : OFS), $i
+                first = 0
+            }
+            printf "\n"
+            next
+        }
+        {
+            first = 1
+            for (i=1; i<=NF; i++) {
+                if (i == skip_col) continue
+                printf "%s%s", (first ? "" : OFS), $i
+                first = 0
+            }
+            printf "\n"
+        }
+    ' "$matched_with_se" > "${step_dir}/chr${chr}_matched.tsv"
     
     if [[ ! -s "$derived_tmp" ]] || [[ $(wc -l < "$derived_tmp") -le 1 ]]; then
         log_warn "chr${chr}: no variants after stat derivation"
