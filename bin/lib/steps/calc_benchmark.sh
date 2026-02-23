@@ -40,7 +40,6 @@ run_calc_benchmark() {
     
     local genodir="${CFG_GENODIR}"
     local genofile="${CFG_GENOFILE}"
-    local inclusion_file="${prep_dir}/inclusion_list/variant_inclusion_list.tsv"
     
     log_info "MAF threshold: ${maf_threshold}; indep-pairwise: ${indep_pairwise}"
     
@@ -49,7 +48,7 @@ run_calc_benchmark() {
         local filtered_file="${filtered_dir}/chr${chr}_filtered.tsv"
         [[ ! -f "$filtered_file" ]] && continue
         log_substep "Processing chromosome ${chr}"
-        if process_benchmark_chr "$chr" "$filtered_file" "$genodir" "$genofile" "$step_dir" "$maf_threshold" "$inclusion_file" "$indep_pairwise"; then
+        if process_benchmark_chr "$chr" "$filtered_file" "$genodir" "$genofile" "$step_dir" "$maf_threshold" "$indep_pairwise"; then
             ((success_count++))
         fi
     done
@@ -61,20 +60,28 @@ run_calc_benchmark() {
 
 process_benchmark_chr() {
     local chr="$1" filtered_file="$2" genodir="$3" genofile="$4"
-    local step_dir="$5" maf_threshold="$6" inclusion_file="$7" indep_pairwise="${8:-250 50 0.25}"
+    local step_dir="$5" maf_threshold="$6" indep_pairwise="${7:-250 50 0.25}"
     
     local chr_workdir="${step_dir}/work_chr${chr}"
     mkdir -p "$chr_workdir"
     
-    # Prepare benchmark sumstat with genotype IDs
+    # Prepare benchmark sumstat with genotype IDs.
+    # Use GENO_ID directly from filtered file (resolved via chr:pos+alleles in variant_map).
     local bench_sumstat="${chr_workdir}/bench_sumstat.tsv"
-    awk -F'\t' 'NR > 1 {print $1, $2}' "$inclusion_file" > "${chr_workdir}/rsid_map.txt"
-    
     awk -F'\t' -v OFS='\t' '
-        ARGIND == 1 { rsid_to_geno[$1] = $2; next }
-        NR == 1 { for(i=1;i<=NF;i++){if($i=="SNP"||$i=="RSID")sc=i;if($i=="A1")ac=i;if($i=="B"||$i=="BETA")bc=i} print "ID","A1","BETA"; next }
-        { if($sc in rsid_to_geno && $bc!="NA" && $bc!="") print rsid_to_geno[$sc],$ac,$bc }
-    ' "${chr_workdir}/rsid_map.txt" "$filtered_file" > "$bench_sumstat"
+        NR == 1 {
+            for (i = 1; i <= NF; i++) {
+                if ($i == "GENO_ID") gc = i
+                if ($i == "EffectAllele" || $i == "A1") ac = i
+                if ($i == "B" || $i == "BETA") bc = i
+            }
+            print "ID", "A1", "BETA"
+            next
+        }
+        gc && ac && bc && $gc != "NA" && $gc != "" && $bc != "NA" && $bc != "" {
+            print $gc, $ac, $bc
+        }
+    ' "$filtered_file" > "$bench_sumstat"
     
     local variant_count=$(tail -n +2 "$bench_sumstat" | wc -l)
     [[ $variant_count -lt 10 ]] && return 0

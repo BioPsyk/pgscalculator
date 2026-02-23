@@ -261,7 +261,7 @@ write_augmented_sumstat_v2() {
     if [[ -d "$bench_dir" ]]; then
         awk -F'\t' -v OFS='\t' '
             NR==1 || $1=="chr" {next}
-            $4 != "NA" && $4 != "" && $7 != "NA" && $7 != "" { print $4, $7 }
+            $4 != "NA" && $4 != "" && $4 != "." && $7 != "NA" && $7 != "" { print $4, $7 }
         ' "$variant_map" | LC_ALL=C sort -t $'\t' -k1,1 -u > "${tmpdir}/geno_to_ldref.tsv"
 
         {
@@ -290,7 +290,7 @@ write_augmented_sumstat_v2() {
         [[ ! -f "${tmpdir}/geno_to_ldref.tsv" ]] && \
             awk -F'\t' -v OFS='\t' '
                 NR==1 || $1=="chr" {next}
-                $4 != "NA" && $4 != "" && $7 != "NA" && $7 != "" { print $4, $7 }
+                $4 != "NA" && $4 != "" && $4 != "." && $7 != "NA" && $7 != "" { print $4, $7 }
             ' "$variant_map" | LC_ALL=C sort -t $'\t' -k1,1 -u > "${tmpdir}/geno_to_ldref.tsv"
         tail -n +2 "$maf_file" | awk -F'\t' -v OFS='\t' '{print $1, $2}' | \
             LC_ALL=C sort -t $'\t' -k1,1 > "${tmpdir}/geno_maf.tsv"
