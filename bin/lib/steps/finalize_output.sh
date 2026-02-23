@@ -393,7 +393,6 @@ generate_stepwise_details() {
     local details_dir="$2"
 
     local steps_file="${details_dir}/steps.tsv"
-    local score_file="${details_dir}/score_steps.tsv"
 
     migrate_sumstat_all_step_dirs "$sumstat_dir"
     local formatted_dir filtered_dir post_dir mapped_dir scores_dir
@@ -404,19 +403,17 @@ generate_stepwise_details() {
     scores_dir=$(get_sumstat_step_dir "$sumstat_dir" "scores")
 
     # Helpers (avoid hard failure if files missing/broken; report 0)
-    local n_formatted n_filtered n_post n_mapped n_scores_files n_samples n_score_variants
+    local n_formatted n_filtered n_post n_mapped
     n_formatted=0
     n_filtered=0
     n_post=0
     n_mapped=0
 
-    if [[ -f "${formatted_dir}/sumstat_formatted.tsv.gz" ]]; then
-        n_formatted=$(gzip -cd "${formatted_dir}/sumstat_formatted.tsv.gz" 2>/dev/null | wc -l || true)
-        if [[ "$n_formatted" -gt 0 ]]; then n_formatted=$((n_formatted - 1)); else n_formatted=0; fi
+    if compgen -G "${formatted_dir}/chr*.tsv" >/dev/null 2>&1; then
+        n_formatted=$(for f in "${formatted_dir}"/chr*.tsv; do c=$(wc -l < "$f"); echo $((c-1)); done | awk '{s+=$1} END{print s+0}')
     fi
-    if [[ -f "${filtered_dir}/sumstat_filtered.tsv.gz" ]]; then
-        n_filtered=$(gzip -cd "${filtered_dir}/sumstat_filtered.tsv.gz" 2>/dev/null | wc -l || true)
-        if [[ "$n_filtered" -gt 0 ]]; then n_filtered=$((n_filtered - 1)); else n_filtered=0; fi
+    if compgen -G "${filtered_dir}/chr*_filtered.tsv" >/dev/null 2>&1; then
+        n_filtered=$(for f in "${filtered_dir}"/chr*_filtered.tsv; do c=$(wc -l < "$f"); echo $((c-1)); done | awk '{s+=$1} END{print s+0}')
     fi
     if compgen -G "${post_dir}/chr*.snpRes" >/dev/null 2>&1; then
         # sum across chr files: (lines - 1)
@@ -441,21 +438,16 @@ generate_stepwise_details() {
         score_fail=$(ls -1 "${scores_dir}"/FAILED_chr* 2>/dev/null | wc -l | awk '{print $1}')
     fi
 
-    {
-        echo -e "STEP\tN_BEFORE\tN_AFTER\tDESC"
-        echo -e "format-sumstat\t${n_formatted}\t${n_formatted}\tformatted sumstat rows"
-        echo -e "filter-variants\t${n_formatted}\t${n_filtered}\tfiltered sumstat rows"
-        echo -e "calc-posteriors\t${n_filtered}\t${n_post}\tposterior rows (failed_chr=${post_fail})"
-        echo -e "format-posteriors\t${n_post}\t${n_mapped}\tmapped posterior rows (failed_chr=${mapped_fail})"
-    } > "$steps_file"
+    # Matched variants (pre-QC, used for augmented_sumstat)
+    local n_matched=0
+    if compgen -G "${filtered_dir}/chr*_matched.tsv" >/dev/null 2>&1; then
+        n_matched=$(for f in "${filtered_dir}"/chr*_matched.tsv; do c=$(wc -l < "$f"); echo $((c-1)); done | awk '{s+=$1} END{print s+0}')
+    fi
 
-    # Score summary
-    n_scores_files=0
-    n_samples=0
-    n_score_variants=0
+    # Score counts
+    local n_scores_files=0 n_samples=0 n_score_variants=0
     if compgen -G "${scores_dir}/chr*.sscore" >/dev/null 2>&1; then
         n_scores_files=$(ls -1 "${scores_dir}"/chr*.sscore 2>/dev/null | wc -l | awk '{print $1}')
-        # total variants scored: prefer work_chr*/variants.txt if present
         if compgen -G "${scores_dir}/work_chr*/variants.txt" >/dev/null 2>&1; then
             n_score_variants=$(for f in "${scores_dir}"/work_chr*/variants.txt; do wc -l < "$f"; done | awk '{s+=$1} END{print s+0}')
         fi
@@ -465,12 +457,31 @@ generate_stepwise_details() {
         if [[ "$n_samples" -gt 0 ]]; then n_samples=$((n_samples - 1)); else n_samples=0; fi
     fi
 
+    # Benchmark counts
+    local n_bench=0
+    local bench_dir="${sumstat_dir}/benchmark"
+    if compgen -G "${bench_dir}/work_chr*/score_input.tsv" >/dev/null 2>&1; then
+        n_bench=$(for f in "${bench_dir}"/work_chr*/score_input.tsv; do c=$(wc -l < "$f"); echo $((c-1)); done | awk '{s+=$1} END{print s+0}')
+    fi
+
+    # Augmented sumstat count
+    local n_augmented=0
+    if [[ -f "${sumstat_dir}/augmented_sumstat.gz" ]]; then
+        n_augmented=$(gzip -cd "${sumstat_dir}/augmented_sumstat.gz" 2>/dev/null | wc -l || true)
+        if [[ "$n_augmented" -gt 0 ]]; then n_augmented=$((n_augmented - 1)); else n_augmented=0; fi
+    fi
+
     {
         echo -e "STEP\tN_BEFORE\tN_AFTER\tDESC"
-        echo -e "calc-score\t${n_mapped}\t${n_score_variants}\tper-chr scoring ran (score_files=${n_scores_files}, failed_chr=${score_fail})"
-        echo -e "combine-scores\t${n_score_variants}\t${n_score_variants}\tcombined score table written"
-        echo -e "finalize-output\t${n_score_variants}\t${n_score_variants}\tfinal outputs written (samples=${n_samples})"
-    } > "$score_file"
+        echo -e "format-sumstat\t-\t${n_formatted}\tformatted sumstat rows"
+        echo -e "filter-variants\t${n_formatted}\t${n_filtered}\tfiltered sumstat rows (matched=${n_matched})"
+        echo -e "calc-posteriors\t${n_filtered}\t${n_post}\tposterior rows (failed_chr=${post_fail})"
+        echo -e "format-posteriors\t${n_post}\t${n_mapped}\tmapped posterior rows (failed_chr=${mapped_fail})"
+        echo -e "calc-benchmark\t${n_filtered}\t${n_bench}\tbenchmark variants (MAF+LD pruned)"
+        echo -e "calc-score\t${n_mapped}\t${n_score_variants}\tper-chr scoring (score_files=${n_scores_files}, failed_chr=${score_fail})"
+        echo -e "combine-scores\t${n_score_variants}\t${n_samples}\tsamples scored"
+        echo -e "finalize-output\t${n_matched}\t${n_augmented}\taugmented sumstat variants"
+    } > "$steps_file"
 
-    log_debug "Wrote details: ${steps_file}, ${score_file}"
+    log_debug "Wrote details: ${steps_file}"
 }
