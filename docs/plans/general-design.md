@@ -409,7 +409,7 @@ accordingly.
 
 ### augmented_sumstat.gz
 
-Per-sumstat file for auditing and back-tracing. **Same row set as the variant map** (one row per variant in `variant_map.tsv.gz`), so users can join on `RSID`. Contains only the sumstat columns needed for interpretation plus calculated MAF, posterior effect, and (when available) benchmark effect. CHR, POS, and genoID are omitted because **RSID is the key** for lookups in the variant map.
+Per-sumstat file for auditing and back-tracing. **Same row set as the variant map** (one row per variant in `variant_map.gz`), so users can join on `RSID`. Contains only the sumstat columns needed for interpretation plus calculated MAF, posterior effect, and (when available) benchmark effect. CHR, POS, and genoID are omitted because **RSID is the key** for lookups in the variant map.
 
 **Schema:**
 ```
@@ -428,7 +428,7 @@ Users who need chr/pos or genotype IDs join on `RSID` against the variant map.
 
 **Memory use (finalize-output):** Building `augmented_sumstat.gz` uses a Unix **sort + join** pipeline. B/SE/Z/P are extracted directly from the per-chr matched files (already mapfile-restricted, ~1M rows), sorted by LDREF_SNPID, then joined with the variant_map base table. Posteriors, benchmark effects, and MAF are joined subsequently. No intermediate `sumstat_augmented.tsv.gz` is needed. Memory stays low and independent of the original sumstat size.
 
-### scores.tsv.gz
+### scores.gz
 
 Primary PGS score output (SBayesR posterior-weighted scores).
 
@@ -457,7 +457,7 @@ IID  ALLELE_CT  SCORE1_SUM
 
 Only produced when the benchmark step has been run (part of `--steps weights`).
 
-### variant_map.tsv.gz
+### variant_map.gz
 
 Sumstat-specific variant map for joining output files. **Column 1 is RSID** (from the liftover reference), so users can use it as a single key to map between augmented sumstat, score inputs, and any other outputs.
 
@@ -481,12 +481,12 @@ The benchmark provides a comparison PGS using **observed GWAS effects** (no Baye
 
 ### Benchmark weights
 - **Source:** Filtered sumstat (same as posterior input): variant ID, allele, and effect (B or BETA).
-- **Mapping:** RSID (or sumstat SNP ID) → genotype ID via the variant map (or prep-derived RSID→geno list for genotypes-matched variants only).
+- **Mapping:** Uses `GENO_ID` directly from the filtered file (resolved via chr:pos+alleles matching in the variant_map during filter-variants). No separate RSID-based mapping step.
 - **No shrinkage:** Weights are the raw GWAS effects; no sBayesR posteriors.
 
-### Benchmark score computation (v1-style, carried into v2)
-1. **Input:** Filtered sumstat (per chromosome) and variant map (or RSID→geno list) so that each sumstat row has a genotype ID.
-2. **Restrict to genotype-matched variants:** Only variants present in genotypes are scored.
+### Benchmark score computation (v2)
+1. **Input:** Filtered sumstat (per chromosome). Each row already has `GENO_ID` (genotype identifier, matched via chr:pos+alleles in the variant_map).
+2. **Restrict to genotype-matched variants:** Only variants with a valid `GENO_ID` (not NA or ".") are scored.
 3. **MAF filter:** Apply a MAF threshold (e.g. 0.05) so that very rare variants are excluded from the benchmark.
 4. **LD pruning:** Run plink `--indep-pairwise` (e.g. 250 50 0.25) on the genotype-matched variant set to obtain a pruned list.
 5. **Benchmark sumstat:** Build a 3-column file (genotype ID, allele, effect) for **pruned variants only**.
@@ -520,7 +520,7 @@ The driver submits **two separate SLURM array jobs** when `--steps weights` is r
 
 ## Final output
 Only at final output time, combine per-chromosome files into consolidated outputs
-(`variant_map.tsv.gz`, augmented sumstat, main score file, etc.) for auditing and back-tracing.
+(`variant_map.gz`, augmented sumstat, main score file, etc.) for auditing and back-tracing.
 
 ## Separate finalize step (final output creation) — implemented
 
@@ -542,8 +542,8 @@ So:
 
 Concrete steps inside **finalize**:
 
-- **combine-scores:** Merge per-chr `work/scores/chr*.sscore` → `scores.tsv.gz`; merge per-chr benchmark scores → `bench_score.gz`.
-- **finalize-output:** Combine posteriors, build `augmented_sumstat.gz`, `variant_map.tsv.gz`, copy config, run summary, stepwise details.
+- **combine-scores:** Merge per-chr `work/scores/chr*.sscore` → `scores.gz`.
+- **finalize-output:** Combine posteriors (internal intermediate), create `bench_score.gz`, build `augmented_sumstat.gz`, `variant_map.gz`, copy config, run summary, stepwise details.
 
 #### Joins in the finalize step
 
@@ -552,9 +552,9 @@ All joins in finalize are done so that **no large dataset is fully loaded into m
 | Sub-step | Inputs | Join strategy | Memory |
 |----------|--------|----------------|--------|
 | **combine-scores** | Per-chr `chr*.sscore` | No join; concatenate/aggregate score files. | One stream at a time. |
-| **Combine posteriors** | Per-chr `chr*.snpRes`, `ldref_to_genoid.tsv` | No join; concatenate chr files. Optional GENO_ID via small in-memory lookup (RSID → geno_snpid). | Small (lookup only). |
-| **augmented_sumstat.gz** | variant_map, per-chr matched files, posteriors_combined, maf_computed.tsv (or ldref_eaf), benchmark scores | **Sort + Unix join:** (1) Extract variant_map base, sort. (2) Extract B,SE,Z,P from matched files, sort. (3) Join vm+matched. (4) Join+posteriors (EAF+postEffect). (5) Join+benchmark. (6) Join+MAF. Emit final schema. | Sort+join of ~1M rows; no large file processed. |
-| **variant_map.tsv.gz** | variant_map.tsv (from prep or sumstat) | No join; reorder columns so RSID (ldref_snpid) is col1, then gzip. | One line at a time. |
+| **Combine posteriors** (internal) | Per-chr `chr*.snpRes`, `ldref_to_genoid.tsv` | Concatenate chr files + one join for GENO_ID. Output is an intermediate used by augmented_sumstat, not a user output. | Small (lookup only). |
+| **augmented_sumstat.gz** | variant_map, per-chr matched files, posteriors_combined (internal), maf_computed.tsv (or ldref_eaf), benchmark score_input | **Sort + Unix join:** (1) Extract variant_map base, sort. (2) Extract B,SE,Z,P from matched files, sort. (3) Join vm+matched. (4) Join+posteriors (EAF+postEffect). (5) Join+benchmark (handle empty). (6) Join+MAF. Emit 11-column schema. | Sort+join of ~1M rows; no large file in memory. |
+| **variant_map.gz** | variant_map.tsv (from prep or sumstat) | No join; reorder columns so RSID (ldref_snpid) is col1, then gzip. | One line at a time. |
 
 `augmented_sumstat.gz` reads B/SE/Z/P directly from the per-chr matched files (already mapfile-restricted during filter-variants, ~1M rows), joins with the variant_map, posteriors, benchmark effects, and MAF (from `maf_computed.tsv`, falling back to `ldref_eaf.tsv`). No intermediate `sumstat_augmented.tsv.gz` is generated.
 
@@ -566,9 +566,9 @@ All joins in finalize are done so that **no large dataset is fully loaded into m
 
 **1. Combine posteriors (add GENO_ID)** — One join. Concatenate chr posterior files (skip headers), output RSID, A1, A2, FREQ, EFFECT, SE, PIP; `LC_ALL=C sort` by RSID. `LC_ALL=C sort` ldref_to_genoid by RSID. `LC_ALL=C join -1 1 -2 1` on RSID → RSID, GENO_ID, A1, A2, FREQ, EFFECT, SE, PIP. Prepend header. No in-memory lookup.
 
-**2. augmented_sumstat.gz** — Four joins on ldref_snpid. (a) variant_map base (ldref_snpid, geno_snpid, EA, OA) sorted. Per-chr matched files: extract LDREF_SNPID, B, SE, Z, P (SE is derived before saving matched files); sorted. `join -a 1` on ldref_snpid. (b) posteriors: RSID, EFFECT; `join -a 1` adds postEffect. (c) benchmark scores: extract per-variant benchmark effect from `benchmark/chr*_bench.sscore` score inputs; `join -a 1` adds benchEffect. (d) MAF from `maf_computed.tsv` (genotype-based, computed in prep) or `ldref_eaf.tsv` (LD ref fallback); `join -a 1` adds MAF. Emit RSID, EA, OA, B, SE, Z, P, MAF, postEffect, benchEffect; gzip. **Key design rule: `augmented_sumstat.gz` row set = variant_map; B/SE/Z/P come from matched files (with derived SE).**
+**2. augmented_sumstat.gz** — Four joins on ldref_snpid. (a) variant_map base (ldref_snpid, geno_snpid, EA, OA) sorted. Per-chr matched files: extract LDREF_SNPID, B, SE, Z, P (SE is derived before saving matched files); sorted. `join -a 1` on ldref_snpid. (b) posteriors: RSID, FREQ, EFFECT; `join -a 1` adds EAF and postEffect. (c) benchmark scores: extract per-variant benchmark effect from `benchmark/work_chr*/score_input.tsv`; map GENO_ID to LDREF_SNPID via variant_map (excluding `.` geno IDs); `join -a 1` adds benchEffect (NA when bench_sorted is empty). (d) MAF from `maf_computed.tsv` (genotype-based, computed in prep) or `ldref_eaf.tsv` (LD ref fallback); `join -a 1` adds MAF. Emit RSID, EA, OA, B, SE, Z, P, EAF, MAF, postEffect, benchEffect (11 columns); gzip. **Key design rule: `augmented_sumstat.gz` row set = variant_map; B/SE/Z/P come from matched files (with derived SE); posteriors_combined is an internal intermediate, not a user output.**
 
-**3. variant_map.tsv.gz** — No join; reorder cols so RSID is col 1, gzip.
+**3. variant_map.gz** — No join; reorder cols so RSID is col 1, gzip.
 
 **Efficiency:** (1) Sort each input file once; reuse the same sorted file if it is joined multiple times (e.g. posteriors sorted by RSID). (2) When writing join output, put the *next* join key in column 1 so the next step is a single `LC_ALL=C sort -k1,1` with no column reordering. (3) Use one temp dir for all intermediates; delete at end of finalize-output. (4) For per-chr matched file inputs, use a single streaming awk to extract columns; avoid reading full files into memory. (5) combine-scores stays concatenate-only (no join). (6) Use `join -a 1 -e NA` where the driver row set must be preserved (e.g. variant_map as driver in augmented_sumstat.gz). **(7) `augmented_sumstat.gz` reads B/SE/Z/P directly from per-chr matched files — no intermediate `sumstat_augmented.tsv.gz` is generated. The matched files are already mapfile-restricted (~1M rows), so sorting is fast.** **(8) Filter-variants saves `filtered/chr*_matched.tsv` (post-SE-derivation, pre-QC matched sumstat with LDREF_SNPID + GENO_ID, "0" column stripped) alongside the filtered outputs. This small I/O cost during filter-variants eliminates the most expensive finalize operation.** **(9) MAF is derived from `maf_computed.tsv` (genotype-based allele frequency, computed once during `--steps prep` via plink2 `--freq`), with `ldref_eaf.tsv` as fallback. The prep step always runs `compute_maf_from_genotypes()` to ensure genotype MAF is available for both the augmented sumstat and the benchmark step.**
 
@@ -618,7 +618,15 @@ Recommendation: **Option B** — keep `--steps score` meaning “score + finaliz
    - **Combine posteriors:** One `LC_ALL=C sort` + `LC_ALL=C join` on RSID (ldref_to_genoid).
    - **augmented_sumstat.gz:** Four Unix joins with LC_ALL=C (variant_map + matched files + posteriors [EAF+postEffect] + benchmark effects + MAF); one awk emits final 11 columns. No intermediate sumstat_augmented needed.
 
-2. **benchEffect in augmented_sumstat.gz** — **Implemented.** When the benchmark step has been run, benchEffect is filled from the per-chromosome benchmark score input files (GENO_ID mapped to LDREF_SNPID, then the B/effect value). NA for variants not in the pruned set.
+2. **benchEffect in augmented_sumstat.gz** — **Implemented.** When the benchmark step has been run, benchEffect is filled from the per-chromosome benchmark score input files (GENO_ID mapped to LDREF_SNPID via variant_map, excluding `.` geno IDs to prevent join explosion). NA for variants not in the pruned set. Empty benchmark data (no `score_input.tsv`) falls back to all-NA benchEffect.
+
+3. **Benchmark uses GENO_ID directly** — **Implemented.** `calc-benchmark` extracts `GENO_ID`, `EffectAllele`, `B` directly from the filtered file using header-based column lookup. The filtered file's `GENO_ID` is resolved via chr:pos+alleles in the variant_map during filter-variants. No separate RSID-based mapping step.
+
+4. **EAF column in augmented_sumstat.gz** — **Implemented.** The EAF (effect allele frequency) used by SBayesR for the posterior calculation is included from the posteriors file `FREQ` column.
+
+5. **Posteriors combined is internal** — **Implemented.** `posteriors_combined.tsv` is written to the work directory (`scores_combined/`) as an intermediate for building `augmented_sumstat.gz`, not as a user-facing output file.
+
+6. **Output file naming** — **Implemented.** `scores.gz` (not `.tsv.gz`), `variant_map.gz` (not `.tsv.gz`), `augmented_sumstat.gz`, `bench_score.gz`.
 
 ## SLURM submission system (`--sbatch`)
 
@@ -739,7 +747,7 @@ steps can proceed (producing partial results).
 |----------|-----------------|---------------|--------------|
 | **One chromosome fails** | Logs warning, continues | Writes placeholder `.snpRes` (header-only) + `FAILED` marker | Partial score (missing that chr) |
 | **Several chromosomes fail** | Logs warning per failure, continues | Placeholders for each failed chr | Partial score (missing failed chrs) |
-| **All chromosomes fail** | Logs warning, continues to next step | All placeholders | Empty `scores.tsv.gz` (header-only) |
+| **All chromosomes fail** | Logs warning, continues to next step | All placeholders | Empty `scores.gz` (header-only) |
 
 #### Placeholder mechanism
 
@@ -760,7 +768,7 @@ This allows downstream steps to:
 | calc-posteriors | `posteriors/chr<N>.snpRes` | `posteriors/work_chr<N>/FAILED` |
 | format-posteriors | `posteriors_mapped/chr<N>.snpRes` | `posteriors_mapped/FAILED_chr<N>` |
 | calc-score | `scores/chr<N>.sscore` | `scores/FAILED_chr<N>` |
-| combine-scores | (no placeholder; writes header-only `scores.tsv.gz` if all empty) | — |
+| combine-scores | (no placeholder; writes header-only `scores.gz` if all empty) | — |
 
 #### Driver-level monitoring
 
@@ -786,7 +794,7 @@ The driver job:
 
 - **Partial results are valid**: A run with 20/22 successful chromosomes produces a
   usable (if incomplete) PGS score.
-- **All-fail produces empty output**: If every chromosome fails, `scores.tsv.gz` contains
+- **All-fail produces empty output**: If every chromosome fails, `scores.gz` contains
   only headers; downstream analysis should detect this.
 - **Logs are essential**: Check `FAILED` markers and SLURM logs to diagnose failures.
 - **No automatic retry**: Failed chromosomes are not retried; manual re-run is required.
@@ -818,7 +826,7 @@ The driver job:
 - No user-provided MAF/INFO reference files: MAF is always computed from genotypes
   during prep; variant filtering uses only ID-based inclusion lists (`ss`, `ld`, `gt`).
 - Conversions to/from LD reference and genotype IDs only use the mapfile.
-- Final output includes the full mapfile (`variant_map.tsv.gz`) with both position columns.
-- Output files (v2): augmented_sumstat.gz has **same row set as variant map**, RSID + sumstat effect columns + EAF + MAF + postEffect + benchEffect; scores.tsv.gz has IID and score columns; bench_score.gz has benchmark scores; variant_map.tsv.gz has RSID (liftover-derived) as col1 and **all LD ref liftover variants**, with genotype/sumstat columns NA where no match.
+- Final output includes the full mapfile (`variant_map.gz`) with both position columns.
+- Output files (v2): augmented_sumstat.gz has **same row set as variant map**, RSID + sumstat effect columns + EAF + MAF + postEffect + benchEffect; scores.gz has IID and score columns; bench_score.gz has benchmark scores; variant_map.gz has RSID (liftover-derived) as col1 and **all LD ref liftover variants**, with genotype/sumstat columns NA where no match.
 - Scoring uses posteriors file only (no separate inclusion list for scoring).
 - Benchmark: LD pruning + MAF filter + plink --score with observed effects; benchmark weights/scores as in v1-style.

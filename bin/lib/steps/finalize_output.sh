@@ -1,6 +1,6 @@
 #!/bin/bash
 # pgscalculator v2 - finalize-output step
-# Generate final output files: augmented_sumstat.gz, variant_map.tsv.gz, and details/
+# Generate final output files: scores.gz, augmented_sumstat.gz, variant_map.gz, bench_score.gz, and details/
 
 # This script is sourced by the main pgscalculator CLI
 
@@ -38,7 +38,7 @@ run_finalize_output() {
     ensure_dir "$step_dir"
     
     # Check prerequisites
-    require_file "${sumstat_dir}/scores.tsv.gz" "Run 'pgscalculator combine-scores' first"
+    require_file "${sumstat_dir}/scores.gz" "Run 'pgscalculator combine-scores' first"
     
     # Check if already completed
     if check_step_completed "$step_dir"; then
@@ -46,9 +46,9 @@ run_finalize_output() {
         return 0
     fi
     
-    # Step 1: Combine all posteriors into single file
+    # Step 1: Combine all posteriors into single file (intermediate, not user output)
     log_substep "Combining posteriors from all chromosomes"
-    local posteriors_combined="${sumstat_dir}/posteriors_combined.tsv"
+    local posteriors_combined="${step_dir}/posteriors_combined.tsv"
     migrate_sumstat_step_dir "$sumstat_dir" "posteriors_mapped"
     local posteriors_mapped_dir
     posteriors_mapped_dir=$(get_sumstat_step_dir "$sumstat_dir" "posteriors_mapped")
@@ -63,7 +63,7 @@ run_finalize_output() {
     write_augmented_sumstat_v2 "$sumstat_dir" "$prep_dir" "$posteriors_combined"
     
     # Step 4: Copy variant map to sumstat root (with rsid as col1)
-    log_substep "Writing variant_map.tsv.gz"
+    log_substep "Writing variant_map.gz"
     write_variant_map "$prep_dir" "$sumstat_dir"
 
     # Step 5: Copy config to details/
@@ -97,7 +97,7 @@ write_variant_map() {
     if [[ ! -f "$variant_map_src" ]]; then
         variant_map_src="${prep_dir}/variant_map.tsv"
     fi
-    local variant_map_out="${sumstat_dir}/variant_map.tsv.gz"
+    local variant_map_out="${sumstat_dir}/variant_map.gz"
 
     if [[ ! -f "$variant_map_src" ]]; then
         log_warn "variant_map.tsv not found at: ${variant_map_src} (skipping)"
@@ -159,7 +159,7 @@ combine_posteriors() {
             LC_ALL=C join -t $'\t' -a 1 -e NA -o 1.1,2.2,1.2,1.3,1.4,1.5,1.6,1.7 "${tmpdir}/post_sorted.tsv" "${tmpdir}/genoid_sorted.tsv"
         } > "$output_file"
     else
-        log_warn "ldref_to_genoid.tsv not found; GENO_ID will be NA in posteriors_combined.tsv"
+        log_warn "ldref_to_genoid.tsv not found; GENO_ID will be NA in posteriors"
         {
             echo -e "RSID\tGENO_ID\tA1\tA2\tFREQ\tEFFECT\tSE\tPIP"
             awk -F'\t' -v OFS='\t' '{ print $1, "NA", $2, $3, $4, $5, $6, $7 }' "${tmpdir}/post_sorted.tsv"
@@ -349,11 +349,11 @@ generate_run_summary() {
         echo ""
         echo "Output files:"
         
-        if [[ -f "${sumstat_dir}/scores.tsv.gz" ]]; then
+        if [[ -f "${sumstat_dir}/scores.gz" ]]; then
             local score_count
-            score_count=$(zcat "${sumstat_dir}/scores.tsv.gz" | wc -l)
+            score_count=$(zcat "${sumstat_dir}/scores.gz" | wc -l)
             score_count=$((score_count - 1))
-            echo "  - scores.tsv.gz: ${score_count} samples"
+            echo "  - scores.gz: ${score_count} samples"
         fi
         if [[ -f "${sumstat_dir}/bench_score.gz" ]]; then
             local bench_count
@@ -367,11 +367,11 @@ generate_run_summary() {
             aug_count=$((aug_count - 1))
             echo "  - augmented_sumstat.gz: ${aug_count} variants"
         fi
-        if [[ -f "${sumstat_dir}/posteriors_combined.tsv" ]]; then
-            local post_count
-            post_count=$(wc -l < "${sumstat_dir}/posteriors_combined.tsv")
-            post_count=$((post_count - 1))
-            echo "  - posteriors_combined.tsv: ${post_count} posteriors"
+        if [[ -f "${sumstat_dir}/variant_map.gz" ]]; then
+            local vm_count
+            vm_count=$(zcat "${sumstat_dir}/variant_map.gz" | wc -l)
+            vm_count=$((vm_count - 1))
+            echo "  - variant_map.gz: ${vm_count} variants"
         fi
         
         echo ""
@@ -460,8 +460,8 @@ generate_stepwise_details() {
             n_score_variants=$(for f in "${scores_dir}"/work_chr*/variants.txt; do wc -l < "$f"; done | awk '{s+=$1} END{print s+0}')
         fi
     fi
-    if [[ -f "${sumstat_dir}/scores.tsv.gz" ]]; then
-        n_samples=$(gzip -cd "${sumstat_dir}/scores.tsv.gz" 2>/dev/null | wc -l || true)
+    if [[ -f "${sumstat_dir}/scores.gz" ]]; then
+        n_samples=$(gzip -cd "${sumstat_dir}/scores.gz" 2>/dev/null | wc -l || true)
         if [[ "$n_samples" -gt 0 ]]; then n_samples=$((n_samples - 1)); else n_samples=0; fi
     fi
 

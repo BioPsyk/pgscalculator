@@ -59,13 +59,13 @@ run_combine_scores() {
     
     if [[ ${#score_files[@]} -eq 0 ]]; then
         # Continue-on-failure behavior: if scoring produced no per-chromosome outputs,
-        # still write an empty scores.tsv.gz so downstream steps (finalize-output) can run.
+        # still write an empty scores.gz so downstream steps (finalize-output) can run.
         log_warn "No score files found in ${scores_dir}; writing empty scores (header-only)."
         local empty_merged="${step_dir}/merged.sscore"
         echo -e "IID\tALLELE_CT\tNAMED_ALLELE_DOSAGE_SUM\tSCORE1_AVG\tSCORE1_SUM\tFILE_SUM" > "$empty_merged"
-        create_final_scores "$empty_merged" "${sumstat_dir}/scores.tsv.gz"
+        create_final_scores "$empty_merged" "${sumstat_dir}/scores.gz"
         mark_step_completed "$step_dir"
-        log_info "Wrote empty scores file: ${sumstat_dir}/scores.tsv.gz"
+        log_info "Wrote empty scores file: ${sumstat_dir}/scores.gz"
         return 0
     fi
     
@@ -86,19 +86,19 @@ run_combine_scores() {
     local merged_file="${step_dir}/merged.sscore"
     combine_chromosome_scores "$ref_file" "${scores_dir}" "$merged_file" "$total_nvar"
     
-    # Step 3: Create final scores.tsv.gz in sumstat root
+    # Step 3: Create final scores.gz in sumstat root
     log_substep "Creating final score files"
-    create_final_scores "$merged_file" "${sumstat_dir}/scores.tsv.gz"
+    create_final_scores "$merged_file" "${sumstat_dir}/scores.gz"
     
     # Mark step as completed
     mark_step_completed "$step_dir"
     
     # Report results
     local sample_count
-    sample_count=$(zcat "${sumstat_dir}/scores.tsv.gz" | wc -l)
+    sample_count=$(zcat "${sumstat_dir}/scores.gz" | wc -l)
     sample_count=$((sample_count - 1))
     log_info "Combined scores for ${sample_count} samples"
-    log_info "Output: ${sumstat_dir}/scores.tsv.gz"
+    log_info "Output: ${sumstat_dir}/scores.gz"
 }
 
 # =============================================================================
