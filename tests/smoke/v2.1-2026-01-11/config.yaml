@@ -14,7 +14,7 @@ genotype_build: GRCh37
 liftover_reference: /faststorage/project/ibp_pipeline_cleansumstats/cleansumstats/out_dbsnp/dbsnp_cleansumstat_reference_GRCh37_GRCh38.txt.gz
 
 # Outdir is inside this test folder for easy cleanup. Use a new dir for a clean smoke run.
-outdir: /faststorage/project/ibp_pipeline_pgscalculator/pgscalculator/tests/smoke/v2.1-2026-01-11/out_full_20260211
+outdir: /faststorage/project/ibp_pipeline_pgscalculator/pgscalculator/tests/smoke/v2.1-2026-01-11/out_full_20260223
 
 whichn: totalN
 chromosomes: 1-22

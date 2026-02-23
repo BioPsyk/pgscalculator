@@ -459,14 +459,18 @@ compute_maf_from_genotypes() {
             "${plink_cmd[@]}" > "${tmpdir}/plink2.log" 2>&1 || true
             
             if [[ -f "${tmpdir}/freq.afreq" ]]; then
-                # Extract ID and ALT_FREQS, convert to MAF
                 awk -F'\t' -v OFS='\t' '
-                    NR > 1 {
-                        id = $2
-                        alt_freq = $5
-                        # Convert to MAF (0-0.5)
-                        maf = (alt_freq > 0.5) ? (1 - alt_freq) : alt_freq
-                        print id, maf
+                    NR == 1 {
+                        for (i = 1; i <= NF; i++) {
+                            if ($i == "ID") id_col = i
+                            if ($i == "ALT_FREQS") af_col = i
+                        }
+                        next
+                    }
+                    {
+                        af = $af_col + 0
+                        maf = (af > 0.5) ? (1 - af) : af
+                        print $id_col, maf
                     }
                 ' "${tmpdir}/freq.afreq" >> "$maf_output"
                 
@@ -496,11 +500,17 @@ compute_maf_from_genotypes() {
                 
                 if [[ -f "${tmpdir}/freq.afreq" ]]; then
                     awk -F'\t' -v OFS='\t' '
-                        NR > 1 {
-                            id = $2
-                            alt_freq = $5
-                            maf = (alt_freq > 0.5) ? (1 - alt_freq) : alt_freq
-                            print id, maf
+                        NR == 1 {
+                            for (i = 1; i <= NF; i++) {
+                                if ($i == "ID") id_col = i
+                                if ($i == "ALT_FREQS") af_col = i
+                            }
+                            next
+                        }
+                        {
+                            af = $af_col + 0
+                            maf = (af > 0.5) ? (1 - af) : af
+                            print $id_col, maf
                         }
                     ' "${tmpdir}/freq.afreq" >> "$maf_output"
                     

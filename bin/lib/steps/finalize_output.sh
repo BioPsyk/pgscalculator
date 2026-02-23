@@ -173,8 +173,8 @@ combine_posteriors() {
 }
 
 # augmented_sumstat.gz: user-facing output with same row set as variant map.
-# Schema: RSID, EffectAllele, OtherAllele, B, SE, Z, P, MAF, postEffect, benchEffect
-# Reads B/SE/Z/P from per-chr matched files, MAF from ldref_eaf.tsv, postEffect from posteriors.
+# Schema: RSID, EffectAllele, OtherAllele, B, SE, Z, P, EAF, MAF, postEffect, benchEffect
+# Reads B/SE/Z/P from per-chr matched files, EAF+postEffect from posteriors, MAF from genotypes.
 write_augmented_sumstat_v2() {
     local sumstat_dir="$1"
     local prep_dir="$2"
@@ -191,6 +191,9 @@ write_augmented_sumstat_v2() {
 
     local tmpdir
     tmpdir=$(make_tmpdir "finalize_augmented_v2")
+
+    local bench_dir="${sumstat_dir}/benchmark"
+    local maf_file="${prep_dir}/references/maf_computed.tsv"
 
     migrate_sumstat_step_dir "$sumstat_dir" "filtered"
     local filtered_dir
@@ -247,9 +250,10 @@ write_augmented_sumstat_v2() {
     LC_ALL=C join -t $'\t' -a 1 -e NA -o auto "${tmpdir}/vm_base.tsv" "${tmpdir}/ss_sorted.tsv" > "${tmpdir}/j1.tsv"
 
     # Step 4: Join with posteriors on ldref_snpid (already in col 1).
-    tail -n +2 "$posteriors_file" | awk -F'\t' -v OFS='\t' '{print $1, $6}' | \
+    # Extract FREQ (EAF used for posterior calc) and EFFECT (posterior effect size).
+    tail -n +2 "$posteriors_file" | awk -F'\t' -v OFS='\t' '{print $1, $5, $6}' | \
         LC_ALL=C sort -t $'\t' -k1,1 > "${tmpdir}/pp_sorted.tsv"
-    # Result (9 cols): ldref(1), geno(2), ea(3), oa(4), B(5), SE(6), Z(7), P(8), postEffect(9)
+    # Result (10 cols): ldref(1), geno(2), ea(3), oa(4), B(5), SE(6), Z(7), P(8), EAF(9), postEffect(10)
     LC_ALL=C join -t $'\t' -a 1 -e NA -o auto "${tmpdir}/j1.tsv" "${tmpdir}/pp_sorted.tsv" > "${tmpdir}/j2.tsv"
 
     # Step 5: Join with benchmark effects (benchEffect).
@@ -271,11 +275,15 @@ write_augmented_sumstat_v2() {
         LC_ALL=C join -t $'\t' -o 1.2,2.2 "${tmpdir}/geno_to_ldref.tsv" "${tmpdir}/bench_geno.tsv" | \
             LC_ALL=C sort -t $'\t' -k1,1 > "${tmpdir}/bench_sorted.tsv"
 
-        LC_ALL=C join -t $'\t' -a 1 -e NA -o auto "${tmpdir}/j2.tsv" "${tmpdir}/bench_sorted.tsv" > "${tmpdir}/j3.tsv"
+        if [[ -s "${tmpdir}/bench_sorted.tsv" ]]; then
+            LC_ALL=C join -t $'\t' -a 1 -e NA -o auto "${tmpdir}/j2.tsv" "${tmpdir}/bench_sorted.tsv" > "${tmpdir}/j3.tsv"
+        else
+            awk -F'\t' -v OFS='\t' '{print $0, "NA"}' "${tmpdir}/j2.tsv" > "${tmpdir}/j3.tsv"
+        fi
     else
         awk -F'\t' -v OFS='\t' '{print $0, "NA"}' "${tmpdir}/j2.tsv" > "${tmpdir}/j3.tsv"
     fi
-    # j3: ldref(1), geno(2), ea(3), oa(4), B(5), SE(6), Z(7), P(8), postEffect(9), benchEffect(10)
+    # j3: ldref(1), geno(2), ea(3), oa(4), B(5), SE(6), Z(7), P(8), EAF(9), postEffect(10), benchEffect(11)
 
     # Step 6: Join with MAF. Prefer genotype-based MAF, fall back to ldref EAF.
     if [[ -f "$maf_file" ]] && [[ $(wc -l < "$maf_file") -gt 1 ]]; then
@@ -297,13 +305,13 @@ write_augmented_sumstat_v2() {
     else
         awk -F'\t' -v OFS='\t' '{print $0, "NA"}' "${tmpdir}/j3.tsv" > "${tmpdir}/j4.tsv"
     fi
-    # j4: ldref(1),geno(2),ea(3),oa(4),B(5),SE(6),Z(7),P(8),postEffect(9),benchEffect(10),MAF(11)
+    # j4: ldref(1),geno(2),ea(3),oa(4),B(5),SE(6),Z(7),P(8),EAF(9),postEffect(10),benchEffect(11),MAF(12)
 
     # Step 7: Emit final output.
     {
-        echo -e "RSID\tEffectAllele\tOtherAllele\tB\tSE\tZ\tP\tMAF\tpostEffect\tbenchEffect"
+        echo -e "RSID\tEffectAllele\tOtherAllele\tB\tSE\tZ\tP\tEAF\tMAF\tpostEffect\tbenchEffect"
         awk -F'\t' -v OFS='\t' '{
-            print $1, $3, $4, $5, $6, $7, $8, $11, $9, $10
+            print $1, $3, $4, $5, $6, $7, $8, $9, $12, $10, $11
         }' "${tmpdir}/j4.tsv"
     } | gzip -c > "$output_file"
 
