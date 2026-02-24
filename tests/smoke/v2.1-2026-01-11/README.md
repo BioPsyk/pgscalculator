@@ -58,7 +58,7 @@ After a successful run, you can confirm the finalize step (all joins via `LC_ALL
 
 | File | What to check |
 |------|----------------|
-| `<outdir>/sumstats/<sumstat_name>/posteriors_combined (internal)` | Header has `GENO_ID`; first data column is RSID, second is GENO_ID (or NA). No in-memory join. |
+| `<outdir>/sumstats/<sumstat_name>/work/posteriors_mapped/chr*.snpRes` | Per-chr posterior files (ID, A1, A2, Freq, Effect, SE, PIP). Read directly during finalize; no combined file created. |
 | `<outdir>/sumstats/<sumstat_name>/sumstat_augmented.tsv.gz` | Columns include original sumstat + `GENO_ID`, `POST_EFFECT`, `POST_PIP`, `IN_ANALYSIS`. Row count matches formatted sumstat (join keeps all rows with NA where no match). |
 | `<outdir>/sumstats/<sumstat_name>/augmented_sumstat.gz` | Header: `RSID`, `EffectAllele`, `OtherAllele`, `B`, `SE`, `Z`, `P`, `MAF`, `postEffect`, `benchEffect`. Same number of rows as variant_map; MAF column is NA when `references.maf_file` is false (as in this smoke config). |
 

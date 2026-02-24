@@ -329,7 +329,7 @@ OPTIONS:
     --dry-run        Show what would be done without executing
 
 OUTPUT:
-    {outdir}/sumstat_{name}/benchmark/
+    {outdir}/sumstat_{name}/work/benchmark/
         benchmark.sscore    Benchmark score file
 EOF
             ;;

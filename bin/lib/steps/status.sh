@@ -53,8 +53,7 @@ show_one_sumstat() {
             echo "  [ ] ${step}"
         fi
     done
-    # benchmark currently lives at sumstat root
-    local bd="${sd}/benchmark"
+    local bd="${sd}/work/benchmark"
     if [[ -d "$bd" ]]; then
         check_step_completed "$bd" && echo "  [x] benchmark" || echo "  [~] benchmark"
     else

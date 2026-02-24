@@ -46,35 +46,27 @@ run_finalize_output() {
         return 0
     fi
     
-    # Step 1: Combine all posteriors into single file (intermediate, not user output)
-    log_substep "Combining posteriors from all chromosomes"
-    local posteriors_combined="${step_dir}/posteriors_combined.tsv"
-    migrate_sumstat_step_dir "$sumstat_dir" "posteriors_mapped"
-    local posteriors_mapped_dir
-    posteriors_mapped_dir=$(get_sumstat_step_dir "$sumstat_dir" "posteriors_mapped")
-    combine_posteriors "$posteriors_mapped_dir" "$posteriors_combined"
-    
-    # Step 2: Create bench_score.gz from benchmark results (if available)
+    # Step 1: Create bench_score.gz from benchmark results (if available)
     log_substep "Creating benchmark score output"
     create_bench_score "$sumstat_dir"
 
-    # Step 3: Generate augmented_sumstat.gz (v2 output schema)
+    # Step 2: Generate augmented_sumstat.gz (v2 output schema)
     log_substep "Generating augmented sumstat"
-    write_augmented_sumstat_v2 "$sumstat_dir" "$prep_dir" "$posteriors_combined"
+    write_augmented_sumstat_v2 "$sumstat_dir" "$prep_dir"
     
-    # Step 4: Copy variant map to sumstat root (with rsid as col1)
+    # Step 3: Copy variant map to sumstat root (with rsid as col1)
     log_substep "Writing variant_map.gz"
     write_variant_map "$prep_dir" "$sumstat_dir"
 
-    # Step 5: Copy config to details/
+    # Step 4: Copy config to details/
     log_substep "Copying configuration to details/"
     copy_config_to_details "$outdir" "$step_dir"
     
-    # Step 6: Generate run summary
+    # Step 5: Generate run summary
     log_substep "Generating run summary"
     generate_run_summary "$sumstat_dir" "$step_dir"
 
-    # Step 7: Generate stepwise details TSVs
+    # Step 6: Generate stepwise details TSVs
     log_substep "Generating stepwise details"
     generate_stepwise_details "$sumstat_dir" "$step_dir"
     
@@ -117,7 +109,7 @@ write_variant_map() {
 
 create_bench_score() {
     local sumstat_dir="$1"
-    local bench_dir="${sumstat_dir}/benchmark"
+    local bench_dir="${sumstat_dir}/work/benchmark"
     local bench_combined="${bench_dir}/benchmark.sscore"
     local output_file="${sumstat_dir}/bench_score.gz"
 
@@ -133,52 +125,12 @@ create_bench_score() {
     log_info "Created bench_score.gz with ${sample_count} samples"
 }
 
-combine_posteriors() {
-    local posteriors_dir="$1"
-    local output_file="$2"
-    # Use LC_ALL=C sort + join (no in-memory lookup). Posteriors: ID, A1, A2, Freq, Effect, SE, PIP → RSID, A1, A2, FREQ, EFFECT, SE, PIP. ldref_to_genoid: RSID, GENO_ID.
-    local tmpdir
-    tmpdir=$(make_tmpdir "combine_posteriors")
-    local post_body="${tmpdir}/post_body.tsv"
-    for chr in $(get_chromosomes); do
-        local f="${posteriors_dir}/chr${chr}.snpRes"
-        [[ -f "$f" ]] && tail -n +2 "$f" >> "$post_body"
-    done
-    if [[ ! -s "$post_body" ]]; then
-        echo -e "RSID\tGENO_ID\tA1\tA2\tFREQ\tEFFECT\tSE\tPIP" > "$output_file"
-        rm -rf "$tmpdir"
-        log_info "Combined 0 posterior variants (no chr files)"
-        return 0
-    fi
-    LC_ALL=C sort -t $'\t' -k1,1 "$post_body" > "${tmpdir}/post_sorted.tsv"
-    local rsid_to_genoid="${posteriors_dir}/ldref_to_genoid.tsv"
-    if [[ -f "$rsid_to_genoid" ]]; then
-        tail -n +2 "$rsid_to_genoid" | LC_ALL=C sort -t $'\t' -k1,1 > "${tmpdir}/genoid_sorted.tsv"
-        {
-            echo -e "RSID\tGENO_ID\tA1\tA2\tFREQ\tEFFECT\tSE\tPIP"
-            LC_ALL=C join -t $'\t' -a 1 -e NA -o 1.1,2.2,1.2,1.3,1.4,1.5,1.6,1.7 "${tmpdir}/post_sorted.tsv" "${tmpdir}/genoid_sorted.tsv"
-        } > "$output_file"
-    else
-        log_warn "ldref_to_genoid.tsv not found; GENO_ID will be NA in posteriors"
-        {
-            echo -e "RSID\tGENO_ID\tA1\tA2\tFREQ\tEFFECT\tSE\tPIP"
-            awk -F'\t' -v OFS='\t' '{ print $1, "NA", $2, $3, $4, $5, $6, $7 }' "${tmpdir}/post_sorted.tsv"
-        } > "$output_file"
-    fi
-    local total_variants
-    total_variants=$(wc -l < "$output_file")
-    total_variants=$((total_variants - 1))
-    rm -rf "$tmpdir"
-    log_info "Combined ${total_variants} posterior variants"
-}
-
 # augmented_sumstat.gz: user-facing output with same row set as variant map.
 # Schema: RSID, EffectAllele, OtherAllele, B, SE, Z, P, EAF, MAF, postEffect, benchEffect
 # Reads B/SE/Z/P from per-chr matched files, EAF+postEffect from posteriors, MAF from genotypes.
 write_augmented_sumstat_v2() {
     local sumstat_dir="$1"
     local prep_dir="$2"
-    local posteriors_file="$3"
     local variant_map="${sumstat_dir}/variant_map.tsv"
     [[ ! -f "$variant_map" ]] && variant_map="${prep_dir}/variant_map.tsv"
     local eaf_file="${prep_dir}/references/ldref_eaf.tsv"
@@ -192,7 +144,7 @@ write_augmented_sumstat_v2() {
     local tmpdir
     tmpdir=$(make_tmpdir "finalize_augmented_v2")
 
-    local bench_dir="${sumstat_dir}/benchmark"
+    local bench_dir="${sumstat_dir}/work/benchmark"
     local maf_file="${prep_dir}/references/maf_computed.tsv"
 
     migrate_sumstat_step_dir "$sumstat_dir" "filtered"
@@ -249,9 +201,18 @@ write_augmented_sumstat_v2() {
     # Result (8 cols): ldref(1), geno(2), ea(3), oa(4), B(5), SE(6), Z(7), P(8)
     LC_ALL=C join -t $'\t' -a 1 -e NA -o auto "${tmpdir}/vm_base.tsv" "${tmpdir}/ss_sorted.tsv" > "${tmpdir}/j1.tsv"
 
-    # Step 4: Join with posteriors on ldref_snpid (already in col 1).
-    # Extract FREQ (EAF used for posterior calc) and EFFECT (posterior effect size).
-    tail -n +2 "$posteriors_file" | awk -F'\t' -v OFS='\t' '{print $1, $5, $6}' | \
+    # Step 4: Join with posteriors on ldref_snpid (RSID).
+    # Read per-chr posteriors_mapped files directly (ID, A1, A2, Freq, Effect, SE, PIP).
+    # Extract ID(1)=RSID, Freq(4)=EAF, Effect(5)=postEffect.
+    migrate_sumstat_step_dir "$sumstat_dir" "posteriors_mapped"
+    local posteriors_mapped_dir
+    posteriors_mapped_dir=$(get_sumstat_step_dir "$sumstat_dir" "posteriors_mapped")
+    {
+        for chr in $(get_chromosomes); do
+            local pf="${posteriors_mapped_dir}/chr${chr}.snpRes"
+            [[ -f "$pf" ]] && tail -n +2 "$pf"
+        done
+    } | awk -F'\t' -v OFS='\t' '{print $1, $4, $5}' | \
         LC_ALL=C sort -t $'\t' -k1,1 > "${tmpdir}/pp_sorted.tsv"
     # Result (10 cols): ldref(1), geno(2), ea(3), oa(4), B(5), SE(6), Z(7), P(8), EAF(9), postEffect(10)
     LC_ALL=C join -t $'\t' -a 1 -e NA -o auto "${tmpdir}/j1.tsv" "${tmpdir}/pp_sorted.tsv" > "${tmpdir}/j2.tsv"
@@ -459,7 +420,7 @@ generate_stepwise_details() {
 
     # Benchmark counts
     local n_bench=0
-    local bench_dir="${sumstat_dir}/benchmark"
+    local bench_dir="${sumstat_dir}/work/benchmark"
     if compgen -G "${bench_dir}/work_chr*/score_input.tsv" >/dev/null 2>&1; then
         n_bench=$(for f in "${bench_dir}"/work_chr*/score_input.tsv; do c=$(wc -l < "$f"); echo $((c-1)); done | awk '{s+=$1} END{print s+0}')
     fi

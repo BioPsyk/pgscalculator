@@ -28,7 +28,7 @@ run_calc_benchmark() {
     migrate_sumstat_step_dir "$sumstat_dir" "filtered"
     local filtered_dir
     filtered_dir=$(get_sumstat_step_dir "$sumstat_dir" "filtered")
-    local step_dir="${sumstat_dir}/benchmark"
+    local step_dir="${sumstat_dir}/work/benchmark"
     ensure_dir "$step_dir"
     
     require_dir "$filtered_dir" "Run 'pgscalculator filter-variants' first"
