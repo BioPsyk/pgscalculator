@@ -29,9 +29,11 @@ run_pipeline() {
         unset CFG_SUMSTAT_NAME || true
     fi
     # Ensure legacy output layouts are migrated into work/
-    local sumstat_dir
-    sumstat_dir=$(get_sumstat_dir "${CFG_OUTDIR}" "$sumstat_name")
-    migrate_sumstat_all_step_dirs "$sumstat_dir"
+    if [[ -n "$sumstat_name" ]]; then
+        local sumstat_dir
+        sumstat_dir=$(get_sumstat_dir "${CFG_OUTDIR}" "$sumstat_name")
+        migrate_sumstat_all_step_dirs "$sumstat_dir"
+    fi
     local -a groups_to_run
     if [[ "$run_all" -eq 1 ]]; then groups_to_run=("${STEP_GROUP_ORDER[@]}"); elif [[ -n "$steps_arg" ]]; then IFS="," read -ra groups_to_run <<< "$steps_arg"; else log_error "Must specify --all or --steps"; exit 1; fi
     [[ "$skip_prep" -eq 1 ]] && check_step_completed "$(get_prep_dir "${CFG_OUTDIR}")/inclusion_list" && groups_to_run=("${groups_to_run[@]/prep/}")

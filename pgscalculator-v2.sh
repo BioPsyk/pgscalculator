@@ -1668,7 +1668,7 @@ mount_opts="${mount_opts} ${mountflag} ${lddir_host}:${lddir_container}"
 if [[ -n "${sumstat_name:-}" ]]; then
   tmpdir_host="${outdir_host}/sumstats/${sumstat_name}/tmp"
 else
-  tmpdir_host="${outdir_host}/tmp"
+  tmpdir_host="${outdir_host}/prep/tmp"
 fi
 mkdir -p "${tmpdir_host}"
 mount_opts="${mount_opts} ${mountflag} ${tmpdir_host}:/tmp"
