@@ -119,7 +119,7 @@ process_benchmark_chr() {
         "${chr_workdir}/pruned.prune.in" "$bench_sumstat" > "${chr_workdir}/score_input.tsv"
     
     plink2 $geno_opt "$geno_prefix" --extract "${chr_workdir}/pruned.prune.in" \
-        --score "${chr_workdir}/score_input.tsv" 1 2 3 header cols=scoresums ignore-dup-ids \
+        --score "${chr_workdir}/score_input.tsv" 1 2 3 header cols=nallele,scoresums ignore-dup-ids \
         --out "${chr_workdir}/bench" --threads "${plink_threads}" > "${chr_workdir}/score.log" 2>&1 || return 1
     
     [[ -f "${chr_workdir}/bench.sscore" ]] && {
