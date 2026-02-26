@@ -204,10 +204,24 @@ augment_ldref_with_liftover() {
     log_debug "Total LD variants to augment: ${total_ld_variants}"
     log_info "LD reference variants: ${total_ld_variants}"
     
+    # Auto-detect gzipped vs plain text liftover reference
+    local liftover_cmd="cat"
+    if file "$liftover_ref" 2>/dev/null | grep -q "gzip\|compressed"; then
+        liftover_cmd="zcat"
+    elif [[ "$liftover_ref" == *.gz ]]; then
+        liftover_cmd="zcat"
+    fi
+    log_debug "Liftover read command: ${liftover_cmd}"
+
     # Count liftover reference rows (informational - this is a large file)
     log_debug "Counting liftover reference rows (this may take a moment for large files)"
     local liftover_count
-    liftover_count=$(zcat "$liftover_ref" 2>/dev/null | wc -l || echo "0")
+    liftover_count=$($liftover_cmd "$liftover_ref" 2>/dev/null | wc -l || echo "0")
+    if [[ "$liftover_count" -eq 0 ]]; then
+        log_error "Liftover reference file is empty or unreadable: ${liftover_ref}"
+        log_error "If the file is gzipped, ensure it is valid gzip. If plain text, the .gz extension may be misleading."
+        return 1
+    fi
     log_info "Liftover reference rows: ${liftover_count}"
     
     # Step 2: Join with pre-sorted liftover file (SINGLE PASS!)
@@ -219,7 +233,7 @@ augment_ldref_with_liftover() {
     
     LC_ALL=C join \
         "$all_ld_sorted" \
-        <(zcat "$liftover_ref") \
+        <($liftover_cmd "$liftover_ref") \
         2>/dev/null | \
         awk -v OFS='\t' '{
             # Input after join: pos_b37, ldref_a1, ldref_a2, ldref_rsid, pos_b38, liftover_rsid, liftover_a1, liftover_a2
@@ -227,13 +241,24 @@ augment_ldref_with_liftover() {
             print $1, $5, $2, $3, $4
         }' > "$all_augmented"
     
-    local augmented_count
-    augmented_count=$(wc -l < "$all_augmented")
+    local augmented_count=0
+    if [[ -f "$all_augmented" ]]; then
+        augmented_count=$(wc -l < "$all_augmented")
+    fi
+    
+    if [[ "$augmented_count" -eq 0 ]]; then
+        log_error "Liftover join produced 0 matches. Check that:"
+        log_error "  1. The liftover file is sorted with LC_ALL=C on column 1"
+        log_error "  2. The LD reference and liftover use the same chr:pos format (e.g. '1:12345' not 'chr1:12345')"
+        log_error "  3. The file is readable (gzip vs plain text)"
+        rm -f "$all_ld_sorted" "$all_augmented"
+        return 1
+    fi
     log_info "Augmented ${augmented_count} variants (from ${total_ld_variants} LD ref variants)"
     
     # Calculate match rate
     local match_pct="0.00"
-    if [[ "$total_ld_variants" -gt 0 ]]; then
+    if [[ "$total_ld_variants" -gt 0 ]] && [[ "$augmented_count" -gt 0 ]]; then
         match_pct=$(awk "BEGIN {printf \"%.2f\", 100 * ${augmented_count} / ${total_ld_variants}}")
     fi
     log_info "Liftover match rate: ${match_pct}% (${augmented_count}/${total_ld_variants})"
