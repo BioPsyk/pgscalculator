@@ -7,11 +7,13 @@ _Created by Jesper R. Gådin, Morten Dybdahl Krebs, and Andrew Schork (IBP)_
 ## What's New in v2.1
 
 - **Config-first**: Reference paths in config.yaml, not CLI
-- **Explicit steps**: `--steps` required - only runs what you specify
+- **Explicit steps**: `--steps` required — only runs what you specify
 - **Prerequisite checks**: Helpful errors if prep/previous steps not done
 - **Reusable prep**: Run prep once, reuse across multiple sumstats
+- **Dual-position mapfile**: Prep builds a variant map with both GRCh37 and GRCh38 positions via `liftover_reference`
+- **Finalize step**: Produces clean user-facing output files (`scores.gz`, `augmented_sumstat.gz`, `variant_map.gz`, `bench_score.gz`)
 - **SLURM integration**: `--sbatch` flag auto-submits with config settings
-- **SLURM driver jobs**: `--sbatch` submits one *driver job* per sumstat which runs `sumstat` and launches chromosome-parallel arrays for `weights` (sBayesR + benchmark, two arrays) and `score`. Parallelism is controlled by `slurm.<step>.max_parallel` (set `max_parallel: 1` to disable parallelism).
+- **SLURM driver jobs**: `--sbatch` submits one *driver job* per sumstat which runs `sumstat` and launches chromosome-parallel arrays for `weights` (sBayesR + benchmark, two arrays) and `score`, then a finalize job. Parallelism is controlled by `slurm.<step>.max_parallel` (set `max_parallel: 1` to disable parallelism).
 - **Simplified CLI**: Just `--config`, `--steps`, and `-i`
 
 ## Quick Start
@@ -37,7 +39,7 @@ singularity pull sif/ibp-pgscalculator-base_version-2.0.0.sif docker://biopsyk/i
 
 ### Create Config File
 
-Create `config.yaml` with your reference data paths:
+Create `config.yaml` with your reference data paths (see `config.template.yaml` for all options):
 
 ```yaml
 # config.yaml
@@ -46,6 +48,12 @@ outdir: /path/to/output
 genodir: /path/to/genotypes
 genofile: /path/to/genotype_manifest.tsv
 lddir: /path/to/ld_reference
+
+# Genome build of the genotype files
+genotype_build: GRCh37
+
+# Liftover reference file (required for dual-position mapfile)
+liftover_reference: /path/to/references/liftover/dbsnp_cleansumstat_reference_GRCh37_GRCh38.txt.gz
 
 # Variant inclusion lists (optional)
 filters:
@@ -130,7 +138,7 @@ slurm:
 # Wait for prep to complete, then submit per-sumstat jobs
 for sumstat in /path/to/sumstat_*; do
   ./pgscalculator-v2.sh --config config.yaml \
-    --steps sumstat,weights,score \
+    --steps sumstat,weights,score,finalize \
     -i "$sumstat" \
     --sbatch
 done
@@ -142,13 +150,14 @@ done
 ## Architecture
 
 ```
-pgscalculator v2.0.0
-├── pgscalculator-v2.sh      # Wrapper script (v1 CLI compatible)
+pgscalculator v2.1.0
+├── pgscalculator-v2.sh      # Wrapper script (Singularity, SLURM, mounts)
 ├── bin/
 │   ├── pgscalculator        # Main CLI entry point
 │   └── lib/
 │       ├── common.sh        # Shared functions
-│       └── steps/           # Individual step scripts
+│       └── steps/
+│           ├── run_pipeline.sh       # Step orchestration
 │           ├── prep_genotypes.sh
 │           ├── prep_ldref.sh
 │           ├── prep_inclusion_list.sh
@@ -156,9 +165,11 @@ pgscalculator v2.0.0
 │           ├── filter_variants.sh
 │           ├── calc_posteriors.sh
 │           ├── format_posteriors.sh
+│           ├── calc_benchmark.sh
 │           ├── calc_score.sh
 │           ├── combine_scores.sh
-│           └── calc_benchmark.sh
+│           ├── finalize_output.sh
+│           └── status.sh
 └── config.template.yaml     # Configuration template
 ```
 
@@ -169,25 +180,21 @@ pgscalculator v2.0.0
 | Step | Command | Description |
 |------|---------|-------------|
 | 1 | `prep-genotypes` | Extract variant IDs from genotype .pvar files |
-| 2 | `prep-ldref` | Extract RSIDs from LD reference |
-| 3 | `prep-inclusion-list` | Create variant inclusion list (INFO/MAF filtered, LD intersect) |
+| 2 | `prep-ldref` | Augment LD reference with dual positions (GRCh37/38) via liftover |
+| 3 | `prep-inclusion-list` | Create variant inclusion list + variant map + compute MAF |
 
 ### Per-Sumstat Processing Steps
 
 | Step | Command | Description |
 |------|---------|-------------|
-| 4 | `format-sumstat` | Add build coordinates, derive B/SE/EAF/N |
-| 5 | `filter-variants` | Filter sumstat to inclusion list variants |
+| 4 | `format-sumstat` | Add build coordinates, derive B/SE/EAF/N per chromosome |
+| 5 | `filter-variants` | Filter sumstat to inclusion list variants per chromosome |
 | 6 | `calc-posteriors` | Run sbayesR per chromosome |
 | 7 | `format-posteriors` | Map posteriors to genotype variant IDs |
-| 8 | `calc-score` | Calculate PGS with plink2 per chromosome |
-| 9 | `combine-scores` | Merge per-chromosome scores |
-
-### Optional
-
-| Step | Command | Description |
-|------|---------|-------------|
-| - | `calc-benchmark` | Calculate benchmark scores (MAF filter + LD pruning) |
+| 8 | `calc-benchmark` | Benchmark scores (MAF filter + LD pruning) |
+| 9 | `calc-score` | Calculate PGS with plink2 per chromosome |
+| 10 | `combine-scores` | Merge per-chromosome scores into `scores.gz` |
+| 11 | `finalize-output` | Produce `augmented_sumstat.gz`, `variant_map.gz`, `bench_score.gz`, `steps.tsv` |
 
 ## Usage
 
@@ -200,13 +207,13 @@ The wrapper script (`pgscalculator-v2.sh`) uses a config-first approach:
 ./pgscalculator-v2.sh --config config.yaml --steps prep
 
 # Run per-sumstat steps
-./pgscalculator-v2.sh --config config.yaml --steps sumstat,weights,score -i /path/to/sumstat_TRAIT
+./pgscalculator-v2.sh --config config.yaml --steps sumstat,weights,score,finalize -i /path/to/sumstat_TRAIT
 
 # Run specific steps only (prerequisite checking will warn if previous steps missing)
-./pgscalculator-v2.sh --config config.yaml --steps weights,score -i /path/to/sumstat_TRAIT
+./pgscalculator-v2.sh --config config.yaml --steps weights,score,finalize -i /path/to/sumstat_TRAIT
 
 # Submit as SLURM job (uses slurm settings from config)
-./pgscalculator-v2.sh --config config.yaml --steps sumstat,weights,score -i /path/to/sumstat_TRAIT --sbatch
+./pgscalculator-v2.sh --config config.yaml --steps sumstat,weights,score,finalize -i /path/to/sumstat_TRAIT --sbatch
 ```
 
 #### Wrapper Script Options
@@ -214,7 +221,7 @@ The wrapper script (`pgscalculator-v2.sh`) uses a config-first approach:
 | Option | Description |
 |--------|-------------|
 | `--config <file>` | **Required**: Path to config.yaml with reference paths |
-| `--steps <list>` | **Required**: Steps to run: `prep`, `sumstat`, `weights`, `score` |
+| `--steps <list>` | **Required**: Steps to run: `prep`, `sumstat`, `weights`, `score`, `finalize` |
 | `-i <dir>` | Path to sumstat folder (required for non-prep steps) |
 | `-o <dir>` | Output directory (overrides config) |
 | `--force` | Force re-run of steps even if already completed |
@@ -225,12 +232,13 @@ The wrapper script (`pgscalculator-v2.sh`) uses a config-first approach:
 
 #### Step Groups
 
-| Step | Description |
-|------|-------------|
-| `prep` | Prepare genotypes and LD reference (run once per project) |
-| `sumstat` | Format and filter sumstat |
-| `weights` | sBayesR posteriors + benchmark weights (two array jobs, independently configured) |
-| `score` | Calculate PGS scores |
+| Group | Concrete steps | Description |
+|-------|----------------|-------------|
+| `prep` | `prep-genotypes`, `prep-ldref`, `prep-inclusion-list` | Prepare genotypes, LD reference, and variant map (run once per project) |
+| `sumstat` | `format-sumstat`, `filter-variants` | Format and filter sumstat per chromosome |
+| `weights` | `calc-posteriors`, `format-posteriors`, `calc-benchmark` | sBayesR posteriors + benchmark weights |
+| `score` | `calc-score` | Calculate PGS scores per chromosome |
+| `finalize` | `combine-scores`, `finalize-output` | Merge scores and produce final output files |
 
 > **Note:** `weights` runs both sBayesR (calc-posteriors, format-posteriors) and benchmark (calc-benchmark) as two separate SLURM array jobs when using `--sbatch`.
 
@@ -267,8 +275,13 @@ pgscalculator prep-ldref --config /path/to/config.yaml
 pgscalculator prep-inclusion-list --config /path/to/config.yaml
 
 pgscalculator format-sumstat --sumstat TRAIT --config /path/to/config.yaml
+pgscalculator filter-variants --sumstat TRAIT --config /path/to/config.yaml
 pgscalculator calc-posteriors --sumstat TRAIT --config /path/to/config.yaml
+pgscalculator format-posteriors --sumstat TRAIT --config /path/to/config.yaml
+pgscalculator calc-benchmark --sumstat TRAIT --config /path/to/config.yaml
 pgscalculator calc-score --sumstat TRAIT --config /path/to/config.yaml
+pgscalculator combine-scores --sumstat TRAIT --config /path/to/config.yaml
+pgscalculator finalize-output --sumstat TRAIT --config /path/to/config.yaml
 
 # Check status
 pgscalculator status --config /path/to/config.yaml
@@ -281,13 +294,22 @@ pgscalculator run --all --sumstat TRAIT --config /path/to/config.yaml
 
 ### config.yaml Format
 
+See `config.template.yaml` for a complete annotated example. Key sections:
+
 ```yaml
-# pgscalculator v2.0.0 Configuration
+# pgscalculator v2.1.0 Configuration
 input: /path/to/cleansumstats/output
 outdir: /path/to/output
 genodir: /path/to/genotypes
 genofile: /path/to/genotype_manifest.tsv
 lddir: /path/to/ld_reference
+
+# Genome build of the genotype files (GRCh37 or GRCh38)
+genotype_build: GRCh37
+
+# Liftover reference file (required for dual-position mapfile)
+# Pre-sorted on column 1 with LC_ALL=C
+liftover_reference: /path/to/references/liftover/dbsnp_cleansumstat_reference_GRCh37_GRCh38.txt.gz
 
 # Variant inclusion lists (optional)
 filters:
@@ -326,17 +348,17 @@ benchmark:
   maf_threshold: 0.05
   indep_pairwise: [250, 50, 0.25]   # window_kb, step, r2 for plink --indep-pairwise
 
-# Optional: SLURM settings for --sbatch (weights = two array jobs, independently configured)
+# Optional: SLURM settings for --sbatch
 slurm:
   account: my_account
   partition: normal
   driver:             { mem: 1g, cpus: 1, time: '2:00:00' }
-  prep:                { mem: 10g, cpus: 1, time: '1:00:00', max_parallel: 22 }
-  sumstat:             { mem: 1g, cpus: 1, time: '0:30:00', max_parallel: 22 }
-  weights_sbayesr:     { mem: 20g, cpus: 6, time: '2:00:00', max_parallel: 22 }
-  weights_benchmark:    { mem: 2g, cpus: 2, time: '0:30:00', max_parallel: 22 }
-  score:               { mem: 10g, cpus: 4, time: '0:30:00', max_parallel: 22 }
-  finalize:            { mem: 16g, cpus: 1, time: '1:00:00' }
+  prep:               { mem: 10g, cpus: 1, time: '1:00:00', max_parallel: 22 }
+  sumstat:            { mem: 1g, cpus: 1, time: '0:30:00', max_parallel: 22 }
+  weights_sbayesr:    { mem: 20g, cpus: 6, time: '2:00:00', max_parallel: 22 }
+  weights_benchmark:   { mem: 2g, cpus: 2, time: '0:30:00', max_parallel: 22 }
+  score:              { mem: 10g, cpus: 4, time: '0:30:00', max_parallel: 22 }
+  finalize:           { mem: 16g, cpus: 1, time: '1:00:00' }
 ```
 
 ## Testing
@@ -351,111 +373,82 @@ srun --mem=20g --ntasks 1 --cpus-per-task 22 --time=1:00:00 \
   --pty /bin/bash
 ```
 
-### Test Paths (GDK Environment)
+### Run Smoke Test
 
-```bash
-# Project location
-PGSFOLD="/faststorage/project/ibp_migration_opengdk/PROJECT_pgscalculator/pgscalculator"
-
-# Sumstats (cleansumstats output)
-SUMSTAT_DIR="/faststorage/project/ibp_pipeline_cleansumstats/raw_library/sumstat_clean_library/version_1.6.7"
-
-# LD reference (sbayesR)
-LD_REF="${PGSFOLD}/references/ld-sbayesr/ukb/band_ukb_10k_hm3"
-
-# Test genotypes
-GENO_DIR="${PGSFOLD}/references/genotypes_test/plink"
-GENO_MANIFEST="${PGSFOLD}/references/genotypes_test/mapfiles/plink_genodir_genofiles.txt"
-```
-
-### Run Test
+See `tests/smoke/v2.1-2026-01-11/` for a working smoke test setup:
 
 ```bash
 cd /faststorage/project/ibp_pipeline_pgscalculator/pgscalculator
 
-# Test with example sumstat
-./pgscalculator-v2.sh \
-  -i ${SUMSTAT_DIR}/sumstat_TEST_ID \
-  -l ${LD_REF} \
-  -g ${GENO_DIR} \
-  -f ${GENO_MANIFEST} \
-  -c conf/sbayesr.config \
-  -o ../test-zone/out_v2_test
+# Local run (interactive node)
+bash tests/smoke/v2.1-2026-01-11/run_local.sh
+
+# SLURM run
+bash tests/smoke/v2.1-2026-01-11/submit_slurm.sh
 ```
 
-### Verify Container Mounts
-
-```bash
-# Inside container
-bash /pgscalculator/test-mounts.sh
-```
-
-### Batch Testing (SLURM)
-
-See `test-zone-commands-v2.sh` for a template batch script:
-
-```bash
-cd /faststorage/project/ibp_pipeline_pgscalculator/test-zone
-cp ${PGSFOLD}/test-zone-commands-v2.sh .
-
-# Create a list of sumstat IDs to test
-echo "TEST_ID_1" > short_list.txt
-echo "TEST_ID_2" >> short_list.txt
-
-# Submit batch jobs
-bash test-zone-commands-v2.sh
-```
+The smoke test config (`tests/smoke/v2.1-2026-01-11/config.yaml`) demonstrates all required config keys.
 
 ## Output Structure
 
 ```
-output_dir/
-├── config.yaml              # Generated configuration
-├── prep/                    # Preparation outputs (reusable)
-│   ├── genotypes/
-│   │   └── snplist_sorted   # All genotype variant IDs
-│   ├── ldref/
-│   │   └── chr*_ld_rsids    # LD reference RSIDs per chromosome
-│   ├── inclusion_list/
-│   │   └── variant_inclusion_list.tsv  # Filtered variants for analysis
-│   └── variant_map.tsv      # Full rsid <-> genotype_id crosswalk
-├── sumstat_{name}/          # Per-sumstat outputs
-│   ├── formatted/
-│   │   └── sumstat_formatted.tsv
-│   ├── filtered/
-│   │   └── sumstat_filtered.tsv
-│   ├── posteriors/
-│   │   └── chr*.snpRes      # sbayesR posteriors
-│   ├── posteriors_mapped/
-│   │   └── chr*.snpRes      # Mapped to genotype IDs
-│   ├── scores/
-│   │   └── chr*.sscore      # Per-chromosome scores
-│   └── scores_combined/
-│       └── merged.sscore    # Final combined scores
-└── logs/                    # Execution logs
+outdir/
+├── prep/                              # Preparation outputs (reusable across sumstats)
+│   ├── genotypes/                     # Extracted genotype variant IDs
+│   ├── ldref/                         # LD reference RSIDs per chromosome
+│   ├── ldref_augmented/               # LD ref augmented with dual positions
+│   ├── inclusion_list/                # Filtered variants + MAF
+│   ├── variant_map/                   # Per-chromosome variant maps
+│   ├── variant_map.tsv                # Combined variant map
+│   ├── references/                    # Liftover reference copy
+│   ├── details/                       # Prep step details
+│   ├── logs/                          # Prep logs
+│   └── tmp/                           # Temporary files (removed with --cleanup)
+│
+└── sumstats/
+    └── sumstat_{name}/                # Per-sumstat outputs
+        ├── scores.gz                  # Final PGS scores (IID, SCORE_SUM, ALLELE_CT, N_VARIANTS)
+        ├── augmented_sumstat.gz       # Variant-level results (RSID, B, SE, Z, P, EAF, MAF, postEffect, benchEffect, ...)
+        ├── variant_map.gz             # Variant mapping (rsid ↔ genotype ID)
+        ├── bench_score.gz             # Benchmark scores (IID, ALLELE_CT, SCORE1_SUM)
+        ├── details/
+        │   ├── steps.tsv              # Per-step variant counts
+        │   ├── config.yaml            # Config used for this run
+        │   └── run_summary.txt        # Run summary
+        ├── logs/                      # Per-sumstat logs
+        └── work/                      # Intermediate files (removed with --cleanup)
+            ├── formatted/             # Per-chr formatted sumstats
+            ├── filtered/              # Per-chr filtered sumstats
+            ├── posteriors/            # Per-chr sbayesR posteriors
+            ├── posteriors_mapped/     # Per-chr posteriors mapped to geno IDs
+            ├── scores/               # Per-chr plink2 scores
+            ├── scores_combined/      # Combined score file
+            └── benchmark/            # Benchmark intermediate files
 ```
 
 ## Troubleshooting
 
-### "pgscalculator: command not found"
+### "Required config key 'liftover_reference' missing"
 
-Ensure the container was built with the v2 CLI:
+Add the `liftover_reference` and `genotype_build` keys to your config.yaml. See `config.template.yaml`.
 
-```dockerfile
-COPY bin/ /pgscalculator/bin/
-ENV PATH="/pgscalculator/bin:${PATH}"
-```
+### "Missing augmented LD reference for chrN"
+
+The liftover reference file could not be read or produced zero matches during `prep-ldref`. Check:
+- The file path in `liftover_reference` is correct and readable
+- The file is either plain text or gzipped (auto-detected)
+- The file is pre-sorted on column 1 with `LC_ALL=C`
 
 ### "Config file not found"
 
-The wrapper creates `config.yaml` in the output directory. Check:
+The wrapper creates a container-specific config in the output directory. Check:
 - Output directory is writable
 - Container has write access to mounted output directory
 
 ### "No variants mapped"
 
 The variant map couldn't match sbayesR RSIDs to genotype IDs. Check:
-- Variant inclusion list was created successfully
+- Variant inclusion list was created successfully (`prep/inclusion_list/`)
 - Genotype .pvar file uses expected ID format
 - LD reference matches the expected HM3 variants
 
@@ -463,33 +456,33 @@ The variant map couldn't match sbayesR RSIDs to genotype IDs. Check:
 
 Common causes:
 - Too few variants after filtering
-- Memory issues (increase `--mem` in SLURM)
+- Memory issues (increase `slurm.weights_sbayesr.mem` in config)
 - LD matrix mismatch
 
-Check logs in `{outdir}/sumstat_{name}/posteriors/chr{X}.log`
+Check logs in `outdir/sumstats/{name}/logs/`
 
 ### Scores are all zero or NA
 
-- Posteriors may have failed (check `*.snpRes` files)
-- Variant mapping failed (check `posteriors_mapped/` files)
-- Genotype IDs don't match (compare with `variant_map.tsv`)
+- Posteriors may have failed (check `work/posteriors/chr*.snpRes`)
+- Variant mapping failed (check `work/posteriors_mapped/`)
+- Genotype IDs don't match (compare with `variant_map.gz`)
 
 ## Resource Requirements
 
-| Step | Memory | CPUs | Time (per sumstat) |
-|------|--------|------|-------------------|
-| Prep (all) | 10GB | 6 | 30 min (once) |
-| Posteriors | 20GB | 22 | 30-60 min |
-| Scoring | 10GB | 6 | 10-20 min |
-| **Full pipeline** | **20GB** | **22** | **1-2 hours** |
+Default SLURM resource settings (tunable via config):
+
+| Step group | Memory | CPUs | Time |
+|------------|--------|------|------|
+| Prep | 10 GB | 1 | 1 h (once per project) |
+| Sumstat | 1 GB | 1 | 30 min |
+| Weights (sBayesR) | 20 GB | 6 | 2 h (per chr) |
+| Weights (benchmark) | 2 GB | 2 | 30 min (per chr) |
+| Score | 10 GB | 4 | 30 min (per chr) |
+| Finalize | 16 GB | 1 | 1 h |
 
 ## More Documentation
 
-- [Testing v2 Setup](docs/testing-v2-setup.md) - Detailed testing guide
-- [Technical Whitepaper](PGS_DST_whitepaper.md) - Full pipeline specification
-- [Standalone Scoring](tmp/README_STANDALONE_SCORING.md) - Score external sbayesR outputs
-- [SNP Inclusion List](docs/snp-inclusion-list.md) - Variant filtering details
-- [FAQ](docs/FAQ.md) - Frequently asked questions
+- [General Design](docs/plans/general-design.md) — Pipeline architecture and design decisions
 
 ## Version History
 
