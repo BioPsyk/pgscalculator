@@ -1,4 +1,11 @@
 # pgscalculator v2.1.0 Configuration
+
+# Optional: HPC modules to load before running (e.g., singularity)
+# Omit entirely if singularity is already in PATH.
+#modules:
+#  - tools
+#  - singularity/4.1.2
+
 input: /path/to/cleansumstats/output
 outdir: /path/to/output
 genodir: /path/to/genotypes

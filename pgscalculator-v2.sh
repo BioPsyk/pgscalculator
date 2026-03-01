@@ -210,6 +210,18 @@ parse_yaml_nested() {
   ' "$file"
 }
 
+# Parse a YAML list (e.g., modules:\n  - tools\n  - singularity/4.1.2)
+parse_yaml_list() {
+  local key="$1"
+  local file="$2"
+  awk -v key="$key" '
+    BEGIN { in_list = 0 }
+    $0 ~ "^"key":" { in_list = 1; next }
+    in_list && /^  - / { gsub(/^  - */, ""); gsub(/[ \t]+$/, ""); print; next }
+    in_list && /^[^ ]/ { exit }
+  ' "$file"
+}
+
 # Parse inline YAML dict (e.g., "{ mem: 10g, cpus: 6, time: '1:00:00' }")
 parse_inline_dict() {
   local dict="$1"
@@ -300,6 +312,13 @@ validate_sumstat_metadata() {
   
   echo "Metadata validated: ${n_field} = ${n_value}"
 }
+
+# Load modules from config (e.g., singularity on HPC systems that use module load)
+while IFS= read -r mod; do
+  [[ -z "$mod" ]] && continue
+  echo "Loading module: $mod"
+  module load "$mod"
+done < <(parse_yaml_list "modules" "$config_file_host")
 
 # Read paths from config (support new keys + legacy aliases)
 cfg_ld_reference=$(parse_yaml_value "ld_reference" "$config_file_host")

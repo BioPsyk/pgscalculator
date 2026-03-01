@@ -43,6 +43,12 @@ Create `config.yaml` with your reference data paths (see `config.template.yaml` 
 
 ```yaml
 # config.yaml
+
+# Optional: HPC modules to load before running (omit if singularity is already in PATH)
+#modules:
+#  - tools
+#  - singularity/4.1.2
+
 input: /path/to/cleansumstats/output
 outdir: /path/to/output
 genodir: /path/to/genotypes
@@ -298,6 +304,12 @@ See `config.template.yaml` for a complete annotated example. Key sections:
 
 ```yaml
 # pgscalculator v2.1.0 Configuration
+
+# Optional: HPC modules to load before running (omit if singularity is already in PATH)
+#modules:
+#  - tools
+#  - singularity/4.1.2
+
 input: /path/to/cleansumstats/output
 outdir: /path/to/output
 genodir: /path/to/genotypes
