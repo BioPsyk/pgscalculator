@@ -192,19 +192,61 @@ parse_yaml_value() {
   awk -F': ' -v key="$key" '$1 == key {gsub(/^[ \t]+|[ \t]+$/, "", $2); print $2; exit}' "$file"
 }
 
-# Parse nested YAML values (e.g., slurm.account, slurm.prep.mem)
+# Parse nested YAML values (supports one or two levels under a section).
+# Examples:
+#   parse_yaml_nested "slurm" "account" file            -> slurm.account
+#   parse_yaml_nested "filters" "inclusion_list.gt" file -> filters.inclusion_list.gt
 parse_yaml_nested() {
   local section="$1"
   local key="$2"
   local file="$3"
   awk -v section="$section" -v key="$key" '
-    BEGIN { in_section = 0 }
-    /^[a-zA-Z]/ { in_section = 0 }
-    $0 ~ "^"section":" { in_section = 1; next }
-    in_section && $0 ~ "^  "key":" {
-      gsub(/^  [a-zA-Z_]+: */, "")
-      gsub(/[{}]/, "")
-      print
+    BEGIN {
+      in_section = 0
+      in_subsection = 0
+      n = split(key, parts, /\./)
+      key1 = parts[1]
+      key2 = (n >= 2 ? parts[2] : "")
+    }
+    # Enter target top-level section
+    $0 ~ "^"section":[[:space:]]*$" {
+      in_section = 1
+      in_subsection = 0
+      next
+    }
+    # Leave section when a new top-level key starts
+    in_section && /^[^[:space:]][^:]*:[[:space:]]*$/ {
+      in_section = 0
+      in_subsection = 0
+    }
+    !in_section { next }
+
+    # One-level key under section: "  account: value"
+    n == 1 && $0 ~ "^[[:space:]]{2}"key1":[[:space:]]*" {
+      line = $0
+      sub("^[[:space:]]{2}"key1":[[:space:]]*", "", line)
+      gsub(/[{}]/, "", line)
+      gsub(/^[ \t]+|[ \t]+$/, "", line)
+      print line
+      exit
+    }
+
+    # Two-level key under section:
+    #   "  inclusion_list:"
+    #   "    gt: value"
+    n >= 2 && $0 ~ "^[[:space:]]{2}"key1":[[:space:]]*$" {
+      in_subsection = 1
+      next
+    }
+    n >= 2 && in_subsection && /^[[:space:]]{2}[a-zA-Z_][a-zA-Z0-9_]*:[[:space:]]*$/ && $0 !~ "^[[:space:]]{2}"key1":[[:space:]]*$" {
+      in_subsection = 0
+    }
+    n >= 2 && in_subsection && $0 ~ "^[[:space:]]{4}"key2":[[:space:]]*" {
+      line = $0
+      sub("^[[:space:]]{4}"key2":[[:space:]]*", "", line)
+      gsub(/[{}]/, "", line)
+      gsub(/^[ \t]+|[ \t]+$/, "", line)
+      print line
       exit
     }
   ' "$file"
