@@ -71,7 +71,7 @@ if (status == 0) {
   ok <- tryCatch({
     suppressPackageStartupMessages(library(bigsnpr))
     suppressPackageStartupMessages(library(Matrix))
-    M <- Matrix::Matrix(diag(3), sparse = TRUE)
+    M <- Matrix::sparseMatrix(i = 1:3, j = 1:3, x = 1)
     tmp <- tempfile()
     corr <- bigsparser::as_SFBM(M, tmp, compact = TRUE)
     df_beta <- data.frame(

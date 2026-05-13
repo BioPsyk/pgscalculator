@@ -64,10 +64,9 @@ RUN R -e "install.packages('pak', repos = sprintf( \
 # All R packages needed for LDpred2.
 # Pin: bigsnpr >= 1.12.0 (validated LDpred2-auto, paper-infer)
 #      bigsparser >= 0.6 (compact SFBM format)
-# pak version-pin syntax is 'pkg@>=X.Y.Z' (https://pak.r-lib.org/reference/pak_package_sources.html)
 RUN R -e "pak::pkg_install(c( \
-        'bigsnpr@>=1.12.0', \
-        'bigsparser@>=0.6', \
+        'bigsnpr', \
+        'bigsparser', \
         'bigreadr', \
         'runonce', \
         'argparser', \
@@ -77,7 +76,9 @@ RUN R -e "pak::pkg_install(c( \
         'data.table', \
         'tibble', \
         'tidyr', \
-        'dplyr'))"
+        'dplyr')); \
+    stopifnot(packageVersion('bigsnpr') >= '1.12.0'); \
+    stopifnot(packageVersion('bigsparser') >= '0.6')"
 
 # =============================================================================
 # Final runtime image
@@ -131,7 +132,9 @@ RUN git clone https://github.com/getian107/PRScs.git PRScs
 
 # Install GCTB (sbayesR)
 WORKDIR /pgscalculator
-RUN wget https://cnsgenomics.com/software/gctb/download/gctb_2.05beta_Linux.zip --no-check-certificate && \
+ARG GCTB_URL_PRIMARY=https://gctbhub.cloud.edu.au/software/gctb/download/gctb_2.05beta_Linux.zip
+ARG GCTB_URL_FALLBACK=https://cnsgenomics.com/software/gctb/download/gctb_2.05beta_Linux.zip
+RUN (wget "${GCTB_URL_PRIMARY}" --no-check-certificate || wget "${GCTB_URL_FALLBACK}" --no-check-certificate) && \
     unzip gctb_2.05beta_Linux.zip && \
     mv gctb_2.05beta_Linux/gctb /usr/bin/gctb
 
