@@ -293,9 +293,16 @@ prep/variant_map_sbayesr.tsv      (current; rename existing variant_map.tsv → 
 prep/variant_map_ldpred2.tsv      (new; built from prep/ldref_ldpred2/map.tsv)
 ```
 
-For backward compatibility a symlink `prep/variant_map.tsv →
-variant_map_sbayesr.tsv` is created in the same step so existing tooling
-keeps working.
+**No symlink for back-compat.** Symlinks don't survive cleanly through
+Singularity/Docker bind mounts on every site (broken target resolution,
+copy-on-export quirks). Instead, the rename is handled the same way the
+sumstat-dir reshuffle already is: a `migrate_prep_variant_map_to_sbayesr()`
+helper runs at the start of every `prep-inclusion-list` invocation and, if it
+sees a legacy `prep/variant_map.tsv` (or `prep/variant_map/`) on disk with no
+new sBayesR-named counterpart, renames it in place. Idempotent and safe to
+re-run. All in-pipeline readers (`filter_variants.sh`, `format_posteriors.sh`,
+`finalize_output.sh`) point at the new sBayesR-suffixed path directly — no
+double-lookup with fallback.
 
 The schema for `variant_map_ldpred2.tsv` mirrors `variant_map_sbayesr.tsv`:
 
@@ -303,9 +310,21 @@ The schema for `variant_map_ldpred2.tsv` mirrors `variant_map_sbayesr.tsv`:
 chr  pos_b37  pos_b38  geno_snpid  geno_a1  geno_a2  ldref_snpid  ldref_a1  ldref_a2  ldref_a2freq  ld  block_id
 ```
 
-`ldref_a2freq` here comes from `af_UKBB` in `map_hm3_plus.rds`, and `ld` /
-`block_id` are carried through for use during LD-score regression and SFBM
-construction.
+Allele-convention reconciliation: the bigsnpr LDpred2 map uses `a0` (reference
+allele) and `a1` (alternative / effect allele), and ships `af_UKBB` =
+frequency of `a1`. The existing sBayesR variant map follows the GCTB
+convention where `ldref_a1` is the effect allele and `ldref_a2` is the other
+allele, with `ldref_a2freq` = frequency of the *other* allele. To keep
+downstream readers method-agnostic we map:
+
+| LDpred2 map column | variant_map_ldpred2.tsv column |
+|--------------------|-------------------------------|
+| `a1`               | `ldref_a1` (effect allele)    |
+| `a0`               | `ldref_a2` (other allele)     |
+| `af_UKBB`          | `1 - af_UKBB` → `ldref_a2freq`|
+
+`ld` and `block_id` are carried through unchanged and are consumed by the
+LDpred2 R script during LD-score regression and SFBM construction.
 
 ### 5.4 `filter-variants` becomes method-parameterised
 

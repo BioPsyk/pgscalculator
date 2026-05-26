@@ -35,6 +35,7 @@ COMMANDS:
         prep-ldref        Extract RSIDs from LD reference
         prep-ldref-ldpred2  Validate LDpred2 LD reference and dump its map to TSV (opt-in via ldpred2.ld_dir)
         prep-inclusion-list  Create variant inclusion list (INFO/MAF filtered, LD intersect)
+        prep-inclusion-list-ldpred2  Build the LDpred2 variant map (opt-in via ldpred2.ld_dir)
 
     Per-sumstat processing:
         format-sumstat    Format and add build coordinates to sumstat
@@ -185,9 +186,45 @@ OPTIONS:
 
 OUTPUT:
     {outdir}/prep/inclusion_list/
-        variant_inclusion_list.tsv  Final filtered variant list
+        variant_inclusion_list.tsv     Final filtered variant list
     {outdir}/prep/
-        variant_map.tsv             Full rsid <-> genotype_id crosswalk
+        variant_map_sbayesr.tsv        Full rsid <-> genotype_id crosswalk (sBayesR variant set)
+EOF
+            ;;
+        prep-inclusion-list-ldpred2)
+            cat << EOF
+pgscalculator prep-inclusion-list-ldpred2 - Build the LDpred2 variant map (opt-in)
+
+USAGE:
+    pgscalculator prep-inclusion-list-ldpred2 --config FILE [options]
+
+DESCRIPTION:
+    Joins the LDpred2 LD-reference map produced by prep-ldref-ldpred2
+    (prep/ldref_ldpred2/map.tsv) with the genotype variant IDs from
+    prep-genotypes (prep/genotypes/chr{N}_pvar_fmt), build-aware on
+    chr:pos + alleles. Emits a single chromosome-ordered variant map that
+    carries the LD-score and LD-block-id columns through.
+
+    The step is opt-in: if 'ldpred2.ld_dir' is not set in the config file,
+    it logs a 'skipping' message and exits 0, leaving the rest of the prep
+    step group unaffected.
+
+DEPENDENCIES:
+    Requires prep-genotypes and prep-ldref-ldpred2 to be completed first.
+
+OPTIONS:
+    --config FILE    Path to config.yaml file (required)
+    --verbose        Enable verbose output
+    --dry-run        Show what would be done without executing
+
+OUTPUT:
+    {outdir}/prep/
+        variant_map_ldpred2.tsv   12-col rsid <-> genotype_id crosswalk
+                                  (adds 'ld' + 'block_id' to the sBayesR schema)
+    {outdir}/prep/details/
+        prep_inclusion_list_ldpred2_steps.tsv   provenance + match rate
+    {outdir}/prep/inclusion_list_ldpred2/
+        .completed                marker file written on success
 EOF
             ;;
         format-sumstat)
@@ -558,6 +595,11 @@ dispatch_command() {
             require_file "$CONFIG_FILE" "Config file required. Use --config FILE"
             source "${STEPS_DIR}/prep_inclusion_list.sh"
             run_prep_inclusion_list
+            ;;
+        prep-inclusion-list-ldpred2)
+            require_file "$CONFIG_FILE" "Config file required. Use --config FILE"
+            source "${STEPS_DIR}/prep_inclusion_list_ldpred2.sh"
+            run_prep_inclusion_list_ldpred2
             ;;
         format-sumstat)
             require_file "$CONFIG_FILE" "Config file required. Use --config FILE"

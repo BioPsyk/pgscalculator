@@ -21,7 +21,7 @@ check_filter_variants_deps() {
     prep_dir=$(get_prep_dir "$outdir")
     
     # Check that prep-inclusion-list has been run
-    require_file "${prep_dir}/variant_map.tsv" "Run 'pgscalculator prep-inclusion-list' first"
+    require_file "${prep_dir}/variant_map_sbayesr.tsv" "Run 'pgscalculator prep-inclusion-list' first"
 }
 
 # Validate sumstat metadata has required N field for posterior calculations.
@@ -143,7 +143,7 @@ run_filter_variants() {
     local input_dir="${CFG_INPUT}"
     local metadata_file="${input_dir}/cleaned_metadata.yaml"
     local which_n="${CFG_WHICHN:-totalN}"
-    local prep_mapfile="${prep_dir}/variant_map.tsv"
+    local prep_mapfile="${prep_dir}/variant_map_sbayesr.tsv"
     local sumstat_mapfile="${sumstat_dir}/variant_map.tsv"
     local sumstat_for_posteriors="${sumstat_dir}/sumstat_for_posteriors.tsv.gz"
     local list_gt="${CFG_FILTERS_INCLUSION_LIST_GT:-}"
@@ -327,7 +327,7 @@ run_filter_variants_chr() {
     local input_dir="${CFG_INPUT}"
     local metadata_file="${input_dir}/cleaned_metadata.yaml"
     local which_n="${CFG_WHICHN:-totalN}"
-    local prep_mapfile="${prep_dir}/variant_map.tsv"
+    local prep_mapfile="${prep_dir}/variant_map_sbayesr.tsv"
     local list_gt="${CFG_FILTERS_INCLUSION_LIST_GT:-}"
     local list_ss="${CFG_FILTERS_INCLUSION_LIST_SS:-}"
     local list_ld="${CFG_FILTERS_INCLUSION_LIST_LD:-}"

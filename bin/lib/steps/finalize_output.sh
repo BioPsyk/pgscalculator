@@ -87,12 +87,12 @@ write_variant_map() {
 
     local variant_map_src="${sumstat_dir}/variant_map.tsv"
     if [[ ! -f "$variant_map_src" ]]; then
-        variant_map_src="${prep_dir}/variant_map.tsv"
+        variant_map_src="${prep_dir}/variant_map_sbayesr.tsv"
     fi
     local variant_map_out="${sumstat_dir}/variant_map.gz"
 
     if [[ ! -f "$variant_map_src" ]]; then
-        log_warn "variant_map.tsv not found at: ${variant_map_src} (skipping)"
+        log_warn "variant map not found at: ${variant_map_src} (skipping)"
         return 0
     fi
 
@@ -132,12 +132,12 @@ write_augmented_sumstat_v2() {
     local sumstat_dir="$1"
     local prep_dir="$2"
     local variant_map="${sumstat_dir}/variant_map.tsv"
-    [[ ! -f "$variant_map" ]] && variant_map="${prep_dir}/variant_map.tsv"
+    [[ ! -f "$variant_map" ]] && variant_map="${prep_dir}/variant_map_sbayesr.tsv"
     local eaf_file="${prep_dir}/references/ldref_eaf.tsv"
     local output_file="${sumstat_dir}/augmented_sumstat.gz"
 
     if [[ ! -f "$variant_map" ]]; then
-        log_warn "variant_map.tsv not found, skipping augmented_sumstat.gz"
+        log_warn "sBayesR variant map not found, skipping augmented_sumstat.gz"
         return 0
     fi
 

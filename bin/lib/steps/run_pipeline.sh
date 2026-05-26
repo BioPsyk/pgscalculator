@@ -2,7 +2,7 @@
 # pgscalculator v2 - run command
 
 declare -A STEP_GROUPS
-STEP_GROUPS=([prep]="prep-genotypes prep-ldref prep-ldref-ldpred2 prep-inclusion-list" [sumstat]="format-sumstat filter-variants" [weights]="calc-posteriors format-posteriors calc-benchmark" [score]="calc-score" [finalize]="combine-scores finalize-output")
+STEP_GROUPS=([prep]="prep-genotypes prep-ldref prep-ldref-ldpred2 prep-inclusion-list prep-inclusion-list-ldpred2" [sumstat]="format-sumstat filter-variants" [weights]="calc-posteriors format-posteriors calc-benchmark" [score]="calc-score" [finalize]="combine-scores finalize-output")
 STEP_GROUP_ORDER=("prep" "sumstat" "weights" "score" "finalize")
 
 format_elapsed() {
@@ -81,6 +81,7 @@ run_single_step() {
         prep-ldref) export CFG_STEP_GROUP="prep"; source "${STEPS_DIR}/prep_ldref.sh"; run_prep_ldref; rc=$?;;
         prep-ldref-ldpred2) export CFG_STEP_GROUP="prep"; source "${STEPS_DIR}/prep_ldref_ldpred2.sh"; run_prep_ldref_ldpred2; rc=$?;;
         prep-inclusion-list) export CFG_STEP_GROUP="prep"; source "${STEPS_DIR}/prep_inclusion_list.sh"; run_prep_inclusion_list; rc=$?;;
+        prep-inclusion-list-ldpred2) export CFG_STEP_GROUP="prep"; source "${STEPS_DIR}/prep_inclusion_list_ldpred2.sh"; run_prep_inclusion_list_ldpred2; rc=$?;;
         prep-inclusion-combine) export CFG_STEP_GROUP="prep"; source "${STEPS_DIR}/prep_inclusion_list.sh"; run_prep_inclusion_list_combine; rc=$?;;
         format-sumstat) source "${STEPS_DIR}/format_sumstat.sh"; run_format_sumstat "$sumstat_name"; rc=$?;;
         filter-variants) source "${STEPS_DIR}/filter_variants.sh"; run_filter_variants "$sumstat_name"; rc=$?;;

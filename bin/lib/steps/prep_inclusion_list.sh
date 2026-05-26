@@ -45,6 +45,11 @@ run_prep_inclusion_list() {
     local step_dir
     step_dir=$(get_step_dir "$outdir" "inclusion_list")
     ensure_dir "$step_dir"
+
+    # Method-explicit naming landed in v2.2.0; migrate any legacy unsuffixed
+    # outputs from prior runs into the sBayesR-suffixed paths so downstream
+    # steps find them. Idempotent.
+    migrate_prep_variant_map_to_sbayesr "$prep_dir"
     
     local geno_dir="${prep_dir}/genotypes"
     local ldref_dir="${prep_dir}/ldref"
@@ -143,7 +148,7 @@ run_prep_inclusion_list() {
     log_substep "Computing MAF from genotypes"
     local ref_dir="${prep_dir}/references"
     ensure_dir "$ref_dir"
-    compute_maf_from_genotypes "$prep_dir" "$ref_dir" "${prep_dir}/variant_map.tsv"
+    compute_maf_from_genotypes "$prep_dir" "$ref_dir" "${prep_dir}/variant_map_sbayesr.tsv"
     
     # Mark step as completed
     mark_step_completed "$step_dir"
@@ -274,7 +279,7 @@ write_chr_variant_maps() {
     local prep_dir="$2"
     local ref_dir="${prep_dir}/references"
     local ldref_eaf="${ref_dir}/ldref_eaf.tsv"
-    local out_dir="${prep_dir}/variant_map"
+    local out_dir="${prep_dir}/variant_map_sbayesr"
     
     ensure_dir "$out_dir"
     
@@ -312,30 +317,53 @@ write_chr_variant_maps() {
 
 combine_variant_maps() {
     local prep_dir="$1"
-    local in_dir="${prep_dir}/variant_map"
+    local in_dir="${prep_dir}/variant_map_sbayesr"
+    local out_file="${prep_dir}/variant_map_sbayesr.tsv"
     
     # New header with dual positions (pos_b37 and pos_b38)
-    echo -e "chr\tpos_b37\tpos_b38\tgeno_snpid\tgeno_a1\tgeno_a2\tldref_snpid\tldref_a1\tldref_a2\tldref_a2freq" > "${prep_dir}/variant_map.tsv"
+    echo -e "chr\tpos_b37\tpos_b38\tgeno_snpid\tgeno_a1\tgeno_a2\tldref_snpid\tldref_a1\tldref_a2\tldref_a2freq" > "$out_file"
     
     # Concatenate all chromosome maps (skip header)
     if compgen -G "${in_dir}/chr*.tsv" > /dev/null; then
-        awk -F'\t' 'FNR==1{next} {print}' "${in_dir}"/chr*.tsv >> "${prep_dir}/variant_map.tsv"
+        awk -F'\t' 'FNR==1{next} {print}' "${in_dir}"/chr*.tsv >> "$out_file"
     fi
     
     local total_count
-    total_count=$(wc -l < "${prep_dir}/variant_map.tsv")
+    total_count=$(wc -l < "$out_file")
     total_count=$((total_count - 1))  # Subtract header
-    log_info "Combined variant map: ${total_count} variants (with dual positions)"
-    log_info "Variant map saved to: ${prep_dir}/variant_map.tsv"
+    log_info "Combined sBayesR variant map: ${total_count} variants (with dual positions)"
+    log_info "Variant map saved to: ${out_file}"
+}
+
+# Migrate legacy unsuffixed prep variant-map outputs to the sBayesR-suffixed
+# names. Runs at the start of every prep-inclusion-list invocation so existing
+# v2 output directories don't have to be rebuilt from scratch. Idempotent and
+# silent when nothing needs moving.
+migrate_prep_variant_map_to_sbayesr() {
+    local prep_dir="$1"
+
+    local legacy_file="${prep_dir}/variant_map.tsv"
+    local sbayesr_file="${prep_dir}/variant_map_sbayesr.tsv"
+    if [[ -f "$legacy_file" ]] && [[ ! -e "$sbayesr_file" ]]; then
+        log_info "Migrating legacy prep/variant_map.tsv -> prep/variant_map_sbayesr.tsv"
+        mv "$legacy_file" "$sbayesr_file"
+    fi
+
+    local legacy_dir="${prep_dir}/variant_map"
+    local sbayesr_dir="${prep_dir}/variant_map_sbayesr"
+    if [[ -d "$legacy_dir" ]] && [[ ! -e "$sbayesr_dir" ]]; then
+        log_info "Migrating legacy prep/variant_map/ -> prep/variant_map_sbayesr/"
+        mv "$legacy_dir" "$sbayesr_dir"
+    fi
 }
 
 create_final_inclusion_list() {
     local step_dir="$1"
     local prep_dir="$2"
     
-    local variant_map="${prep_dir}/variant_map.tsv"
+    local variant_map="${prep_dir}/variant_map_sbayesr.tsv"
     if [[ ! -s "$variant_map" ]]; then
-        log_error "Missing or empty variant_map.tsv; cannot derive inclusion list."
+        log_error "Missing or empty variant_map_sbayesr.tsv; cannot derive inclusion list."
         log_error "Expected: ${variant_map}"
         return 1
     fi
@@ -368,7 +396,9 @@ run_prep_inclusion_list_combine() {
     local step_dir
     step_dir=$(get_step_dir "$outdir" "inclusion_list")
     ensure_dir "$step_dir"
-    
+
+    migrate_prep_variant_map_to_sbayesr "$prep_dir"
+
     log_substep "Writing per-chromosome mapfiles"
     write_chr_variant_maps "$step_dir" "$prep_dir"
     
@@ -382,7 +412,7 @@ run_prep_inclusion_list_combine() {
     log_substep "Computing MAF from genotypes"
     local ref_dir="${prep_dir}/references"
     ensure_dir "$ref_dir"
-    compute_maf_from_genotypes "$prep_dir" "$ref_dir" "${prep_dir}/variant_map.tsv"
+    compute_maf_from_genotypes "$prep_dir" "$ref_dir" "${prep_dir}/variant_map_sbayesr.tsv"
     
     mark_step_completed "$step_dir"
     log_info "prep-inclusion-list combine completed"
@@ -398,7 +428,7 @@ compute_maf_from_genotypes() {
     local maf_output="${ref_dir}/maf_computed.tsv"
 
     if [[ -z "$variant_map" ]] || [[ ! -s "$variant_map" ]]; then
-        log_error "variant_map.tsv is required to compute MAF (rows with genotype match)."
+        log_error "variant_map_sbayesr.tsv is required to compute MAF (rows with genotype match)."
         log_error "Got: ${variant_map:-<empty>}"
         return 1
     fi
@@ -561,15 +591,15 @@ generate_prep_stepwise_details() {
     
     # Count final variant map (all LD ref liftover variants; genotype NA where no match)
     local n_variant_map=0
-    if [[ -f "${prep_dir}/variant_map.tsv" ]]; then
-        n_variant_map=$(wc -l < "${prep_dir}/variant_map.tsv")
+    if [[ -f "${prep_dir}/variant_map_sbayesr.tsv" ]]; then
+        n_variant_map=$(wc -l < "${prep_dir}/variant_map_sbayesr.tsv")
         n_variant_map=$((n_variant_map - 1))  # Subtract header
     fi
     log_info "Variant map (all LD ref liftover): ${n_variant_map}"
 
     local n_geno_matched=0
-    if [[ -f "${prep_dir}/variant_map.tsv" ]]; then
-        n_geno_matched=$(awk -F'\t' 'NR > 1 && $4 != "NA" {count++} END {print count+0}' "${prep_dir}/variant_map.tsv")
+    if [[ -f "${prep_dir}/variant_map_sbayesr.tsv" ]]; then
+        n_geno_matched=$(awk -F'\t' 'NR > 1 && $4 != "NA" {count++} END {print count+0}' "${prep_dir}/variant_map_sbayesr.tsv")
     fi
     log_info "Variants with genotype match: ${n_geno_matched}"
     

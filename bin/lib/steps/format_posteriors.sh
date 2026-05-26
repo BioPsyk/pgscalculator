@@ -21,7 +21,7 @@ check_format_posteriors_deps() {
     prep_dir=$(get_prep_dir "$outdir")
     
     # Check that prep-inclusion-list has been run
-    require_file "${prep_dir}/variant_map.tsv" "Run 'pgscalculator prep-inclusion-list' first"
+    require_file "${prep_dir}/variant_map_sbayesr.tsv" "Run 'pgscalculator prep-inclusion-list' first"
 }
 
 # =============================================================================
@@ -70,7 +70,7 @@ run_format_posteriors() {
         log_warn "Found ${step_dir}/.completed but no mapped chr*.snpRes outputs; re-running format-posteriors."
     fi
     
-    local mapfile="${prep_dir}/variant_map.tsv"
+    local mapfile="${prep_dir}/variant_map_sbayesr.tsv"
     
     # Build LDREF -> genotype ID mapping
     log_substep "Building LDREF to genotype ID mapping"
