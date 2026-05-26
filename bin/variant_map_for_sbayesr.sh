@@ -32,22 +32,28 @@ fi
 LC_ALL=C sort -k4,4 ${bim2_file} > bim2_sorted_1.tmp
 LC_ALL=C sort -k1,1 ${ld2_file} > ld2_sorted.tmp
 
-# Perform the joins
-# NOTE: `-o` field specs are passed as a single quoted argument so the call is
-# portable across GNU coreutils (>=24.04) and uutils coreutils (>=25.10, Rust).
-# GNU `join` greedily consumes following FIELDSPEC tokens; uutils `join` (clap)
-# treats them as positional arguments and errors out.
-LC_ALL=C join -1 1 -2 4 -o "2.1 2.2 2.3 2.4" "snp2_sorted_fixed.tmp" bim2_sorted_1.tmp > join0.tmp
+# Perform the joins.
+# NOTE on `-o` FIELDSPEC syntax: pass field specs as a single COMMA-separated
+# argument. Both GNU coreutils `join` (since 8.0) and uutils coreutils `join`
+# (Rust reimplementation, e.g. 0.8.0 shipped with Ubuntu 25.10+) accept this
+# form. The historical GNU-only form `-o 1.1 1.2 1.3` (greedily consumed extra
+# positional tokens) is rejected by uutils' clap parser, which treats `-o` as
+# taking exactly one FORMAT argument. A space-separated single-quoted form
+# (`-o "1.1 1.2 1.3"`) also happens to work on both, but it is fragile: a
+# missing quote silently regresses to the broken multi-arg form. The
+# comma-separated form is unambiguous and is the form documented by both
+# implementations.
+LC_ALL=C join -1 1 -2 4 -o '2.1,2.2,2.3,2.4' "snp2_sorted_fixed.tmp" bim2_sorted_1.tmp > join0.tmp
 LC_ALL=C sort -k1,1 join0.tmp > bim2_sorted_2.tmp
 
-LC_ALL=C join -1 1 -2 1 -o "1.1 1.2 1.5 1.3 1.4 2.4 2.2 2.3" ss2_sorted.tmp bim2_sorted_2.tmp > join1.tmp
+LC_ALL=C join -1 1 -2 1 -o '1.1,1.2,1.5,1.3,1.4,2.4,2.2,2.3' ss2_sorted.tmp bim2_sorted_2.tmp > join1.tmp
 
 
 if [ "${lbuild}" == "${gbuild}" ] ; then
-  LC_ALL=C join -1 1 -2 1 -a 1 -e 'NA' -o "1.1 1.2 1.3 1.4 1.5 1.6 1.7 1.8 2.4 2.2 2.3" join1.tmp ld2_sorted.tmp > join2.tmp
+  LC_ALL=C join -1 1 -2 1 -a 1 -e 'NA' -o '1.1,1.2,1.3,1.4,1.5,1.6,1.7,1.8,2.4,2.2,2.3' join1.tmp ld2_sorted.tmp > join2.tmp
 else
   LC_ALL=C sort -k2,2 join1.tmp > join1.resorted.tmp
-  LC_ALL=C join -1 2 -2 1 -a 1 -e 'NA' -o "1.1 1.2 1.3 1.4 1.5 1.6 1.7 1.8 2.4 2.2 2.3" join1.resorted.tmp ld2_sorted.tmp > join2.tmp
+  LC_ALL=C join -1 2 -2 1 -a 1 -e 'NA' -o '1.1,1.2,1.3,1.4,1.5,1.6,1.7,1.8,2.4,2.2,2.3' join1.resorted.tmp ld2_sorted.tmp > join2.tmp
 fi
 
 # Filter rows where neither A1==A1 nor A1==A2 between the files

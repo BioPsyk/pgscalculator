@@ -2,6 +2,15 @@
 
 set -euo pipefail
 
+# Ensure the host repo's bin/ wins over any copy baked into the runtime
+# container (e.g. /pgscalculator/bin/variant_map_for_sbayesr.sh in
+# ibp-pgscalculator-base 0.6.0). Without this prepend, PATH resolution
+# finds the container's stale, GNU-only `join -o a b c` form which breaks
+# under uutils coreutils `join` (Ubuntu 25.10+).
+if [ -n "${PROJECT_DIR:-}" ] && [ -d "${PROJECT_DIR}/bin" ]; then
+  export PATH="${PROJECT_DIR}/bin:${PATH}"
+fi
+
 test_script="variant_map_for_sbayesr"
 initial_dir=$(pwd)"/${test_script}"
 curr_case=""
