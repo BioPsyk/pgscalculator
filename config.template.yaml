@@ -44,6 +44,14 @@ sbayesr:
   no_mcmc_bin: false
   impute_n: false
 
+# LDpred2 method (opt-in). The full calc-ldpred2 step lands in a later commit;
+# for now these keys drive prep-ldref-ldpred2 only. Uncomment + adjust paths to
+# enable. See docs/references.md for how to obtain the reference data.
+#ldpred2:
+#  ld_variant_set: hm3_plus                                                # hm3 | hm3_plus
+#  ld_dir:         /path/to/references/ld-ldpred2/hm3_plus                 # holds LD_with_blocks_chr{1..22}.rds
+#  ld_meta_file:   /path/to/references/ld-ldpred2/hm3_plus/map_hm3_plus.rds  # optional; defaults under ld_dir for the chosen variant set
+
 # Scoring columns (variant_id allele effect)
 score_columns: 1 2 5
 

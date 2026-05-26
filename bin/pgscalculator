@@ -33,6 +33,7 @@ COMMANDS:
     Preparation (run once, reused across sumstats):
         prep-genotypes    Extract variant IDs from genotype files
         prep-ldref        Extract RSIDs from LD reference
+        prep-ldref-ldpred2  Validate LDpred2 LD reference and dump its map to TSV (opt-in via ldpred2.ld_dir)
         prep-inclusion-list  Create variant inclusion list (INFO/MAF filtered, LD intersect)
 
     Per-sumstat processing:
@@ -125,6 +126,40 @@ OPTIONS:
 OUTPUT:
     {outdir}/prep/ldref/
         chr{1-22}_ld_rsids   RSIDs from LD reference per chromosome
+EOF
+            ;;
+        prep-ldref-ldpred2)
+            cat << EOF
+pgscalculator prep-ldref-ldpred2 - Prepare LDpred2 LD reference (opt-in)
+
+USAGE:
+    pgscalculator prep-ldref-ldpred2 --config FILE [options]
+
+DESCRIPTION:
+    Validates that an LDpred2 LD reference directory contains all 22
+    LD_with_blocks_chr{N}.rds files, loads the matching map_hm3{,_plus}.rds,
+    and dumps it as a TSV that the LDpred2 sub-pipeline consumes.
+
+    The step is opt-in: if 'ldpred2.ld_dir' is not set in the config file,
+    it logs a 'skipping' message and exits 0, leaving the rest of the prep
+    step group unaffected.
+
+OPTIONS:
+    --config FILE    Path to config.yaml file (required)
+    --verbose        Enable verbose output
+    --dry-run        Show what would be done without executing
+
+CONFIG KEYS:
+    ldpred2.ld_dir            Directory with LD_with_blocks_chr{N}.rds
+    ldpred2.ld_variant_set    hm3 | hm3_plus (default: hm3_plus)
+    ldpred2.ld_meta_file      Optional explicit path to map_hm3{,_plus}.rds
+
+OUTPUT:
+    {outdir}/prep/ldref_ldpred2/
+        map.tsv      chr pos_b37 pos_b38 a0 a1 rsid af_UKBB ld block_id
+        .completed   marker file written on success
+    {outdir}/prep/details/
+        prep_ldref_ldpred2.tsv   provenance (paths, variant counts)
 EOF
             ;;
         prep-inclusion-list)
@@ -513,6 +548,11 @@ dispatch_command() {
             require_file "$CONFIG_FILE" "Config file required. Use --config FILE"
             source "${STEPS_DIR}/prep_ldref.sh"
             run_prep_ldref
+            ;;
+        prep-ldref-ldpred2)
+            require_file "$CONFIG_FILE" "Config file required. Use --config FILE"
+            source "${STEPS_DIR}/prep_ldref_ldpred2.sh"
+            run_prep_ldref_ldpred2
             ;;
         prep-inclusion-list)
             require_file "$CONFIG_FILE" "Config file required. Use --config FILE"
