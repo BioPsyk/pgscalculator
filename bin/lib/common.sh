@@ -284,6 +284,28 @@ get_sumstat_step_dir() {
     echo "${work_dir}/${step}"
 }
 
+# Method-explicit naming for the filter-variants step (Phase 1 §5.4).
+# Renames any legacy work/filtered/ directory to work/filtered_sbayesr/ so
+# downstream tooling that targets per-method paths can find the existing
+# outputs without re-running the step. Idempotent and silent when nothing
+# needs moving. The .completed marker (and every other file) inside the
+# directory moves along with the rename, preserving the step-completed state.
+migrate_filtered_dirs() {
+    local sumstat_dir="$1"
+
+    local work_dir
+    work_dir=$(get_sumstat_work_dir "$sumstat_dir")
+    ensure_dir "$work_dir"
+
+    local legacy_dir="${work_dir}/filtered"
+    local sbayesr_dir="${work_dir}/filtered_sbayesr"
+
+    if [[ -d "$legacy_dir" ]] && [[ ! -d "$sbayesr_dir" ]]; then
+        log_info "Migrating legacy work/filtered/ -> work/filtered_sbayesr/"
+        mv "$legacy_dir" "$sbayesr_dir"
+    fi
+}
+
 # Migrate all known per-sumstat step directories into work/.
 # Safe to call repeatedly.
 migrate_sumstat_all_step_dirs() {
@@ -291,6 +313,9 @@ migrate_sumstat_all_step_dirs() {
     for step in formatted filtered posteriors posteriors_mapped scores scores_combined; do
         migrate_sumstat_step_dir "$sumstat_dir" "$step"
     done
+    # After the layout-level migration into work/, also apply the method-explicit
+    # rename for filter-variants so legacy work/filtered/ becomes work/filtered_sbayesr/.
+    migrate_filtered_dirs "$sumstat_dir"
 }
 
 # =============================================================================

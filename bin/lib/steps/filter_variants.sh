@@ -10,6 +10,8 @@
 # =============================================================================
 
 check_filter_variants_deps() {
+    local method="${1:-sbayesr}"
+
     require_command "awk" "awk is required for text processing"
     require_command "sort" "sort is required for sorting"
     
@@ -19,9 +21,25 @@ check_filter_variants_deps() {
     local outdir="${CFG_OUTDIR}"
     local prep_dir
     prep_dir=$(get_prep_dir "$outdir")
-    
-    # Check that prep-inclusion-list has been run
-    require_file "${prep_dir}/variant_map_sbayesr.tsv" "Run 'pgscalculator prep-inclusion-list' first"
+
+    # Method-explicit variant map paths (Phase 1 §5.4). The sBayesR rename is
+    # opt-in via the migration helper in prep-inclusion-list; the LDpred2 map is
+    # opt-in via prep-inclusion-list-ldpred2 (which itself requires ldpred2.ld_dir).
+    local mapfile="${prep_dir}/variant_map_${method}.tsv"
+    local hint
+    case "$method" in
+        sbayesr)
+            hint="Run 'pgscalculator prep-inclusion-list' first"
+            ;;
+        ldpred2)
+            hint="Run 'pgscalculator prep-inclusion-list-ldpred2' first (LDpred2 is opt-in via ldpred2.ld_dir; see plan §5.3)"
+            ;;
+        *)
+            log_error "Unknown filter-variants method: '${method}' (expected: sbayesr|ldpred2)"
+            exit 1
+            ;;
+    esac
+    require_file "$mapfile" "$hint"
 }
 
 # Validate sumstat metadata has required N field for posterior calculations.
@@ -85,11 +103,15 @@ validate_sumstat_n_field() {
 run_filter_variants() {
     local sumstat_name="$1"
     local specific_chr="${2:-}"  # Optional: run only specific chromosome
-    
-    log_step "Running filter-variants for: $sumstat_name"
+    # Method dispatch (Phase 1 §5.4). Default to sbayesr to keep existing
+    # sumstat configs binary-compatible (`--method` is opt-in). Resolution
+    # order: explicit positional arg > CFG_METHOD env > "sbayesr".
+    local method="${3:-${CFG_METHOD:-sbayesr}}"
+
+    log_step "Running filter-variants for: $sumstat_name (method: ${method})"
     
     # Check dependencies
-    check_filter_variants_deps
+    check_filter_variants_deps "$method"
     
     # Set up directories
     local outdir="${CFG_OUTDIR}"
@@ -99,10 +121,14 @@ run_filter_variants() {
     sumstat_dir=$(get_sumstat_dir "$outdir" "$sumstat_name")
     migrate_sumstat_step_dir "$sumstat_dir" "formatted"
     migrate_sumstat_step_dir "$sumstat_dir" "filtered"
+    # Method-explicit rename of work/filtered/ -> work/filtered_sbayesr/. The
+    # helper is a no-op when the legacy directory is absent or the new one
+    # already exists, so this is safe to run for both sBayesR and LDpred2 paths.
+    migrate_filtered_dirs "$sumstat_dir"
     local format_dir
     format_dir=$(get_sumstat_step_dir "$sumstat_dir" "formatted")
     local step_dir
-    step_dir=$(get_sumstat_step_dir "$sumstat_dir" "filtered")
+    step_dir=$(get_sumstat_step_dir "$sumstat_dir" "filtered_${method}")
     ensure_dir "$step_dir"
     
     # Early validation: check that metadata has required N fields (safety net for non-sbatch runs)
@@ -130,7 +156,7 @@ run_filter_variants() {
     
     # Per-chromosome mode
     if [[ -n "$specific_chr" ]]; then
-        run_filter_variants_chr "$sumstat_name" "$specific_chr"
+        run_filter_variants_chr "$sumstat_name" "$specific_chr" "$method"
         return $?
     fi
     
@@ -143,7 +169,12 @@ run_filter_variants() {
     local input_dir="${CFG_INPUT}"
     local metadata_file="${input_dir}/cleaned_metadata.yaml"
     local which_n="${CFG_WHICHN:-totalN}"
-    local prep_mapfile="${prep_dir}/variant_map_sbayesr.tsv"
+    local prep_mapfile="${prep_dir}/variant_map_${method}.tsv"
+    # NOTE: the sumstat-level variant_map.tsv stays unsuffixed for this commit.
+    # Splitting it per method is tracked as part of the LDpred2 follow-up work
+    # (see docs/plans/ldpred2-integration.md §5.4); doing so requires touching
+    # downstream readers (calc_posteriors/format_posteriors/finalize_output),
+    # which are intentionally out of scope here.
     local sumstat_mapfile="${sumstat_dir}/variant_map.tsv"
     local sumstat_for_posteriors="${sumstat_dir}/sumstat_for_posteriors.tsv.gz"
     local list_gt="${CFG_FILTERS_INCLUSION_LIST_GT:-}"
@@ -177,7 +208,7 @@ run_filter_variants() {
                 continue
             fi
             
-            if run_filter_variants_chr "$sumstat_name" "$chr"; then
+            if run_filter_variants_chr "$sumstat_name" "$chr" "$method"; then
                 ((success_count++))
                 local chr_out="${step_dir}/chr${chr}_filtered.tsv"
                 if [[ -f "$chr_out" ]]; then
@@ -290,8 +321,11 @@ run_filter_variants() {
 run_filter_variants_chr() {
     local sumstat_name="$1"
     local chr="$2"
-    
-    log_substep "Processing chromosome ${chr}"
+    # Phase 1 §5.4: method-explicit output dir + variant map. Default to
+    # sbayesr (matches the historical implicit behavior).
+    local method="${3:-${CFG_METHOD:-sbayesr}}"
+
+    log_substep "Processing chromosome ${chr} (method: ${method})"
     
     # Set up directories
     local outdir="${CFG_OUTDIR}"
@@ -302,7 +336,7 @@ run_filter_variants_chr() {
     local format_dir
     format_dir=$(get_sumstat_step_dir "$sumstat_dir" "formatted")
     local step_dir
-    step_dir=$(get_sumstat_step_dir "$sumstat_dir" "filtered")
+    step_dir=$(get_sumstat_step_dir "$sumstat_dir" "filtered_${method}")
     ensure_dir "$step_dir"
     
     local chr_input="${format_dir}/chr${chr}.tsv"
@@ -327,7 +361,7 @@ run_filter_variants_chr() {
     local input_dir="${CFG_INPUT}"
     local metadata_file="${input_dir}/cleaned_metadata.yaml"
     local which_n="${CFG_WHICHN:-totalN}"
-    local prep_mapfile="${prep_dir}/variant_map_sbayesr.tsv"
+    local prep_mapfile="${prep_dir}/variant_map_${method}.tsv"
     local list_gt="${CFG_FILTERS_INCLUSION_LIST_GT:-}"
     local list_ss="${CFG_FILTERS_INCLUSION_LIST_SS:-}"
     local list_ld="${CFG_FILTERS_INCLUSION_LIST_LD:-}"
@@ -341,7 +375,7 @@ run_filter_variants_chr() {
     done
     
     local tmpdir
-    tmpdir=$(make_tmpdir "filter_variants_chr${chr}")
+    tmpdir=$(make_tmpdir "filter_variants_${method}_chr${chr}")
     local reduced_tmp="${tmpdir}/reduced.tsv"
     local map_tmp="${tmpdir}/map.tsv"
     

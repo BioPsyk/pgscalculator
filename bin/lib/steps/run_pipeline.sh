@@ -84,7 +84,12 @@ run_single_step() {
         prep-inclusion-list-ldpred2) export CFG_STEP_GROUP="prep"; source "${STEPS_DIR}/prep_inclusion_list_ldpred2.sh"; run_prep_inclusion_list_ldpred2; rc=$?;;
         prep-inclusion-combine) export CFG_STEP_GROUP="prep"; source "${STEPS_DIR}/prep_inclusion_list.sh"; run_prep_inclusion_list_combine; rc=$?;;
         format-sumstat) source "${STEPS_DIR}/format_sumstat.sh"; run_format_sumstat "$sumstat_name"; rc=$?;;
-        filter-variants) source "${STEPS_DIR}/filter_variants.sh"; run_filter_variants "$sumstat_name"; rc=$?;;
+        # filter-variants: method dispatch via CFG_METHOD env var (set from
+        # --method by bin/pgscalculator). Default falls back to sbayesr inside
+        # run_filter_variants. Per-method driver loops (one filter-variants
+        # invocation per requested method) belong to the §6.4 wrapper commit
+        # and are intentionally not threaded here yet.
+        filter-variants) source "${STEPS_DIR}/filter_variants.sh"; run_filter_variants "$sumstat_name" "" "${CFG_METHOD:-sbayesr}"; rc=$?;;
         calc-posteriors) source "${STEPS_DIR}/calc_posteriors.sh"; run_calc_posteriors "$sumstat_name" ""; rc=$?;;
         format-posteriors) source "${STEPS_DIR}/format_posteriors.sh"; run_format_posteriors "$sumstat_name"; rc=$?;;
         calc-score) source "${STEPS_DIR}/calc_score.sh"; run_calc_score "$sumstat_name" ""; rc=$?;;

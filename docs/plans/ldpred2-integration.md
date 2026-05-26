@@ -340,15 +340,43 @@ work/filtered_ldpred2/chr{N}_matched.tsv      (new)
 
 The filter-variants step takes a `--method` flag and reads
 `prep/variant_map_<method>.tsv`. The bulk of the logic (column derivation,
-EAF/B/SE fill, bad-value drop) is unchanged.
+EAF/B/SE fill, bad-value drop) is unchanged: the awk parser already
+auto-detects columns by name, so the 12-col LDpred2 variant map (`ld`,
+`block_id` appended) is consumed transparently — the same code path picks
+up the first 10 columns it knows about and ignores the trailing two.
+
+The `--method ldpred2` invocation hard-fails if
+`prep/variant_map_ldpred2.tsv` is missing, pointing the user at
+`prep-inclusion-list-ldpred2` (which is itself opt-in via `ldpred2.ld_dir`,
+mirroring the §5.3 prep steps).
 
 > **Migration helper:** add a `migrate_filtered_dirs()` that, if
 > `work/filtered/` exists but `work/filtered_sbayesr/` does not, renames the
-> directory. Same pattern as the existing `migrate_sumstat_step_dir`.
+> directory. Same pattern as the existing `migrate_sumstat_step_dir`. The
+> helper also runs as part of `migrate_sumstat_all_step_dirs`, so any call
+> site that already invokes that wrapper (e.g. `run_pipeline.sh`) gets the
+> rename for free without per-step bookkeeping.
 
 The driver runs `filter-variants` **once per requested method**. Both can
 run inside the same `sumstat` array task (they're cheap; chr-parallel
 already).
+
+**Scope deferral (this commit, Phase 1 §5.4):**
+
+- The per-sumstat-level `${sumstat_dir}/variant_map.tsv` filename stays
+  unsuffixed for now. Splitting it into `variant_map_<method>.tsv` requires
+  updating every downstream reader (`format_posteriors.sh`,
+  `finalize_output.sh`, `calc_posteriors.sh`, etc.), which is part of the
+  downstream-method work tracked in §5.6–§5.7 / §9. Since only one method
+  runs per filter-variants invocation today, the file is owned by whichever
+  method wrote it last; LDpred2 + sBayesR coexistence at the sumstat-mapfile
+  level lands with the §9 finalize discovery work.
+- The driver-side per-method dispatch (one `filter-variants` invocation per
+  active method) belongs to the wrapper commit in §6.4 and is intentionally
+  not threaded through `bin/lib/steps/run_pipeline.sh` here. For now the
+  step-runner default is sbayesr; passing `CFG_METHOD=ldpred2` (or
+  `--method ldpred2`) into a single `pgscalculator filter-variants` call
+  exercises the LDpred2 path end-to-end.
 
 ### 5.5 The LDpred2 R script (`bin/lib/scripts/run_ldpred2.R`)
 

@@ -59,6 +59,8 @@ COMMANDS:
 OPTIONS:
     --config FILE       Path to config.yaml file (required for most commands)
     --sumstat NAME      Name of sumstat to process (for per-sumstat commands)
+    --method NAME       Posterior method (sbayesr|ldpred2) for method-parameterised
+                        steps. Default: sbayesr.
     --force             Force re-run of steps even if already completed
     --verbose           Enable verbose output
     --dry-run           Show what would be done without executing
@@ -256,26 +258,38 @@ EOF
 pgscalculator filter-variants - Filter sumstat to inclusion list variants
 
 USAGE:
-    pgscalculator filter-variants --sumstat NAME --config FILE [options]
+    pgscalculator filter-variants --sumstat NAME --config FILE [--method sbayesr|ldpred2] [options]
 
 DESCRIPTION:
     Filters the formatted summary statistics to only include variants
-    present in the inclusion list. This early filtering significantly reduces
-    memory usage in downstream steps.
+    present in the per-method inclusion list (variant_map_<method>.tsv).
+    This early filtering significantly reduces memory usage in downstream
+    steps.
+
+    Outputs are written under work/filtered_<method>/ so that the sBayesR
+    and LDpred2 pipelines do not clobber each other. The migration helper
+    migrate_filtered_dirs() renames any legacy work/filtered/ directory to
+    work/filtered_sbayesr/ on the first invocation.
 
 DEPENDENCIES:
-    Requires prep-inclusion-list and format-sumstat to be completed first.
+    --method sbayesr:  Requires prep-inclusion-list and format-sumstat.
+    --method ldpred2:  Requires prep-inclusion-list-ldpred2 and format-sumstat
+                       (LDpred2 is opt-in via ldpred2.ld_dir; see plan §5.3).
 
 OPTIONS:
     --sumstat NAME   Name of sumstat to process
     --config FILE    Path to config.yaml file (required)
+    --method NAME    Which variant map to filter against (sbayesr|ldpred2).
+                     Default: sbayesr (preserves current behavior).
     --verbose        Enable verbose output
     --dry-run        Show what would be done without executing
 
 OUTPUT:
-    {outdir}/sumstat_{name}/filtered/
-        sumstat_filtered.tsv     Filtered summary statistics
+    {outdir}/sumstats/{name}/work/filtered_<method>/
+        sumstat_filtered.tsv.gz  Filtered summary statistics (full-file mode)
         chr{1-22}_filtered.tsv   Per-chromosome filtered files
+        chr{1-22}_matched.tsv    Per-chr matched-row table for finalize
+        .completed               Per-method step-completion marker
 EOF
             ;;
         calc-posteriors)
@@ -477,6 +491,7 @@ parse_args() {
     SKIP_PREP=0
     FORCE=0
     MAF_THRESHOLD=""
+    METHOD=""
     
     while [[ $# -gt 0 ]]; do
         case "$1" in
@@ -510,6 +525,10 @@ parse_args() {
                 ;;
             --maf)
                 MAF_THRESHOLD="$2"
+                shift 2
+                ;;
+            --method)
+                METHOD="$2"
                 shift 2
                 ;;
             --verbose|-v)
@@ -611,7 +630,17 @@ dispatch_command() {
             require_file "$CONFIG_FILE" "Config file required. Use --config FILE"
             [[ -z "$SUMSTAT_NAME" ]] && { log_error "Sumstat name required. Use --sumstat NAME"; exit 1; }
             source "${STEPS_DIR}/filter_variants.sh"
-            run_filter_variants "$SUMSTAT_NAME"
+            # Phase 1 §5.4: filter-variants is method-parameterised. Default to
+            # sbayesr to preserve the historical behavior for existing configs.
+            local fv_method="${METHOD:-sbayesr}"
+            case "$fv_method" in
+                sbayesr|ldpred2) ;;
+                *)
+                    log_error "Invalid --method: '${fv_method}' (expected: sbayesr|ldpred2)"
+                    exit 1
+                    ;;
+            esac
+            run_filter_variants "$SUMSTAT_NAME" "" "$fv_method"
             ;;
         calc-posteriors)
             require_file "$CONFIG_FILE" "Config file required. Use --config FILE"
@@ -699,6 +728,15 @@ main() {
     setup_error_trap
     
     parse_args "$@"
+
+    # Surface --method to step scripts via CFG_METHOD so that group dispatch in
+    # run_pipeline.sh and any chr-array driver invocations can pick it up
+    # without threading the value through every internal callsite. Empty value
+    # leaves the per-step default (sbayesr) intact.
+    if [[ -n "${METHOD:-}" ]]; then
+        export CFG_METHOD="${METHOD}"
+    fi
+
     dispatch_command "$COMMAND"
 }
 
