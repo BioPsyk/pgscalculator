@@ -37,6 +37,13 @@ mkdir -p sif
 singularity pull sif/ibp-pgscalculator-base_version-2.0.0.sif docker://biopsyk/ibp-pgscalculator:2.0.0-amd64
 ```
 
+### Reference Data
+
+The pipeline needs several reference data sets (liftover map, LD reference per
+method, RSID map). Sources, download commands, and post-download sanity checks
+for all of them live in [`docs/references.md`](docs/references.md). Install
+what you need before running `prep`.
+
 ### Create Config File
 
 Create `config.yaml` with your reference data paths (see `config.template.yaml` for all options):
