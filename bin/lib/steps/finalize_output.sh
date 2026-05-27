@@ -37,8 +37,10 @@ run_finalize_output() {
     local step_dir="${sumstat_dir}/details"
     ensure_dir "$step_dir"
     
-    # Check prerequisites
-    require_file "${sumstat_dir}/scores.gz" "Run 'pgscalculator combine-scores' first"
+    if ! sumstat_has_any_scores_gz "$sumstat_dir"; then
+        log_error "No scores_*.gz found. Run 'pgscalculator combine-scores' first."
+        exit 1
+    fi
     
     # Check if already completed
     if check_step_completed "$step_dir"; then
@@ -125,9 +127,8 @@ create_bench_score() {
     log_info "Created bench_score.gz with ${sample_count} samples"
 }
 
-# augmented_sumstat.gz: user-facing output with same row set as variant map.
-# Schema: RSID, EffectAllele, OtherAllele, B, SE, Z, P, EAF, MAF, postEffect, benchEffect
-# Reads B/SE/Z/P from per-chr matched files, EAF+postEffect from posteriors, MAF from genotypes.
+# augmented_sumstat.gz: discovery-mode joins (§9).
+# Includes postEffect_<method> columns only for methods with non-empty posteriors_mapped_*.
 write_augmented_sumstat_v2() {
     local sumstat_dir="$1"
     local prep_dir="$2"
@@ -137,31 +138,33 @@ write_augmented_sumstat_v2() {
     local output_file="${sumstat_dir}/augmented_sumstat.gz"
 
     if [[ ! -f "$variant_map" ]]; then
-        log_warn "sBayesR variant map not found, skipping augmented_sumstat.gz"
+        log_warn "Variant map not found, skipping augmented_sumstat.gz"
         return 0
     fi
 
+    migrate_sumstat_all_step_dirs "$sumstat_dir"
+    local discovered ordered
+    discovered=$(discover_posterior_methods "$sumstat_dir")
+    ordered=$(order_discovered_methods "$discovered")
+    if [[ -z "$ordered" ]]; then
+        log_warn "No mapped posteriors on disk; skipping augmented_sumstat.gz"
+        return 0
+    fi
+    log_info "augmented_sumstat: including posterior method(s): ${ordered}"
+
     local tmpdir
     tmpdir=$(make_tmpdir "finalize_augmented_v2")
-
     local bench_dir="${sumstat_dir}/work/benchmark"
     local maf_file="${prep_dir}/references/maf_computed.tsv"
 
-    migrate_sumstat_step_dir "$sumstat_dir" "filtered"
-    local filtered_dir
-    filtered_dir="$(get_sumstat_step_dir "$sumstat_dir" "filtered")"
-
-    # Step 1: Extract base table from variant_map (10-col prep format).
-    # Output: ldref_snpid(join_key), geno_snpid, EffectAllele, OtherAllele
-    # Skip duplicate header rows that may exist in the concatenated file.
     awk -F'\t' -v OFS='\t' '
         NR==1 || $1=="chr" {next}
         $7 != "NA" && $7 != "" { print $7, $4, $8, $9 }
     ' "$variant_map" | LC_ALL=C sort -t $'\t' -k1,1 > "${tmpdir}/vm_base.tsv"
 
-    # Step 2: Extract B, SE, Z, P from per-chr matched files (header-aware).
-    # Output: LDREF_SNPID, B, SE, Z, P
-    # First, grab header from the first available matched file.
+    local filtered_dir
+    filtered_dir=$(get_method_filtered_dir "$sumstat_dir" "sbayesr")
+
     local matched_header=""
     for chr in $(get_chromosomes); do
         local mf="${filtered_dir}/chr${chr}_matched.tsv"
@@ -173,10 +176,10 @@ write_augmented_sumstat_v2() {
     done
     if [[ -z "$matched_header" ]]; then
         log_error "No per-chr matched files (chr*_matched.tsv) found. Run filter-variants first."
-        rm -rf "$tmpdir"; return 1
+        rm -rf "$tmpdir"
+        return 1
     fi
 
-    # Concatenate all matched file bodies and extract columns.
     for chr in $(get_chromosomes); do
         local mf="${filtered_dir}/chr${chr}_matched.tsv"
         [[ -f "$mf" ]] && tail -n +2 "$mf"
@@ -197,28 +200,63 @@ write_augmented_sumstat_v2() {
         }
     ' | LC_ALL=C sort -t $'\t' -k1,1 > "${tmpdir}/ss_sorted.tsv"
 
-    # Step 3: Join variant_map with sumstat on ldref_snpid (-a 1 keeps all vm rows).
-    # Result (8 cols): ldref(1), geno(2), ea(3), oa(4), B(5), SE(6), Z(7), P(8)
-    LC_ALL=C join -t $'\t' -a 1 -e NA -o auto "${tmpdir}/vm_base.tsv" "${tmpdir}/ss_sorted.tsv" > "${tmpdir}/j1.tsv"
+    local current="${tmpdir}/j1.tsv"
+    LC_ALL=C join -t $'\t' -a 1 -e NA -o auto "${tmpdir}/vm_base.tsv" "${tmpdir}/ss_sorted.tsv" > "$current"
 
-    # Step 4: Join with posteriors on ldref_snpid (RSID).
-    # Read per-chr posteriors_mapped files directly (ID, A1, A2, Freq, Effect, SE, PIP).
-    # Extract ID(1)=RSID, Freq(4)=EAF, Effect(5)=postEffect.
-    migrate_sumstat_step_dir "$sumstat_dir" "posteriors_mapped"
-    local posteriors_mapped_dir
-    posteriors_mapped_dir=$(get_sumstat_step_dir "$sumstat_dir" "posteriors_mapped")
-    {
-        for chr in $(get_chromosomes); do
-            local pf="${posteriors_mapped_dir}/chr${chr}.snpRes"
-            [[ -f "$pf" ]] && tail -n +2 "$pf"
-        done
-    } | awk -F'\t' -v OFS='\t' '{print $1, $4, $5}' | \
-        LC_ALL=C sort -t $'\t' -k1,1 > "${tmpdir}/pp_sorted.tsv"
-    # Result (10 cols): ldref(1), geno(2), ea(3), oa(4), B(5), SE(6), Z(7), P(8), EAF(9), postEffect(10)
-    LC_ALL=C join -t $'\t' -a 1 -e NA -o auto "${tmpdir}/j1.tsv" "${tmpdir}/pp_sorted.tsv" > "${tmpdir}/j2.tsv"
+    local m eaf_added=0
+    local -a pe_col=() postp_col=0 eaf_col=0
+    local ncol=8
 
-    # Step 5: Join with benchmark effects (benchEffect).
-    # Benchmark score inputs use genotype IDs; map to ldref_snpid via variant_map.
+    for m in $ordered; do
+        local mapped_dir
+        mapped_dir=$(get_method_posteriors_mapped_dir "$sumstat_dir" "$m")
+        local pp_sorted="${tmpdir}/pp_${m}.tsv"
+        if [[ "$m" == "ldpred2" ]]; then
+            {
+                for chr in $(get_chromosomes); do
+                    local pf="${mapped_dir}/chr${chr}.snpRes"
+                    [[ -f "$pf" ]] && tail -n +2 "$pf"
+                done
+            } | awk -F'\t' -v OFS='\t' '{print $1, $4, $5, $7}' | \
+                LC_ALL=C sort -t $'\t' -k1,1 > "$pp_sorted"
+        else
+            {
+                for chr in $(get_chromosomes); do
+                    local pf="${mapped_dir}/chr${chr}.snpRes"
+                    [[ -f "$pf" ]] && tail -n +2 "$pf"
+                done
+            } | awk -F'\t' -v OFS='\t' '{print $1, $4, $5}' | \
+                LC_ALL=C sort -t $'\t' -k1,1 > "$pp_sorted"
+        fi
+
+        local next="${tmpdir}/j_${m}.tsv"
+        if [[ $eaf_added -eq 0 ]]; then
+            LC_ALL=C join -t $'\t' -a 1 -e NA -o auto "$current" "$pp_sorted" > "$next"
+            eaf_added=1
+            eaf_col=$((ncol + 1))
+            pe_col["$m"]=$((ncol + 2))
+            ncol=$((ncol + 2))
+            if [[ "$m" == "ldpred2" ]]; then
+                postp_col=$((ncol + 1))
+                ncol=$((ncol + 1))
+            fi
+        elif [[ "$m" == "ldpred2" ]]; then
+            awk -F'\t' -v OFS='\t' '{print $1, $3, $4}' "$pp_sorted" | \
+                LC_ALL=C sort -t $'\t' -k1,1 > "${tmpdir}/pp_${m}_join.tsv"
+            LC_ALL=C join -t $'\t' -a 1 -e NA -o auto "$current" "${tmpdir}/pp_${m}_join.tsv" > "$next"
+            pe_col["$m"]=$((ncol + 1))
+            postp_col=$((ncol + 2))
+            ncol=$((ncol + 2))
+        else
+            awk -F'\t' -v OFS='\t' '{print $1, $3}' "$pp_sorted" | \
+                LC_ALL=C sort -t $'\t' -k1,1 > "${tmpdir}/pp_${m}_join.tsv"
+            LC_ALL=C join -t $'\t' -a 1 -e NA -o auto "$current" "${tmpdir}/pp_${m}_join.tsv" > "$next"
+            pe_col["$m"]=$((ncol + 1))
+            ncol=$((ncol + 1))
+        fi
+        current="$next"
+    done
+
     if [[ -d "$bench_dir" ]]; then
         awk -F'\t' -v OFS='\t' '
             NR==1 || $1=="chr" {next}
@@ -237,16 +275,15 @@ write_augmented_sumstat_v2() {
             LC_ALL=C sort -t $'\t' -k1,1 > "${tmpdir}/bench_sorted.tsv"
 
         if [[ -s "${tmpdir}/bench_sorted.tsv" ]]; then
-            LC_ALL=C join -t $'\t' -a 1 -e NA -o auto "${tmpdir}/j2.tsv" "${tmpdir}/bench_sorted.tsv" > "${tmpdir}/j3.tsv"
+            LC_ALL=C join -t $'\t' -a 1 -e NA -o auto "$current" "${tmpdir}/bench_sorted.tsv" > "${tmpdir}/j_bench.tsv"
         else
-            awk -F'\t' -v OFS='\t' '{print $0, "NA"}' "${tmpdir}/j2.tsv" > "${tmpdir}/j3.tsv"
+            awk -F'\t' -v OFS='\t' '{print $0, "NA"}' "$current" > "${tmpdir}/j_bench.tsv"
         fi
     else
-        awk -F'\t' -v OFS='\t' '{print $0, "NA"}' "${tmpdir}/j2.tsv" > "${tmpdir}/j3.tsv"
+        awk -F'\t' -v OFS='\t' '{print $0, "NA"}' "$current" > "${tmpdir}/j_bench.tsv"
     fi
-    # j3: ldref(1), geno(2), ea(3), oa(4), B(5), SE(6), Z(7), P(8), EAF(9), postEffect(10), benchEffect(11)
+    current="${tmpdir}/j_bench.tsv"
 
-    # Step 6: Join with MAF. Prefer genotype-based MAF, fall back to ldref EAF.
     if [[ -f "$maf_file" ]] && [[ $(wc -l < "$maf_file") -gt 1 ]]; then
         [[ ! -f "${tmpdir}/geno_to_ldref.tsv" ]] && \
             awk -F'\t' -v OFS='\t' '
@@ -257,23 +294,45 @@ write_augmented_sumstat_v2() {
             LC_ALL=C sort -t $'\t' -k1,1 > "${tmpdir}/geno_maf.tsv"
         LC_ALL=C join -t $'\t' -o 1.2,2.2 "${tmpdir}/geno_to_ldref.tsv" "${tmpdir}/geno_maf.tsv" | \
             LC_ALL=C sort -t $'\t' -k1,1 > "${tmpdir}/maf_sorted.tsv"
-        LC_ALL=C join -t $'\t' -a 1 -e NA -o auto "${tmpdir}/j3.tsv" "${tmpdir}/maf_sorted.tsv" > "${tmpdir}/j4.tsv"
+        LC_ALL=C join -t $'\t' -a 1 -e NA -o auto "$current" "${tmpdir}/maf_sorted.tsv" > "${tmpdir}/j_final.tsv"
     elif [[ -f "$eaf_file" ]]; then
         tail -n +2 "$eaf_file" | awk -F'\t' -v OFS='\t' '{
             f = $4 + 0; maf = (f > 0.5 ? 1 - f : f); print $1, maf
         }' | LC_ALL=C sort -t $'\t' -k1,1 > "${tmpdir}/maf_sorted.tsv"
-        LC_ALL=C join -t $'\t' -a 1 -e NA -o auto "${tmpdir}/j3.tsv" "${tmpdir}/maf_sorted.tsv" > "${tmpdir}/j4.tsv"
+        LC_ALL=C join -t $'\t' -a 1 -e NA -o auto "$current" "${tmpdir}/maf_sorted.tsv" > "${tmpdir}/j_final.tsv"
     else
-        awk -F'\t' -v OFS='\t' '{print $0, "NA"}' "${tmpdir}/j3.tsv" > "${tmpdir}/j4.tsv"
+        awk -F'\t' -v OFS='\t' '{print $0, "NA"}' "$current" > "${tmpdir}/j_final.tsv"
     fi
-    # j4: ldref(1),geno(2),ea(3),oa(4),B(5),SE(6),Z(7),P(8),EAF(9),postEffect(10),benchEffect(11),MAF(12)
 
-    # Step 7: Emit final output.
+    local bench_col=$((ncol + 1))
+    ncol=$((ncol + 1))
+    local maf_col=$((ncol + 1))
+
+    local header="RSID\tEffectAllele\tOtherAllele\tB\tSE\tZ\tP"
+    [[ $eaf_col -gt 0 ]] && header="${header}\tEAF"
+    header="${header}\tMAF"
+    for m in $ordered; do
+        header="${header}\tpostEffect_${m}"
+    done
+    [[ $postp_col -gt 0 ]] && header="${header}\tpostp_ldpred2"
+    header="${header}\tbenchEffect"
+
+    local awk_script="${tmpdir}/emit_augmented.awk"
     {
-        echo -e "RSID\tEffectAllele\tOtherAllele\tB\tSE\tZ\tP\tEAF\tMAF\tpostEffect\tbenchEffect"
-        awk -F'\t' -v OFS='\t' '{
-            print $1, $3, $4, $5, $6, $7, $8, $9, $12, $10, $11
-        }' "${tmpdir}/j4.tsv"
+        echo 'BEGIN { OFS = "\t" }'
+        printf '%s' '{ line = $1 OFS $3 OFS $4 OFS $5 OFS $6 OFS $7 OFS $8'
+        [[ $eaf_col -gt 0 ]] && printf ' OFS $%s' "$eaf_col"
+        printf ' OFS $%s' "$maf_col"
+        for m in $ordered; do
+            printf ' OFS $%s' "${pe_col[$m]}"
+        done
+        [[ $postp_col -gt 0 ]] && printf ' OFS $%s' "$postp_col"
+        printf ' OFS $%s; print line }\n' "$bench_col"
+    } > "$awk_script"
+
+    {
+        echo -e "$header"
+        awk -F'\t' -f "$awk_script" "${tmpdir}/j_final.tsv"
     } | gzip -c > "$output_file"
 
     rm -rf "$tmpdir"
@@ -310,12 +369,15 @@ generate_run_summary() {
         echo ""
         echo "Output files:"
         
-        if [[ -f "${sumstat_dir}/scores.gz" ]]; then
-            local score_count
-            score_count=$(zcat "${sumstat_dir}/scores.gz" | wc -l)
-            score_count=$((score_count - 1))
-            echo "  - scores.gz: ${score_count} samples"
-        fi
+        local gz
+        for gz in scores_sbayesr.gz scores_ldpred2.gz scores.gz; do
+            if [[ -f "${sumstat_dir}/${gz}" ]]; then
+                local score_count
+                score_count=$(zcat "${sumstat_dir}/${gz}" | wc -l)
+                score_count=$((score_count - 1))
+                echo "  - ${gz}: ${score_count} samples"
+            fi
+        done
         if [[ -f "${sumstat_dir}/bench_score.gz" ]]; then
             local bench_count
             bench_count=$(zcat "${sumstat_dir}/bench_score.gz" | wc -l)

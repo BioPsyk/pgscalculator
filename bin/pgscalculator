@@ -423,8 +423,8 @@ OPTIONS:
     --dry-run        Show what would be done without executing
 
 OUTPUT:
-    {outdir}/sumstat_{name}/scores_combined/
-        merged.sscore    Combined score file
+    {outdir}/sumstats/{name}/scores_<method>.gz   Per-method combined scores
+    {outdir}/sumstats/{name}/scores.gz            Symlink to scores_sbayesr.gz (sBayesR only)
 EOF
             ;;
         calc-benchmark)
@@ -726,7 +726,17 @@ dispatch_command() {
             require_file "$CONFIG_FILE" "Config file required. Use --config FILE"
             [[ -z "$SUMSTAT_NAME" ]] && { log_error "Sumstat name required. Use --sumstat NAME"; exit 1; }
             source "${STEPS_DIR}/combine_scores.sh"
-            run_combine_scores "$SUMSTAT_NAME"
+            local cs_method="${METHOD:-}"
+            if [[ -n "$cs_method" ]]; then
+                case "$cs_method" in
+                    sbayesr|ldpred2) ;;
+                    *)
+                        log_error "Invalid --method: '${cs_method}' (expected: sbayesr|ldpred2)"
+                        exit 1
+                        ;;
+                esac
+            fi
+            run_combine_scores "$SUMSTAT_NAME" "$cs_method"
             ;;
         calc-benchmark)
             require_file "$CONFIG_FILE" "Config file required. Use --config FILE"

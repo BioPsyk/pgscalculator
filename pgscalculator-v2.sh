@@ -1237,16 +1237,10 @@ rc=\$?; echo \"[INFO] Finished ${step_profile} chr\${CHR} at \$(date) (exit=\$rc
   }
 
   submit_finalize_job() {
-    base_sumstat_out="${outdir_host}/sumstats/${sumstat_name}/work"
-    n_scores=0
-    for scores_dir in "${base_sumstat_out}/scores" "${base_sumstat_out}/scores_ldpred2"; do
-      [[ -d "$scores_dir" ]] || continue
-      n=$(ls "${scores_dir}"/chr*.sscore 2>/dev/null | wc -l | awk '{print $1}')
-      n_scores=$((n_scores + n))
-    done
-    if [[ "$n_scores" -eq 0 ]]; then
-      >&2 echo "Error: cannot run finalize: no score files under ${base_sumstat_out}/scores*"
-      >&2 echo "Run the score step first (e.g. --steps score,finalize or run score then --steps finalize)."
+    base_sumstat_out="${outdir_host}/sumstats/${sumstat_name}"
+    if ! sumstat_has_any_scores_gz "$base_sumstat_out"; then
+      >&2 echo "Error: cannot run finalize: no scores_*.gz under ${base_sumstat_out}/"
+      >&2 echo "Run combine-scores first (e.g. --steps score,finalize)."
       exit 1
     fi
 

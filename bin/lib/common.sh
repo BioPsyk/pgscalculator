@@ -526,10 +526,166 @@ migrate_filtered_dirs() {
 # Safe to call repeatedly.
 migrate_sumstat_all_step_dirs() {
     local sumstat_dir="$1"
-    for step in formatted filtered posteriors posteriors_mapped scores scores_combined; do
+    for step in formatted filtered filtered_sbayesr filtered_ldpred2 \
+        posteriors posteriors_ldpred2 posteriors_mapped posteriors_mapped_ldpred2 \
+        scores scores_ldpred2 scores_combined scores_combined_sbayesr scores_combined_ldpred2; do
         migrate_sumstat_step_dir "$sumstat_dir" "$step"
     done
     migrate_filtered_dirs "$sumstat_dir"
+}
+
+# Per-method work/ step directory names (Phase 1 §5 / §9).
+method_scores_dir_name() {
+    case "${1:-sbayesr}" in
+        sbayesr) echo "scores" ;;
+        ldpred2) echo "scores_ldpred2" ;;
+        *) return 1 ;;
+    esac
+}
+
+method_posteriors_mapped_dir_name() {
+    case "${1:-sbayesr}" in
+        sbayesr) echo "posteriors_mapped" ;;
+        ldpred2) echo "posteriors_mapped_ldpred2" ;;
+        *) return 1 ;;
+    esac
+}
+
+method_filtered_dir_name() {
+    case "${1:-sbayesr}" in
+        sbayesr) echo "filtered_sbayesr" ;;
+        ldpred2) echo "filtered_ldpred2" ;;
+        *) return 1 ;;
+    esac
+}
+
+method_scores_gz_name() {
+    case "${1:-sbayesr}" in
+        sbayesr) echo "scores_sbayesr.gz" ;;
+        ldpred2) echo "scores_ldpred2.gz" ;;
+        *) return 1 ;;
+    esac
+}
+
+get_method_scores_dir() {
+    local sumstat_dir="$1"
+    local method="$2"
+    local step
+    step=$(method_scores_dir_name "$method") || return 1
+    get_sumstat_step_dir "$sumstat_dir" "$step"
+}
+
+get_method_posteriors_mapped_dir() {
+    local sumstat_dir="$1"
+    local method="$2"
+    local step
+    step=$(method_posteriors_mapped_dir_name "$method") || return 1
+    get_sumstat_step_dir "$sumstat_dir" "$step"
+}
+
+get_method_filtered_dir() {
+    local sumstat_dir="$1"
+    local method="$2"
+    local work_dir
+    work_dir=$(get_sumstat_work_dir "$sumstat_dir")
+    migrate_filtered_dirs "$sumstat_dir"
+    local step
+    step=$(method_filtered_dir_name "$method") || return 1
+    local new_dir="${work_dir}/${step}"
+    if [[ "$method" == "sbayesr" && ! -d "$new_dir" && -d "${work_dir}/filtered" ]]; then
+        echo "${work_dir}/filtered"
+        return 0
+    fi
+    echo "$new_dir"
+}
+
+# True when a per-chr snpRes directory has at least one non-header-only file.
+method_dir_has_snpres_data() {
+    local dir="$1"
+    [[ -d "$dir" ]] || return 1
+    local f n
+    for f in "${dir}"/chr*.snpRes; do
+        [[ -f "$f" ]] || continue
+        n=$(wc -l < "$f" 2>/dev/null || echo 0)
+        if [[ "$n" -gt 1 ]]; then
+            return 0
+        fi
+    done
+    return 1
+}
+
+method_dir_has_score_data() {
+    local dir="$1"
+    [[ -d "$dir" ]] || return 1
+    local f n
+    for f in "${dir}"/chr*.sscore; do
+        [[ -f "$f" ]] || continue
+        n=$(wc -l < "$f" 2>/dev/null || echo 0)
+        if [[ "$n" -gt 1 ]]; then
+            return 0
+        fi
+    done
+    return 1
+}
+
+# Discover methods with non-empty posteriors_mapped_* on disk (§9 discovery mode).
+discover_posterior_methods() {
+    local sumstat_dir="$1"
+    local work_base
+    work_base=$(get_sumstat_work_dir "$sumstat_dir")
+    local found=""
+
+    if method_dir_has_snpres_data "${work_base}/posteriors_mapped" \
+        || method_dir_has_snpres_data "${sumstat_dir}/posteriors_mapped"; then
+        found="sbayesr"
+    fi
+    if method_dir_has_snpres_data "${work_base}/posteriors_mapped_ldpred2"; then
+        found="${found:+${found} }ldpred2"
+    fi
+    echo "$found"
+}
+
+discover_score_methods() {
+    local sumstat_dir="$1"
+    local work_base
+    work_base=$(get_sumstat_work_dir "$sumstat_dir")
+    local found=""
+
+    if method_dir_has_score_data "${work_base}/scores" \
+        || method_dir_has_score_data "${sumstat_dir}/scores"; then
+        found="sbayesr"
+    fi
+    if method_dir_has_score_data "${work_base}/scores_ldpred2"; then
+        found="${found:+${found} }ldpred2"
+    fi
+    echo "$found"
+}
+
+# Order discovered methods using CFG_METHODS as a hint (§9).
+order_discovered_methods() {
+    local discovered="$1"
+    local ordered="" m
+
+    for m in ${CFG_METHODS:-sbayesr}; do
+        if has_method "$m" "$discovered"; then
+            ordered="${ordered:+${ordered} }${m}"
+        fi
+    done
+    for m in $discovered; do
+        if ! has_method "$m" "$ordered"; then
+            ordered="${ordered:+${ordered} }${m}"
+        fi
+    done
+    echo "$ordered"
+}
+
+sumstat_has_any_scores_gz() {
+    local sumstat_dir="$1"
+    local gz
+    for gz in scores_sbayesr.gz scores_ldpred2.gz scores.gz; do
+        [[ -f "${sumstat_dir}/${gz}" ]] && return 0
+    done
+    return 1
 }
 
 # =============================================================================
