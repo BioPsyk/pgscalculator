@@ -94,7 +94,7 @@ run_single_step() {
         calc-ldpred2) source "${STEPS_DIR}/calc_ldpred2.sh"; run_calc_ldpred2 "$sumstat_name"; rc=$?;;
         # format-posteriors: method via CFG_METHOD / --method (default sbayesr).
         format-posteriors) source "${STEPS_DIR}/format_posteriors.sh"; run_format_posteriors "$sumstat_name" "" "${CFG_METHOD:-sbayesr}"; rc=$?;;
-        calc-score) source "${STEPS_DIR}/calc_score.sh"; run_calc_score "$sumstat_name" ""; rc=$?;;
+        calc-score) source "${STEPS_DIR}/calc_score.sh"; run_calc_score "$sumstat_name" "" "${CFG_METHOD:-sbayesr}"; rc=$?;;
         combine-scores) source "${STEPS_DIR}/combine_scores.sh"; run_combine_scores "$sumstat_name"; rc=$?;;
         finalize-output) source "${STEPS_DIR}/finalize_output.sh"; run_finalize_output "$sumstat_name"; rc=$?;;
         calc-benchmark) source "${STEPS_DIR}/calc_benchmark.sh"; run_calc_benchmark "$sumstat_name"; rc=$?;;

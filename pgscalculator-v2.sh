@@ -24,7 +24,7 @@ function general_usage(){
   echo "  --sbatch          Submit as SLURM job using sbatch settings from config"
   echo "                   For per-sumstat steps (sumstat/weights/score), this submits a"
   echo "                   lightweight *driver job* that runs sumstat and launches/monitors"
-  echo "                   chromosome-parallel arrays for weights (sBayesR + benchmark) and score."
+  echo "                   chromosome-parallel arrays per active method (see --methods)."
   echo "  -d                Dev mode (verbose output)"
   echo "  --cleanup         After a successful run/driver job, remove per-run work/ and tmp/ folders"
   echo "                   (Default for now: keep work/tmp, which is useful during development)"
@@ -34,8 +34,8 @@ function general_usage(){
   echo "Step groups:"
   echo "  prep        Run prep steps (genotypes, ldref, inclusion-list)"
   echo "  sumstat     Format and filter sumstat"
-  echo "  weights     sBayesR posteriors + benchmark weights (two array jobs, independently configured)"
-  echo "  score       Calculate PGS scores"
+  echo "  weights     Posterior weights per active method (sBayesR array + LDpred2 single job + benchmark)"
+  echo "  score       Calculate PGS scores (one array per active method)"
   echo ""
  echo "Config file (config.yaml) should contain:"
  echo "  lddir: /path/to/band_ukb_10k_hm3"
@@ -50,9 +50,12 @@ function general_usage(){
   echo "    driver:            { mem: 1g, cpus: 1, time: '2:00:00' }"
   echo "    prep:              { mem: 10g, cpus: 1, time: '1:00:00', max_parallel: 22 }"
   echo "    sumstat:          { mem: 1g, cpus: 1, time: '0:30:00', max_parallel: 22 }"
-  echo "    weights_sbayesr:  { mem: 20g, cpus: 6, time: '2:00:00', max_parallel: 22 }"
-  echo "    weights_benchmark: { mem: 2g, cpus: 2, time: '0:30:00', max_parallel: 22 }"
-  echo "    score:            { mem: 10g, cpus: 4, time: '0:30:00', max_parallel: 22 }"
+    echo "    weights_sbayesr:   { mem: 20g, cpus: 6, time: '2:00:00', max_parallel: 22 }"
+    echo "    weights_ldpred2:   { mem: 64g, cpus: 16, time: '4:00:00' }"
+    echo "    weights_benchmark: { mem: 2g, cpus: 2, time: '0:30:00', max_parallel: 22 }"
+    echo "    score_sbayesr:     { mem: 10g, cpus: 4, time: '0:30:00', max_parallel: 22 }"
+    echo "    score_ldpred2:     { mem: 10g, cpus: 4, time: '0:30:00', max_parallel: 22 }"
+    echo "    score:             { mem: 10g, cpus: 4, time: '0:30:00', max_parallel: 22 }  # inherits to score_*"
   echo "  benchmark:"
   echo "    maf_threshold: 0.05"
   echo "    indep_pairwise: [250, 50, 0.25]"
@@ -88,6 +91,7 @@ outdir=""
 steps_arg=""
 chromosomes_override=""
 methods_cli=""
+method_override=""
 devmode=""
 force_mode=""
 use_sbatch=false
@@ -136,6 +140,10 @@ while [ $i -lt ${#paramarray[@]} ]; do
       ;;
     --methods)
       methods_cli="${paramarray[$((i+1))]}"
+      i=$((i+2))
+      ;;
+    --method)
+      method_override="${paramarray[$((i+1))]}"
       i=$((i+2))
       ;;
     -d)
@@ -464,35 +472,41 @@ check_prep_exists() {
 check_sumstat_exists() {
   local outdir="$1"
   local sumstat="$2"
+  local methods_list="${3:-${CFG_METHODS:-sbayesr}}"
 
-  # Prefer v2.1+ work/, but accept older legacy locations for backwards compatibility.
   local formatted_new="${outdir}/sumstats/${sumstat}/work/formatted/sumstat_formatted.tsv.gz"
   local formatted_legacy="${outdir}/sumstats/${sumstat}/formatted/sumstat_formatted.tsv.gz"
   local formatted_chr_new_glob="${outdir}/sumstats/${sumstat}/work/formatted/chr*.tsv"
-  local filtered_new="${outdir}/sumstats/${sumstat}/work/filtered/sumstat_filtered.tsv.gz"
-  local filtered_legacy="${outdir}/sumstats/${sumstat}/filtered/sumstat_filtered.tsv.gz"
-  local filtered_chr_new_glob="${outdir}/sumstats/${sumstat}/work/filtered/chr*_filtered.tsv"
-  local filtered_chr_legacy_glob="${outdir}/sumstats/${sumstat}/filtered/chr*_filtered.tsv"
+  local work_base="${outdir}/sumstats/${sumstat}/work"
+  local missing=""
 
   if [[ ! -f "$formatted_new" && ! -f "$formatted_legacy" ]]; then
-    # Accept per-chromosome formatted files as an alternative.
     if ! compgen -G "$formatted_chr_new_glob" >/dev/null 2>&1; then
-      echo "  - Formatted sumstat (expected): ${formatted_new}"
-      echo "    (older legacy accepted): ${formatted_legacy}"
-      echo "    (alt accepted): ${formatted_chr_new_glob}"
-      return 1
+      missing="${missing}  - Formatted sumstat (expected): ${formatted_new}\n"
+      missing="${missing}    (alt): ${formatted_chr_new_glob}\n"
     fi
   fi
 
-  if [[ ! -f "$filtered_new" && ! -f "$filtered_legacy" ]]; then
-    # Some workflows may only need per-chromosome filtered files (chrN_filtered.tsv).
-    # Accept those as an alternative prereq for posteriors.
-    if ! compgen -G "$filtered_chr_new_glob" >/dev/null 2>&1 && ! compgen -G "$filtered_chr_legacy_glob" >/dev/null 2>&1; then
-      echo "  - Filtered sumstat (expected): ${filtered_new}"
-      echo "    (older legacy accepted): ${filtered_legacy}"
-      echo "    (alt accepted): ${filtered_chr_new_glob}"
-      return 1
+  local m
+  for m in $methods_list; do
+    local filtered_dir="${work_base}/filtered_${m}"
+    local filtered_chr_glob="${filtered_dir}/chr*_filtered.tsv"
+    if compgen -G "$filtered_chr_glob" >/dev/null 2>&1; then
+      continue
     fi
+    if [[ "$m" == "sbayesr" ]]; then
+      local legacy_filtered="${work_base}/filtered/chr*_filtered.tsv"
+      local legacy_root="${outdir}/sumstats/${sumstat}/filtered/chr*_filtered.tsv"
+      if compgen -G "$legacy_filtered" >/dev/null 2>&1 || compgen -G "$legacy_root" >/dev/null 2>&1; then
+        continue
+      fi
+    fi
+    missing="${missing}  - Filtered sumstat (${m}): ${filtered_chr_glob}\n"
+  done
+
+  if [[ -n "$missing" ]]; then
+    echo -e "$missing"
+    return 1
   fi
   return 0
 }
@@ -500,26 +514,78 @@ check_sumstat_exists() {
 check_posteriors_exists() {
   local outdir="$1"
   local sumstat="$2"
+  local methods_list="${3:-${CFG_METHODS:-sbayesr}}"
+  local work_base="${outdir}/sumstats/${sumstat}/work"
+  local missing=""
+  local m
 
-  local post_new="${outdir}/sumstats/${sumstat}/work/posteriors"
-  local post_legacy="${outdir}/sumstats/${sumstat}/posteriors"
-  local mapped_new="${outdir}/sumstats/${sumstat}/work/posteriors_mapped"
-  local mapped_legacy="${outdir}/sumstats/${sumstat}/posteriors_mapped"
+  for m in $methods_list; do
+    case "$m" in
+      sbayesr)
+        local post_dir="${work_base}/posteriors"
+        local mapped_dir="${work_base}/posteriors_mapped"
+        local post_legacy="${outdir}/sumstats/${sumstat}/posteriors"
+        local mapped_legacy="${outdir}/sumstats/${sumstat}/posteriors_mapped"
+        if [[ ( ! -d "$post_dir" || -z "$(ls -A "$post_dir" 2>/dev/null)" ) && ( ! -d "$post_legacy" || -z "$(ls -A "$post_legacy" 2>/dev/null)" ) ]]; then
+          missing="${missing}  - Posteriors (sbayesr): ${post_dir}/\n"
+        fi
+        if [[ ( ! -d "$mapped_dir" || -z "$(ls -A "$mapped_dir" 2>/dev/null)" ) && ( ! -d "$mapped_legacy" || -z "$(ls -A "$mapped_legacy" 2>/dev/null)" ) ]]; then
+          missing="${missing}  - Posteriors mapped (sbayesr): ${mapped_dir}/\n"
+        fi
+        ;;
+      ldpred2)
+        local ldp_post="${work_base}/posteriors_ldpred2"
+        local ldp_mapped="${work_base}/posteriors_mapped_ldpred2"
+        if [[ ! -d "$ldp_post" || -z "$(ls -A "$ldp_post" 2>/dev/null)" ]]; then
+          missing="${missing}  - Posteriors (ldpred2): ${ldp_post}/\n"
+        fi
+        if [[ ! -d "$ldp_mapped" || -z "$(ls -A "$ldp_mapped" 2>/dev/null)" ]]; then
+          missing="${missing}  - Posteriors mapped (ldpred2): ${ldp_mapped}/\n"
+        fi
+        ;;
+    esac
+  done
 
-  # calc-posteriors output
-  if [[ ( ! -d "$post_new" || -z "$(ls -A "$post_new" 2>/dev/null)" ) && ( ! -d "$post_legacy" || -z "$(ls -A "$post_legacy" 2>/dev/null)" ) ]]; then
-    echo "  - Posteriors (expected): ${post_new}/"
-    echo "    (older legacy accepted): ${post_legacy}/"
-    return 1
-  fi
-
-  # format-posteriors output (required for scoring)
-  if [[ ( ! -d "$mapped_new" || -z "$(ls -A "$mapped_new" 2>/dev/null)" ) && ( ! -d "$mapped_legacy" || -z "$(ls -A "$mapped_legacy" 2>/dev/null)" ) ]]; then
-    echo "  - Posteriors mapped (expected): ${mapped_new}/"
-    echo "    (older legacy accepted): ${mapped_legacy}/"
+  if [[ -n "$missing" ]]; then
+    echo -e "$missing"
     return 1
   fi
   return 0
+}
+
+# Build filter-variants invocations for all active methods (sumstat array tasks).
+build_sumstat_filter_chr_cmds() {
+  local run_cmd="$1"
+  local body=""
+  local m
+  for m in ${CFG_METHODS:-sbayesr}; do
+    body="${body}${run_cmd} --method ${m} --_chr \"\$CHR\"; "
+  done
+  echo "$body"
+}
+
+# Resolve mapped-posteriors directory for a score step profile.
+score_profile_mapped_dir() {
+  local outdir_host="$1"
+  local sumstat_name="$2"
+  local step_profile="$3"
+  local method=""
+  case "$step_profile" in
+    score_sbayesr|weights_sbayesr) method="sbayesr" ;;
+    score_ldpred2) method="ldpred2" ;;
+    score) method="sbayesr" ;;
+    *) echo ""; return 0 ;;
+  esac
+  local base="${outdir_host}/sumstats/${sumstat_name}/work"
+  if [[ "$method" == "sbayesr" ]]; then
+    if [[ -d "${base}/posteriors_mapped" ]]; then
+      echo "${base}/posteriors_mapped"
+    elif [[ -d "${outdir_host}/sumstats/${sumstat_name}/posteriors_mapped" ]]; then
+      echo "${outdir_host}/sumstats/${sumstat_name}/posteriors_mapped"
+    fi
+  else
+    echo "${base}/posteriors_mapped_ldpred2"
+  fi
 }
 
 if [[ "$driver_run" == true ]]; then
@@ -920,17 +986,10 @@ infold_host=$(realpath "${infold}")
     # non-empty mapped posteriors (so we don't waste time scoring empty chromosomes).
     step_chr_list="$chr_list"
     step_chr_count="$chr_count"
-    if [[ "$step_profile" == "score" && -n "${sumstat_name:-}" ]]; then
-      mapped_new="${outdir_host}/sumstats/${sumstat_name}/work/posteriors_mapped"
-      mapped_legacy="${outdir_host}/sumstats/${sumstat_name}/posteriors_mapped"
-      mapped_dir=""
-      if [[ -d "$mapped_new" ]]; then
-        mapped_dir="$mapped_new"
-      elif [[ -d "$mapped_legacy" ]]; then
-        mapped_dir="$mapped_legacy"
-      fi
+    if [[ "$step_profile" == score* && -n "${sumstat_name:-}" ]]; then
+      mapped_dir=$(score_profile_mapped_dir "$outdir_host" "$sumstat_name" "$step_profile")
 
-      if [[ -n "$mapped_dir" ]]; then
+      if [[ -n "$mapped_dir" && -d "$mapped_dir" ]]; then
         map_chrs=()
         for f in "${mapped_dir}"/chr*.snpRes; do
           [[ -f "$f" ]] || continue
@@ -963,7 +1022,7 @@ infold_host=$(realpath "${infold}")
     steps_arg_for_task="${step_profile}"
     if [[ "$step_profile" == "sumstat" ]]; then
       steps_arg_for_task="filter-variants"
-    elif [[ "$step_profile" == "score" ]]; then
+    elif [[ "$step_profile" == "score" || "$step_profile" == "score_sbayesr" || "$step_profile" == "score_ldpred2" ]]; then
       steps_arg_for_task="calc-score"
     elif [[ "$step_profile" == "prep" ]]; then
       steps_arg_for_task="prep-inclusion-list"
@@ -980,10 +1039,28 @@ infold_host=$(realpath "${infold}")
     [[ -n "$force_mode" ]] && run_cmd="${run_cmd} --force"
     run_cmd="${run_cmd} --methods $(methods_to_csv "$CFG_METHODS")"
 
+    local method_flag=""
+    case "$step_profile" in
+      weights_sbayesr|score_sbayesr|score)
+        method_flag="--method sbayesr"
+        ;;
+      score_ldpred2)
+        method_flag="--method ldpred2"
+        ;;
+    esac
+    [[ -n "$method_flag" ]] && run_cmd="${run_cmd} ${method_flag}"
+
+    local chr_body=""
+    if [[ "$step_profile" == "sumstat" ]]; then
+      chr_body=$(build_sumstat_filter_chr_cmds "$run_cmd")
+    else
+      chr_body="${run_cmd} --_chr \"\$CHR\"; "
+    fi
+
     task_wrap="CHR=\$(sed -n \"\${SLURM_ARRAY_TASK_ID}p\" \"${chr_file}\"); \
 if [[ -z \"\$CHR\" ]]; then echo \"Error: could not resolve chromosome for task \$SLURM_ARRAY_TASK_ID\" >&2; exit 1; fi; \
 echo \"[INFO] Starting ${step_profile} chr\${CHR} at \$(date)\"; \
-${run_cmd} --_chr \"\$CHR\"; \
+${chr_body}\
 rc=\$?; echo \"[INFO] Finished ${step_profile} chr\${CHR} at \$(date) (exit=\$rc)\"; exit \$rc"
 
     # Build sbatch args as an array to avoid brittle quoting + eval issues.
@@ -1003,7 +1080,7 @@ rc=\$?; echo \"[INFO] Finished ${step_profile} chr\${CHR} at \$(date) (exit=\$rc
     echo "Submitting SLURM job array..."
     echo "  Job name: ${job_name}"
     echo "  Step: ${step_profile}"
-    if [[ "$step_profile" == "score" ]]; then
+    if [[ "$step_profile" == score* ]]; then
       echo "  Note: array runs 'calc-score' only; run finalize step (separate job) for combine-scores + finalize-output."
     fi
     echo "  $(format_sbatch_settings "1-${step_chr_count}%${max_parallel}" "${max_parallel}")"
@@ -1031,10 +1108,19 @@ rc=\$?; echo \"[INFO] Finished ${step_profile} chr\${CHR} at \$(date) (exit=\$rc
     if [[ -n "$sumstat_name" ]]; then
       base_sumstat_out="${outdir_host}/sumstats/${sumstat_name}/work"
       if [[ "$step_profile" == "sumstat" ]]; then
-        n_filtered=$(ls "${base_sumstat_out}/filtered"/chr*_filtered.tsv 2>/dev/null | wc -l | awk '{print $1}')
-        if [[ "$n_filtered" -lt "$step_chr_count" ]]; then
+        local m n_filtered sumstat_warn=0
+        for m in ${CFG_METHODS:-sbayesr}; do
+          n_filtered=$(ls "${base_sumstat_out}/filtered_${m}"/chr*_filtered.tsv 2>/dev/null | wc -l | awk '{print $1}')
+          if [[ "$m" == "sbayesr" && "$n_filtered" -lt "$step_chr_count" ]]; then
+            n_filtered=$(ls "${base_sumstat_out}/filtered"/chr*_filtered.tsv 2>/dev/null | wc -l | awk '{print $1}')
+          fi
+          if [[ "$n_filtered" -lt "$step_chr_count" ]]; then
+            sumstat_warn=1
+            >&2 echo "  filtered_${m}: expected >=${step_chr_count} chr*_filtered.tsv (found ${n_filtered})"
+          fi
+        done
+        if [[ "$sumstat_warn" -eq 1 ]]; then
           >&2 echo "Warning: sumstat array finished but outputs are missing (continuing)."
-          >&2 echo "  Expected >=${step_chr_count} files in: ${base_sumstat_out}/filtered/chr*_filtered.tsv (found ${n_filtered})"
           >&2 echo "Check logs under: ${log_dir}/"
         fi
       elif [[ "$step_profile" == "weights_sbayesr" ]]; then
@@ -1047,11 +1133,13 @@ rc=\$?; echo \"[INFO] Finished ${step_profile} chr\${CHR} at \$(date) (exit=\$rc
           >&2 echo "    - ${base_sumstat_out}/posteriors_mapped/chr*.snpRes (found ${n_mapped})"
           >&2 echo "Check logs under: ${log_dir}/"
         fi
-      elif [[ "$step_profile" == "score" ]]; then
-        n_scores=$(ls "${base_sumstat_out}/scores"/chr*.sscore 2>/dev/null | wc -l | awk '{print $1}')
+      elif [[ "$step_profile" == score* ]]; then
+        local scores_subdir="scores"
+        [[ "$step_profile" == "score_ldpred2" ]] && scores_subdir="scores_ldpred2"
+        n_scores=$(ls "${base_sumstat_out}/${scores_subdir}"/chr*.sscore 2>/dev/null | wc -l | awk '{print $1}')
         if [[ "$n_scores" -lt "$step_chr_count" ]]; then
-          >&2 echo "Warning: score array finished but outputs are missing (continuing)."
-          >&2 echo "  Expected >=${step_chr_count} files in: ${base_sumstat_out}/scores/chr*.sscore (found ${n_scores})"
+          >&2 echo "Warning: ${step_profile} array finished but outputs are missing (continuing)."
+          >&2 echo "  Expected >=${step_chr_count} files in: ${base_sumstat_out}/${scores_subdir}/chr*.sscore (found ${n_scores})"
           >&2 echo "Check logs under: ${log_dir}/"
         fi
       fi
@@ -1059,12 +1147,105 @@ rc=\$?; echo \"[INFO] Finished ${step_profile} chr\${CHR} at \$(date) (exit=\$rc
     echo ""
   }
 
+  submit_single_job_for_step() {
+    local step_profile="$1"
+
+    step_settings=$(resolve_slurm_step_settings "$step_profile" "$config_file_host")
+    slurm_mem=""
+    slurm_cpus=""
+    slurm_time=""
+    if [[ -n "$step_settings" ]]; then
+      slurm_mem=$(parse_inline_dict "$step_settings" "mem")
+      slurm_cpus=$(parse_inline_dict "$step_settings" "cpus")
+      slurm_time=$(parse_inline_dict "$step_settings" "time")
+    fi
+    if [[ "$step_profile" == "weights_ldpred2" ]]; then
+      slurm_mem="${slurm_mem:-64g}"
+      slurm_cpus="${slurm_cpus:-16}"
+      slurm_time="${slurm_time:-4:00:00}"
+    else
+      slurm_mem="${slurm_mem:-20g}"
+      slurm_cpus="${slurm_cpus:-8}"
+      slurm_time="${slurm_time:-2:00:00}"
+    fi
+
+    if [[ -n "$infold" ]]; then
+      job_name="pgs_$(basename "$infold")_${step_profile}"
+    else
+      job_name="pgs_${step_profile}"
+    fi
+
+    local steps_arg_for_task="calc-ldpred2,format-posteriors"
+    run_cmd="${project_dir}/pgscalculator-v2.sh --config ${config_file_host} --steps ${steps_arg_for_task}"
+    [[ -n "$infold" ]] && run_cmd="${run_cmd} -i ${infold}"
+    [[ -n "$outdir" ]] && run_cmd="${run_cmd} -o ${outdir}"
+    [[ -n "$devmode" ]] && run_cmd="${run_cmd} -d"
+    [[ -n "$force_mode" ]] && run_cmd="${run_cmd} --force"
+    run_cmd="${run_cmd} --methods $(methods_to_csv "$CFG_METHODS") --method ldpred2"
+
+    sbatch_args=(--parsable)
+    sbatch_args+=(--mem="${slurm_mem}")
+    sbatch_args+=(--cpus-per-task="${slurm_cpus}")
+    sbatch_args+=(--time="${slurm_time}")
+    sbatch_args+=(--job-name="${job_name}")
+    sbatch_args+=(--output="${log_dir}/${job_name}_%j.out")
+    sbatch_args+=(--error="${log_dir}/${job_name}_%j.err")
+    [[ -n "$slurm_account" ]] && sbatch_args+=(--account="${slurm_account}")
+    [[ -n "$slurm_partition" ]] && sbatch_args+=(--partition="${slurm_partition}")
+    sbatch_args+=(--wrap="${run_cmd}")
+
+    echo "Submitting SLURM single job (${step_profile})..."
+    echo "  Job name: ${job_name}"
+    echo "  Steps: ${steps_arg_for_task} (--method ldpred2)"
+    echo "  Resources: mem=${slurm_mem}, cpus=${slurm_cpus}, time=${slurm_time}"
+    echo "  Logs: ${log_dir}/${job_name}_<jobid>.out/.err"
+    echo ""
+
+    local single_jobid
+    single_jobid=$(sbatch "${sbatch_args[@]}")
+    if [[ -z "$single_jobid" ]]; then
+      >&2 echo "Error: failed to submit SLURM job for ${step_profile}"
+      exit 1
+    fi
+    echo "Submitted: ${single_jobid}"
+
+    if command -v squeue >/dev/null 2>&1; then
+      echo "Waiting for ${step_profile} job to finish..."
+      while squeue -j "$single_jobid" -h 2>/dev/null | grep -q .; do
+        sleep 10
+      done
+      if command -v sacct >/dev/null 2>&1; then
+        st=$(sacct -j "$single_jobid" --format=State -n -P 2>/dev/null | head -n 1 || true)
+        if [[ -n "$st" && "$st" != COMPLETED* ]]; then
+          >&2 echo "Warning: ${step_profile} job ${single_jobid} finished with state: ${st}"
+          >&2 echo "Check logs under: ${log_dir}/"
+        fi
+      fi
+    fi
+
+    if [[ -n "$sumstat_name" && "$step_profile" == "weights_ldpred2" ]]; then
+      base_sumstat_out="${outdir_host}/sumstats/${sumstat_name}/work"
+      n_post=$(ls "${base_sumstat_out}/posteriors_ldpred2"/chr*.snpRes 2>/dev/null | wc -l | awk '{print $1}')
+      n_mapped=$(ls "${base_sumstat_out}/posteriors_mapped_ldpred2"/chr*.snpRes 2>/dev/null | wc -l | awk '{print $1}')
+      if [[ "$n_post" -lt 1 || "$n_mapped" -lt 1 ]]; then
+        >&2 echo "Warning: weights_ldpred2 finished but posteriors outputs look sparse (continuing)."
+        >&2 echo "  posteriors_ldpred2 chr*.snpRes: ${n_post}"
+        >&2 echo "  posteriors_mapped_ldpred2 chr*.snpRes: ${n_mapped}"
+      fi
+    fi
+    echo ""
+  }
+
   submit_finalize_job() {
     base_sumstat_out="${outdir_host}/sumstats/${sumstat_name}/work"
-    scores_dir="${base_sumstat_out}/scores"
-    n_scores=$(ls "${scores_dir}"/chr*.sscore 2>/dev/null | wc -l | awk '{print $1}')
+    n_scores=0
+    for scores_dir in "${base_sumstat_out}/scores" "${base_sumstat_out}/scores_ldpred2"; do
+      [[ -d "$scores_dir" ]] || continue
+      n=$(ls "${scores_dir}"/chr*.sscore 2>/dev/null | wc -l | awk '{print $1}')
+      n_scores=$((n_scores + n))
+    done
     if [[ "$n_scores" -eq 0 ]]; then
-      >&2 echo "Error: cannot run finalize: no score files in ${scores_dir}"
+      >&2 echo "Error: cannot run finalize: no score files under ${base_sumstat_out}/scores*"
       >&2 echo "Run the score step first (e.g. --steps score,finalize or run score then --steps finalize)."
       exit 1
     fi
@@ -1194,11 +1375,21 @@ rc=\$?; echo \"[INFO] Finished ${step_profile} chr\${CHR} at \$(date) (exit=\$rc
     fi
   fi
   if [[ "$has_weights" == true ]]; then
-    submit_array_for_step "weights_sbayesr"
+    if has_method sbayesr "$CFG_METHODS"; then
+      submit_array_for_step "weights_sbayesr"
+    fi
+    if has_method ldpred2 "$CFG_METHODS"; then
+      submit_single_job_for_step "weights_ldpred2"
+    fi
     submit_array_for_step "weights_benchmark"
   fi
   if [[ "$has_score" == true ]]; then
-    submit_array_for_step "score"
+    if has_method sbayesr "$CFG_METHODS"; then
+      submit_array_for_step "score_sbayesr"
+    fi
+    if has_method ldpred2 "$CFG_METHODS"; then
+      submit_array_for_step "score_ldpred2"
+    fi
   fi
   if [[ "$has_finalize" == true ]]; then
     submit_finalize_job
@@ -1677,6 +1868,9 @@ if [[ -n "$force_mode" ]]; then
 fi
 
 cli_cmd="${cli_cmd} --methods $(methods_to_csv "$CFG_METHODS")"
+if [[ -n "$method_override" ]]; then
+  cli_cmd="${cli_cmd} --method ${method_override}"
+fi
 
 ################################################################################
 # Build mount options

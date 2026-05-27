@@ -26,27 +26,45 @@ check_calc_score_deps() {
 
 run_calc_score() {
     local sumstat_name="$1"
-    local specific_chr="${2:-}"  # Optional: run only specific chromosome
+    local specific_chr="${2:-}"
+    local method="${3:-${CFG_METHOD:-sbayesr}}"
+
+    local mapped_step scores_step format_hint
+    case "$method" in
+        sbayesr)
+            mapped_step="posteriors_mapped"
+            scores_step="scores"
+            format_hint="format-posteriors --method sbayesr"
+            ;;
+        ldpred2)
+            mapped_step="posteriors_mapped_ldpred2"
+            scores_step="scores_ldpred2"
+            format_hint="format-posteriors --method ldpred2"
+            ;;
+        *)
+            log_error "Invalid calc-score method: '${method}' (expected: sbayesr|ldpred2)"
+            exit 1
+            ;;
+    esac
+
+    log_step "Running calc-score for: $sumstat_name (method: ${method})"
     
-    log_step "Running calc-score for: $sumstat_name"
-    
-    # Check dependencies
     check_calc_score_deps
     
-    # Set up directories
     local outdir="${CFG_OUTDIR}"
     local sumstat_dir
     sumstat_dir=$(get_sumstat_dir "$outdir" "$sumstat_name")
     migrate_sumstat_step_dir "$sumstat_dir" "posteriors_mapped"
     migrate_sumstat_step_dir "$sumstat_dir" "scores"
+    migrate_sumstat_step_dir "$sumstat_dir" "$mapped_step"
+    migrate_sumstat_step_dir "$sumstat_dir" "$scores_step"
     local posteriors_mapped_dir
-    posteriors_mapped_dir=$(get_sumstat_step_dir "$sumstat_dir" "posteriors_mapped")
+    posteriors_mapped_dir=$(get_sumstat_step_dir "$sumstat_dir" "$mapped_step")
     local step_dir
-    step_dir=$(get_sumstat_step_dir "$sumstat_dir" "scores")
+    step_dir=$(get_sumstat_step_dir "$sumstat_dir" "$scores_step")
     ensure_dir "$step_dir"
     
-    # Check that format-posteriors has been run
-    require_dir "$posteriors_mapped_dir" "Run 'pgscalculator format-posteriors' first"
+    require_dir "$posteriors_mapped_dir" "Run 'pgscalculator ${format_hint}' first"
     
     # Auto-detect single-chromosome runs from config (important for --sbatch-array mode where config is rewritten)
     if [[ -z "$specific_chr" ]] && [[ -n "${CFG_CHROMOSOMES:-}" ]] && [[ "${CFG_CHROMOSOMES}" =~ ^(chr)?[0-9]+$ ]]; then

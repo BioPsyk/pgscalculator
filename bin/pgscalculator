@@ -712,7 +712,15 @@ dispatch_command() {
             require_file "$CONFIG_FILE" "Config file required. Use --config FILE"
             [[ -z "$SUMSTAT_NAME" ]] && { log_error "Sumstat name required. Use --sumstat NAME"; exit 1; }
             source "${STEPS_DIR}/calc_score.sh"
-            run_calc_score "$SUMSTAT_NAME" "$CHROMOSOME"
+            local cs_method="${METHOD:-sbayesr}"
+            case "$cs_method" in
+                sbayesr|ldpred2) ;;
+                *)
+                    log_error "Invalid --method: '${cs_method}' (expected: sbayesr|ldpred2)"
+                    exit 1
+                    ;;
+            esac
+            run_calc_score "$SUMSTAT_NAME" "$CHROMOSOME" "$cs_method"
             ;;
         combine-scores)
             require_file "$CONFIG_FILE" "Config file required. Use --config FILE"
