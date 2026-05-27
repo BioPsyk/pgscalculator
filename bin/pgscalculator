@@ -353,24 +353,28 @@ EOF
 pgscalculator format-posteriors - Map posteriors to genotype variant IDs
 
 USAGE:
-    pgscalculator format-posteriors --sumstat NAME --config FILE [options]
+    pgscalculator format-posteriors --sumstat NAME --config FILE [--method sbayesr|ldpred2] [options]
 
 DESCRIPTION:
-    Maps posterior effects from RSID to genotype variant IDs,
-    producing scoring-ready effect files for plink2.
+    Maps posterior effects from LD reference SNP ID to genotype variant IDs,
+    producing scoring-ready effect files for plink2. Outputs are written under
+    work/posteriors_mapped_<method>/ so sBayesR and LDpred2 do not clobber each other.
 
 DEPENDENCIES:
-    Requires prep-inclusion-list and calc-posteriors to be completed first.
+    --method sbayesr:  Requires prep-inclusion-list and calc-posteriors.
+    --method ldpred2:  Requires prep-inclusion-list-ldpred2 and calc-ldpred2.
 
 OPTIONS:
     --sumstat NAME   Name of sumstat to process
     --config FILE    Path to config.yaml file (required)
+    --method NAME    Posterior method (sbayesr|ldpred2). Default: sbayesr.
     --verbose        Enable verbose output
     --dry-run        Show what would be done without executing
 
 OUTPUT:
-    {outdir}/sumstat_{name}/posteriors_mapped/
+    {outdir}/sumstats/{name}/work/posteriors_mapped_<method>/
         chr{1-22}.snpRes    Scoring-ready effect files per chromosome
+        .completed          Per-method step-completion marker
 EOF
             ;;
         calc-score)
@@ -694,7 +698,15 @@ dispatch_command() {
             require_file "$CONFIG_FILE" "Config file required. Use --config FILE"
             [[ -z "$SUMSTAT_NAME" ]] && { log_error "Sumstat name required. Use --sumstat NAME"; exit 1; }
             source "${STEPS_DIR}/format_posteriors.sh"
-            run_format_posteriors "$SUMSTAT_NAME"
+            local fp_method="${METHOD:-sbayesr}"
+            case "$fp_method" in
+                sbayesr|ldpred2) ;;
+                *)
+                    log_error "Invalid --method: '${fp_method}' (expected: sbayesr|ldpred2)"
+                    exit 1
+                    ;;
+            esac
+            run_format_posteriors "$SUMSTAT_NAME" "" "$fp_method"
             ;;
         calc-score)
             require_file "$CONFIG_FILE" "Config file required. Use --config FILE"

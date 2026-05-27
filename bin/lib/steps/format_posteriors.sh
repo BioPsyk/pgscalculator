@@ -1,6 +1,6 @@
 #!/bin/bash
 # pgscalculator v2 - format-posteriors step
-# Map posteriors to genotype variant IDs for scoring
+# Map posteriors to genotype variant IDs for scoring (method-parameterised)
 
 # This script is sourced by the main pgscalculator CLI
 
@@ -9,19 +9,33 @@
 # =============================================================================
 
 check_format_posteriors_deps() {
+    local method="${1:-sbayesr}"
+
     require_command "awk" "awk is required for text processing"
     require_command "sort" "sort is required for sorting"
     require_command "join" "join is required for file merging"
-    
-    # Check config variables
+
     validate_required_config "CFG" "OUTDIR"
-    
+
     local outdir="${CFG_OUTDIR}"
     local prep_dir
     prep_dir=$(get_prep_dir "$outdir")
-    
-    # Check that prep-inclusion-list has been run
-    require_file "${prep_dir}/variant_map_sbayesr.tsv" "Run 'pgscalculator prep-inclusion-list' first"
+
+    local mapfile="${prep_dir}/variant_map_${method}.tsv"
+    local hint
+    case "$method" in
+        sbayesr)
+            hint="Run 'pgscalculator prep-inclusion-list' first"
+            ;;
+        ldpred2)
+            hint="Run 'pgscalculator prep-inclusion-list-ldpred2' first (LDpred2 is opt-in via ldpred2.ld_dir; see plan §5.3)"
+            ;;
+        *)
+            log_error "Unknown format-posteriors method: '${method}' (expected: sbayesr|ldpred2)"
+            exit 1
+            ;;
+    esac
+    require_file "$mapfile" "$hint"
 }
 
 # =============================================================================
@@ -30,14 +44,32 @@ check_format_posteriors_deps() {
 
 run_format_posteriors() {
     local sumstat_name="$1"
-    local specific_chr="${2:-}"  # Optional: run only a specific chromosome (also auto-detected from CFG_CHROMOSOMES)
-    
-    log_step "Running format-posteriors for: $sumstat_name"
-    
-    # Check dependencies
-    check_format_posteriors_deps
-    
-    # Set up directories
+    local specific_chr="${2:-}"
+    # Method dispatch (Phase 1 §5.6). Default sbayesr for back-compat.
+    local method="${3:-${CFG_METHOD:-sbayesr}}"
+
+    local posteriors_step mapped_step calc_hint
+    case "$method" in
+        sbayesr)
+            posteriors_step="posteriors"
+            mapped_step="posteriors_mapped"
+            calc_hint="calc-posteriors"
+            ;;
+        ldpred2)
+            posteriors_step="posteriors_ldpred2"
+            mapped_step="posteriors_mapped_ldpred2"
+            calc_hint="calc-ldpred2"
+            ;;
+        *)
+            log_error "Invalid format-posteriors method: '${method}' (expected: sbayesr|ldpred2)"
+            exit 1
+            ;;
+    esac
+
+    log_step "Running format-posteriors for: $sumstat_name (method: ${method})"
+
+    check_format_posteriors_deps "$method"
+
     local outdir="${CFG_OUTDIR}"
     local prep_dir
     prep_dir=$(get_prep_dir "$outdir")
@@ -45,34 +77,31 @@ run_format_posteriors() {
     sumstat_dir=$(get_sumstat_dir "$outdir" "$sumstat_name")
     migrate_sumstat_step_dir "$sumstat_dir" "posteriors"
     migrate_sumstat_step_dir "$sumstat_dir" "posteriors_mapped"
+    migrate_sumstat_step_dir "$sumstat_dir" "$posteriors_step"
+    migrate_sumstat_step_dir "$sumstat_dir" "$mapped_step"
+
     local posteriors_dir
-    posteriors_dir=$(get_sumstat_step_dir "$sumstat_dir" "posteriors")
+    posteriors_dir=$(get_sumstat_step_dir "$sumstat_dir" "$posteriors_step")
     local step_dir
-    step_dir=$(get_sumstat_step_dir "$sumstat_dir" "posteriors_mapped")
+    step_dir=$(get_sumstat_step_dir "$sumstat_dir" "$mapped_step")
     ensure_dir "$step_dir"
-    
-    # Check that calc-posteriors has been run
-    require_dir "$posteriors_dir" "Run 'pgscalculator calc-posteriors' first"
-    
-    # Auto-detect single-chromosome runs from config (important for --sbatch-array mode where config is rewritten)
+
+    require_dir "$posteriors_dir" "Run 'pgscalculator ${calc_hint}' first"
+
     if [[ -z "$specific_chr" ]] && [[ -n "${CFG_CHROMOSOMES:-}" ]] && [[ "${CFG_CHROMOSOMES}" =~ ^(chr)?[0-9]+$ ]]; then
         specific_chr="${CFG_CHROMOSOMES#chr}"
     fi
 
-    # Check if already completed (only for full runs).
-    # In chromosome-parallel / single-chr runs we *must not* short-circuit on a global marker.
     if [[ -z "$specific_chr" ]] && check_step_completed "$step_dir"; then
-        # Be defensive: only skip if we actually have some mapped outputs
         if ls "${step_dir}"/chr*.snpRes >/dev/null 2>&1; then
             log_info "Step already completed. Use --force to re-run."
             return 0
         fi
         log_warn "Found ${step_dir}/.completed but no mapped chr*.snpRes outputs; re-running format-posteriors."
     fi
-    
-    local mapfile="${prep_dir}/variant_map_sbayesr.tsv"
-    
-    # Build LDREF -> genotype ID mapping
+
+    local mapfile="${prep_dir}/variant_map_${method}.tsv"
+
     log_substep "Building LDREF to genotype ID mapping"
     local rsid_map="${step_dir}/ldref_to_genoid.tsv"
     ensure_rsid_mapping "$mapfile" "$rsid_map"
@@ -81,8 +110,7 @@ run_format_posteriors() {
         log_error "Check mapfile: ${mapfile}"
         exit 1
     fi
-    
-    # Process each chromosome
+
     log_substep "Mapping posteriors to genotype IDs"
     local total_mapped=0
 
@@ -96,20 +124,18 @@ run_format_posteriors() {
     local fail_count=0
     for chr in $chromosomes; do
         local posterior_file="${posteriors_dir}/chr${chr}.snpRes"
-        
+
         if [[ ! -f "$posterior_file" ]]; then
             log_warn "chr${chr}: missing posteriors file: ${posterior_file} (writing empty mapped file and continuing)"
             ((fail_count++))
-            # Placeholder mapped file for downstream scoring
             local output_file="${step_dir}/chr${chr}.snpRes"
             echo -e "ID\tA1\tA2\tFreq\tEffect\tSE\tPIP" > "$output_file"
             echo "posteriors_missing" > "${step_dir}/FAILED_chr${chr}"
             continue
         fi
-        
+
         local output_file="${step_dir}/chr${chr}.snpRes"
 
-        # Skip if already mapped for this chr
         if [[ -f "$output_file" ]] && [[ $(wc -l < "$output_file") -gt 1 ]]; then
             log_debug "chr${chr}: already mapped, skipping"
             continue
@@ -117,7 +143,7 @@ run_format_posteriors() {
 
         local mapped_count
         mapped_count=$(map_posteriors_for_chr "$chr" "$posterior_file" "$rsid_map" "$output_file")
-        
+
         total_mapped=$((total_mapped + mapped_count))
         log_debug "chr${chr}: ${mapped_count} variants mapped"
     done
@@ -125,19 +151,24 @@ run_format_posteriors() {
     if [[ $fail_count -gt 0 ]]; then
         log_warn "format-posteriors had issues for ${fail_count} chromosome(s) (placeholders written; see ${step_dir}/FAILED_chr*)"
     fi
-    
-    # Mark completion:
-    # - Full runs: mark global .completed
-    # - Single-chr runs (e.g. sbatch arrays): mark per-chr marker only (avoid blocking other tasks)
+
     if [[ -z "$specific_chr" ]]; then
         mark_step_completed "$step_dir"
     else
         date '+%Y-%m-%d %H:%M:%S' > "${step_dir}/.completed_chr${specific_chr}"
         log_debug "Marked chr${specific_chr} as completed: ${step_dir}/.completed_chr${specific_chr}"
     fi
-    
+
     log_info "Total variants mapped: ${total_mapped}"
     log_info "Output directory: ${step_dir}"
+}
+
+run_format_posteriors_sbayesr() {
+    run_format_posteriors "$1" "${2:-}" "sbayesr"
+}
+
+run_format_posteriors_ldpred2() {
+    run_format_posteriors "$1" "${2:-}" "ldpred2"
 }
 
 # =============================================================================
@@ -148,29 +179,26 @@ ensure_rsid_mapping() {
     local mapfile="$1"
     local output_file="$2"
 
-    # If mapping exists and is non-empty, keep it (important for parallel runs)
     if [[ -s "$output_file" ]]; then
         return 0
     fi
 
     local tmp_out
     tmp_out=$(mktemp "${output_file}.tmp.XXXXXX")
-    
-    # Extract LDREF -> GENO mapping from variant_map
+
+    # variant_map_<method>.tsv: col4=geno_snpid, col7=ldref_snpid (9- or 12-col schema)
     awk -F'\t' -v OFS='\t' '
         NR > 1 {
-            # Schema: chr(1), pos_b37(2), pos_b38(3), geno_snpid(4), geno_a1(5), geno_a2(6), ldref_snpid(7), ldref_a1(8), ldref_a2(9), ldref_a2freq(10)
             if ($7 != "NA" && $4 != "NA") {
-                print $7, $4  # ldref_id, genotype_id
+                print $7, $4
             }
         }
     ' "$mapfile" | LC_ALL=C sort -k1,1 > "$tmp_out"
-    
+
     local count
     count=$(wc -l < "$tmp_out")
     log_debug "Created mapping with ${count} variants"
 
-    # Atomically move into place (avoids truncate/read races in parallel runs)
     mv "$tmp_out" "$output_file"
 }
 
@@ -179,69 +207,41 @@ map_posteriors_for_chr() {
     local posterior_file="$2"
     local rsid_map="$3"
     local output_file="$4"
-    
-    # sbayesR .snpRes format: SNP A1 A2 b se pval Freq N effect pj
-    # We need to:
-    # 1. Map SNP (RSID) to genotype variant ID
-    # 2. Keep allele information for scoring
-    
+
     local tmpdir
     tmpdir=$(make_tmpdir "format_posteriors")
-    
-    # Get header from posterior file
-    local header
-    header=$(head -1 "$posterior_file")
-    
-    # Sort posteriors by SNP column (column 1)
+
     tail -n +2 "$posterior_file" | LC_ALL=C sort -k1,1 > "${tmpdir}/posteriors_sorted.tsv"
-    
-    # Join with RSID mapping
-    # Output: genotype_id + all posterior columns
+
     LC_ALL=C join -t' ' -1 1 -2 1 \
         -o 2.2,1.2,1.3,1.4,1.5,1.6,1.7,1.8,1.9,1.10 \
         "${tmpdir}/posteriors_sorted.tsv" "$rsid_map" 2>/dev/null > "${tmpdir}/mapped.tsv" || true
-    
-    # Alternative: use awk for more robust joining
-    # Note: sbayesR .snpRes format has space-padded columns:
-    # Id, Name(RSID), Chrom, Position, A1, A2, A1Frq, A1Effect, SE, PIP, LastSampleEff
-    # We need to use column 2 (Name) as RSID, and handle variable whitespace
+
+    # sbayesR / LDpred2 .snpRes: Name (RSID) in column 2
     awk -v OFS='\t' '
         ARGIND == 1 {
-            # Load RSID mapping (tab-separated: rsid, genotype_id)
             rsid_to_geno[$1] = $2
             next
         }
-        FNR == 1 { next }  # Skip header in posteriors
+        FNR == 1 { next }
         {
-            # sbayesR output has whitespace-separated columns
-            # Column 2 is Name (RSID)
             rsid = $2
             if (rsid in rsid_to_geno) {
                 geno_id = rsid_to_geno[rsid]
-                # Output: genotype_id, A1, A2, A1Frq, A1Effect, SE, PIP
-                # Fields: $5=A1, $6=A2, $7=A1Frq, $8=A1Effect, $9=SE, $10=PIP
                 print geno_id, $5, $6, $7, $8, $9, $10
             }
         }
     ' "$rsid_map" "$posterior_file" > "${tmpdir}/mapped_awk.tsv"
-    
-    # Write output with modified header (atomically)
-    # Header: ID A1 A2 Freq Effect SE PIP
+
     local tmp_out="${output_file}.tmp.$$"
     echo -e "ID\tA1\tA2\tFreq\tEffect\tSE\tPIP" > "$tmp_out"
     cat "${tmpdir}/mapped_awk.tsv" >> "$tmp_out"
     mv "$tmp_out" "$output_file"
-    
-    # Count mapped variants
+
     local count
     count=$(wc -l < "${tmpdir}/mapped_awk.tsv")
-    
-    # Clean up
+
     rm -rf "$tmpdir"
-    
+
     echo "$count"
 }
-
-
-
-
