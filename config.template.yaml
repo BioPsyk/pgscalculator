@@ -1,4 +1,4 @@
-# pgscalculator v2.1.0 Configuration
+# pgscalculator v2.2.0 Configuration
 
 # Optional: HPC modules to load before running (e.g., singularity)
 # Omit entirely if singularity is already in PATH.
@@ -28,9 +28,12 @@ filters:
 
 whichn: totalN
 
-# Which posterior methods to compute. Omit for sBayesR-only (default).
-# Override per run with: ./pgscalculator-v2.sh ... --methods sbayesr,ldpred2
-#methods: [sbayesr]
+# Which posterior methods to compute for each submission.
+# Omit entirely for sBayesR-only (default, same as v2.1).
+# Override per run: ./pgscalculator-v2.sh ... --methods sbayesr,ldpred2
+methods: [sbayesr]
+#methods: [sbayesr, ldpred2]
+#methods: [ldpred2]
 
 sbayesr:
   gamma: "0.0,0.01,0.1,1"

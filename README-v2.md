@@ -1,6 +1,6 @@
-# pgscalculator v2.1.0
+# pgscalculator v2.2.0
 
-Modular PGS calculation pipeline with step-by-step control for sbayesR-based polygenic scoring.
+Modular PGS calculation pipeline with step-by-step control for **sBayesR** and optional **LDpred2** polygenic scoring.
 
 _Created by Jesper R. Gådin, Morten Dybdahl Krebs, and Andrew Schork (IBP)_
 
@@ -15,6 +15,16 @@ _Created by Jesper R. Gådin, Morten Dybdahl Krebs, and Andrew Schork (IBP)_
 - **SLURM integration**: `--sbatch` flag auto-submits with config settings
 - **SLURM driver jobs**: `--sbatch` submits one *driver job* per sumstat which runs `sumstat` and launches chromosome-parallel arrays for `weights` (sBayesR + benchmark, two arrays) and `score`, then a finalize job. Parallelism is controlled by `slurm.<step>.max_parallel` (set `max_parallel: 1` to disable parallelism).
 - **Simplified CLI**: Just `--config`, `--steps`, and `-i`
+
+## What's New in v2.2
+
+- **LDpred2** (`calc-ldpred2`): genome-wide posterior estimation via `bigsnpr` (single job, not chr-parallel)
+- **`methods:` config** and **`--methods` CLI**: choose `sbayesr`, `ldpred2`, or both per submission
+- **Per-method outputs**: `scores_sbayesr.gz`, `scores_ldpred2.gz` (symlink `scores.gz` → `scores_sbayesr.gz` when sBayesR-only)
+- **Discovery-mode finalize**: `augmented_sumstat.gz` includes `postEffect_<method>` columns only for methods with mapped posteriors on disk
+- **Incremental runs**: run sBayesR today and LDpred2 tomorrow in the same `outdir` without re-running sBayesR (see [Incremental runs](#incremental-runs))
+- **New prep steps** (opt-in when `ldpred2.ld_dir` is set): `prep-ldref-ldpred2`, `prep-inclusion-list-ldpred2`
+- **Smoke tests**: `tests/smoke/v2.2-2026-05-26/` (sBayesR-only, LDpred2-only, both, incremental Day-2 script)
 
 ## Quick Start
 
@@ -77,6 +87,8 @@ filters:
 
 whichn: totalN
 
+methods: [sbayesr]
+
 sbayesr:
   gamma: "0.0,0.01,0.1,1"
   pi: "0.95,0.02,0.02,0.01"
@@ -92,6 +104,14 @@ sbayesr:
   unscale_genotype: true
   no_mcmc_bin: false
   impute_n: false
+
+# Optional LDpred2 (see docs/references.md §4)
+#methods: [sbayesr, ldpred2]
+#ldpred2:
+#  mode: auto
+#  ld_variant_set: hm3_plus
+#  ld_dir: /path/to/references/ld-ldpred2/hm3_plus
+#  threads: 16
 
 # Scoring columns (variant_id allele effect)
 score_columns: 1 2 5
@@ -113,6 +133,7 @@ slurm:
   prep:               { mem: 10g, cpus: 1, time: '1:00:00', max_parallel: 22 }
   sumstat:            { mem: 1g, cpus: 1, time: '0:30:00', max_parallel: 22 }
   weights_sbayesr:    { mem: 20g, cpus: 6, time: '2:00:00', max_parallel: 22 }
+  weights_ldpred2:    { mem: 64g, cpus: 16, time: '4:00:00' }
   weights_benchmark:   { mem: 2g, cpus: 2, time: '0:30:00', max_parallel: 22 }
   score:              { mem: 10g, cpus: 4, time: '0:30:00', max_parallel: 22 }
   finalize:           { mem: 16g, cpus: 1, time: '1:00:00' }
@@ -163,21 +184,25 @@ done
 ## Architecture
 
 ```
-pgscalculator v2.1.0
+pgscalculator v2.2.0
 ├── pgscalculator-v2.sh      # Wrapper script (Singularity, SLURM, mounts)
 ├── bin/
 │   ├── pgscalculator        # Main CLI entry point
 │   └── lib/
 │       ├── common.sh        # Shared functions
+│       ├── scripts/run_ldpred2.R
 │       └── steps/
 │           ├── run_pipeline.sh       # Step orchestration
 │           ├── prep_genotypes.sh
 │           ├── prep_ldref.sh
+│           ├── prep_ldref_ldpred2.sh
 │           ├── prep_inclusion_list.sh
+│           ├── prep_inclusion_list_ldpred2.sh
 │           ├── format_sumstat.sh
-│           ├── filter_variants.sh
+│           ├── filter_variants.sh      # --method sbayesr|ldpred2
 │           ├── calc_posteriors.sh
-│           ├── format_posteriors.sh
+│           ├── calc_ldpred2.sh
+│           ├── format_posteriors.sh    # method-parameterised
 │           ├── calc_benchmark.sh
 │           ├── calc_score.sh
 │           ├── combine_scores.sh
@@ -193,21 +218,24 @@ pgscalculator v2.1.0
 | Step | Command | Description |
 |------|---------|-------------|
 | 1 | `prep-genotypes` | Extract variant IDs from genotype .pvar files |
-| 2 | `prep-ldref` | Augment LD reference with dual positions (GRCh37/38) via liftover |
-| 3 | `prep-inclusion-list` | Create variant inclusion list + variant map + compute MAF |
+| 2 | `prep-ldref` | Augment sBayesR LD reference with dual positions (GRCh37/38) via liftover |
+| 2b | `prep-ldref-ldpred2` | Validate LDpred2 LD RDS set and export `prep/ldref_ldpred2/map.tsv` (opt-in) |
+| 3 | `prep-inclusion-list` | Create sBayesR variant map + inclusion list + compute MAF |
+| 3b | `prep-inclusion-list-ldpred2` | Build `prep/variant_map_ldpred2.tsv` (opt-in) |
 
 ### Per-Sumstat Processing Steps
 
 | Step | Command | Description |
 |------|---------|-------------|
 | 4 | `format-sumstat` | Add build coordinates, derive B/SE/EAF/N per chromosome |
-| 5 | `filter-variants` | Filter sumstat to inclusion list variants per chromosome |
-| 6 | `calc-posteriors` | Run sbayesR per chromosome |
-| 7 | `format-posteriors` | Map posteriors to genotype variant IDs |
-| 8 | `calc-benchmark` | Benchmark scores (MAF filter + LD pruning) |
-| 9 | `calc-score` | Calculate PGS with plink2 per chromosome |
-| 10 | `combine-scores` | Merge per-chromosome scores into `scores.gz` |
-| 11 | `finalize-output` | Produce `augmented_sumstat.gz`, `variant_map.gz`, `bench_score.gz`, `steps.tsv` |
+| 5 | `filter-variants --method` | Filter sumstat per method (`work/filtered_sbayesr/`, `work/filtered_ldpred2/`) |
+| 6 | `calc-posteriors` | Run sBayesR per chromosome (when `sbayesr` is active) |
+| 6b | `calc-ldpred2` | Run LDpred2-auto genome-wide (when `ldpred2` is active) |
+| 7 | `format-posteriors --method` | Map posteriors to genotype IDs per method |
+| 8 | `calc-benchmark` | Benchmark scores (MAF filter + LD pruning; method-agnostic) |
+| 9 | `calc-score --method` | Calculate PGS with plink2 per chromosome per method |
+| 10 | `combine-scores` | Merge per-chr scores into `scores_<method>.gz` |
+| 11 | `finalize-output` | Discovery-mode `augmented_sumstat.gz`, `variant_map.gz`, `bench_score.gz` |
 
 ## Usage
 
@@ -235,6 +263,7 @@ The wrapper script (`pgscalculator-v2.sh`) uses a config-first approach:
 |--------|-------------|
 | `--config <file>` | **Required**: Path to config.yaml with reference paths |
 | `--steps <list>` | **Required**: Steps to run: `prep`, `sumstat`, `weights`, `score`, `finalize` |
+| `--methods <list>` | Active posterior methods for this submission: `sbayesr`, `ldpred2`, or `sbayesr,ldpred2` (overrides `methods:` in config) |
 | `-i <dir>` | Path to sumstat folder (required for non-prep steps) |
 | `-o <dir>` | Output directory (overrides config) |
 | `--force` | Force re-run of steps even if already completed |
@@ -247,13 +276,13 @@ The wrapper script (`pgscalculator-v2.sh`) uses a config-first approach:
 
 | Group | Concrete steps | Description |
 |-------|----------------|-------------|
-| `prep` | `prep-genotypes`, `prep-ldref`, `prep-inclusion-list` | Prepare genotypes, LD reference, and variant map (run once per project) |
-| `sumstat` | `format-sumstat`, `filter-variants` | Format and filter sumstat per chromosome |
-| `weights` | `calc-posteriors`, `format-posteriors`, `calc-benchmark` | sBayesR posteriors + benchmark weights |
-| `score` | `calc-score` | Calculate PGS scores per chromosome |
-| `finalize` | `combine-scores`, `finalize-output` | Merge scores and produce final output files |
+| `prep` | `prep-genotypes`, `prep-ldref`, `prep-ldref-ldpred2`, `prep-inclusion-list`, `prep-inclusion-list-ldpred2` | Reference prep (LDpred2 prep steps run only when `ldpred2.ld_dir` is set) |
+| `sumstat` | `format-sumstat`, `filter-variants` | Format sumstat; filter per active method |
+| `weights` | sBayesR: `calc-posteriors`, `format-posteriors`; LDpred2: `calc-ldpred2`, `format-posteriors`; `calc-benchmark` | Posterior weights for active methods + benchmark |
+| `score` | `calc-score` | PGS per chromosome per active method |
+| `finalize` | `combine-scores`, `finalize-output` | Per-method score files + discovery-mode augmented sumstat |
 
-> **Note:** `weights` runs both sBayesR (calc-posteriors, format-posteriors) and benchmark (calc-benchmark) as two separate SLURM array jobs when using `--sbatch`.
+> **Note:** With `--sbatch`, sBayesR weights and benchmark run as chr-parallel arrays; LDpred2 weights run as a **single genome-wide** job (`weights_ldpred2`). Score arrays are submitted per active method (`score_sbayesr`, `score_ldpred2`).
 
 #### Prerequisite Checking
 
@@ -302,6 +331,51 @@ pgscalculator status --config /path/to/config.yaml
 # Run all steps at once
 pgscalculator run --all --sumstat TRAIT --config /path/to/config.yaml
 ```
+
+## Choosing methods
+
+The `methods:` key (or `--methods` on the CLI) sets which posterior methods the **current submission** runs. Omitted `methods:` defaults to `[sbayesr]` (same as v2.1).
+
+| Config / CLI | Behaviour |
+|--------------|-----------|
+| `methods: [sbayesr]` | sBayesR + benchmark only (default) |
+| `methods: [ldpred2]` | LDpred2 + benchmark only; requires `ldpred2.ld_dir` |
+| `methods: [sbayesr, ldpred2]` | Both methods in one submission (parallel SLURM weights jobs) |
+
+LDpred2-specific settings live under `ldpred2:` in config (see `config.template.yaml`). Download and layout of the LD reference are documented in [`docs/references.md`](docs/references.md) (§4).
+
+**Backwards compatibility:** configs without `methods:` behave as sBayesR-only. Existing `work/` layouts are migrated automatically (`work/filtered/` → `work/filtered_sbayesr/`, etc.).
+
+## Incremental runs
+
+On smaller HPC sites you can run **sBayesR and LDpred2 on different days** in the same `outdir` without re-running completed work.
+
+**Day 1 — sBayesR only:**
+
+```bash
+./pgscalculator-v2.sh --config config.yaml \
+  --steps sumstat,weights,score,finalize \
+  --methods sbayesr \
+  -i /path/to/sumstat_TRAIT
+```
+
+Produces `scores_sbayesr.gz` and `augmented_sumstat.gz` with `postEffect_sbayesr` only.
+
+**Day 2 — add LDpred2** (same config `outdir`, same sumstat):
+
+```bash
+./pgscalculator-v2.sh --config config.yaml \
+  --steps weights,score,finalize \
+  --methods ldpred2 \
+  -i /path/to/sumstat_TRAIT
+```
+
+- Runs LDpred2 filter/weights/score only; **does not** touch sBayesR `work/` outputs or `scores_sbayesr.gz`.
+- `finalize-output` uses **discovery mode**: rebuilds `augmented_sumstat.gz` with every `postEffect_<method>` column for which `work/posteriors_mapped_<method>/` has data (Day-1 sBayesR + Day-2 LDpred2).
+
+A scripted example: `tests/smoke/v2.2-2026-05-26/run_incremental_day2.sh`.
+
+To **re-run only LDpred2** (e.g. new LD ref), add `--force` with `--methods ldpred2`; sBayesR markers and outputs stay intact.
 
 ## Configuration
 
@@ -394,19 +468,19 @@ srun --mem=20g --ntasks 1 --cpus-per-task 22 --time=1:00:00 \
 
 ### Run Smoke Test
 
-See `tests/smoke/v2.1-2026-01-11/` for a working smoke test setup:
+**v2.1 (sBayesR only):** `tests/smoke/v2.1-2026-01-11/`
+
+**v2.2 (LDpred2):** `tests/smoke/v2.2-2026-05-26/` — configs for sBayesR-only, LDpred2-only, both methods, and incremental Day-2.
 
 ```bash
 cd /faststorage/project/ibp_pipeline_pgscalculator/pgscalculator
+export LDPRED2_LD_DIR="${PWD}/references/ld-ldpred2/hm3"   # after download (see docs/references.md)
 
-# Local run (interactive node)
-bash tests/smoke/v2.1-2026-01-11/run_local.sh
-
-# SLURM run
-bash tests/smoke/v2.1-2026-01-11/submit_slurm.sh
+bash tests/smoke/v2.2-2026-05-26/run_local.sh config.sbayesr.yaml
+bash tests/smoke/v2.2-2026-05-26/run_local.sh config.ldpred2.yaml
 ```
 
-The smoke test config (`tests/smoke/v2.1-2026-01-11/config.yaml`) demonstrates all required config keys.
+Unit tests for methods, driver dispatch, and incremental finalize: `tests/unit/test_*methods*`, `test_driver_dispatch.sh`, `test_incremental_finalize.sh`.
 
 ## Output Structure
 
@@ -426,9 +500,11 @@ outdir/
 │
 └── sumstats/
     └── sumstat_{name}/                # Per-sumstat outputs
-        ├── scores.gz                  # Final PGS scores (IID, SCORE_SUM, ALLELE_CT, N_VARIANTS)
-        ├── augmented_sumstat.gz       # Variant-level results (RSID, B, SE, Z, P, EAF, MAF, postEffect, benchEffect, ...)
-        ├── variant_map.gz             # Variant mapping (rsid ↔ genotype ID)
+        ├── scores_sbayesr.gz          # sBayesR PGS (IID, SCORE_SUM, ALLELE_CT, N_VARIANTS)
+        ├── scores_ldpred2.gz          # LDpred2 PGS (when that method has been run)
+        ├── scores.gz                  # Symlink → scores_sbayesr.gz (sBayesR-only / back-compat)
+        ├── augmented_sumstat.gz       # RSID, B, SE, Z, P, MAF, postEffect_<method>, postp_ldpred2?, benchEffect
+        ├── variant_map.gz             # Variant mapping (rsid ↔ genotype ID; sBayesR map)
         ├── bench_score.gz             # Benchmark scores (IID, ALLELE_CT, SCORE1_SUM)
         ├── details/
         │   ├── steps.tsv              # Per-step variant counts
@@ -437,12 +513,17 @@ outdir/
         ├── logs/                      # Per-sumstat logs
         └── work/                      # Intermediate files (removed with --cleanup)
             ├── formatted/             # Per-chr formatted sumstats
-            ├── filtered/              # Per-chr filtered sumstats
-            ├── posteriors/            # Per-chr sbayesR posteriors
-            ├── posteriors_mapped/     # Per-chr posteriors mapped to geno IDs
-            ├── scores/               # Per-chr plink2 scores
-            ├── scores_combined/      # Combined score file
-            └── benchmark/            # Benchmark intermediate files
+            ├── filtered_sbayesr/      # Per-chr filtered + matched (sBayesR)
+            ├── filtered_ldpred2/      # Per-chr filtered + matched (LDpred2)
+            ├── posteriors/            # Per-chr sBayesR posteriors
+            ├── posteriors_ldpred2/    # LDpred2 .snpRes (genome-wide)
+            ├── posteriors_mapped/     # sBayesR mapped posteriors
+            ├── posteriors_mapped_ldpred2/
+            ├── scores/                # Per-chr sBayesR plink2 scores
+            ├── scores_ldpred2/        # Per-chr LDpred2 plink2 scores
+            ├── scores_combined_sbayesr/
+            ├── scores_combined_ldpred2/
+            └── benchmark/             # Benchmark intermediate files
 ```
 
 ## Troubleshooting
@@ -495,16 +576,21 @@ Default SLURM resource settings (tunable via config):
 | Prep | 10 GB | 1 | 1 h (once per project) |
 | Sumstat | 1 GB | 1 | 30 min |
 | Weights (sBayesR) | 20 GB | 6 | 2 h (per chr) |
+| Weights (LDpred2) | 64 GB | 16 | 4 h (single genome-wide job) |
 | Weights (benchmark) | 2 GB | 2 | 30 min (per chr) |
-| Score | 10 GB | 4 | 30 min (per chr) |
+| Score | 10 GB | 4 | 30 min (per chr, per method) |
 | Finalize | 16 GB | 1 | 1 h |
 
 ## More Documentation
 
 - [General Design](docs/plans/general-design.md) — Pipeline architecture and design decisions
+- [LDpred2 integration plan](docs/plans/ldpred2-integration.md) — Full design and implementation phases
+- [Reference data](docs/references.md) — Download paths for genotypes, sBayesR LD, and LDpred2 LD
 
 ## Version History
 
+- **v2.2.0** - LDpred2 method, `methods:` / `--methods`, per-method scores, discovery-mode finalize, incremental runs
+- **v2.1.0** - Dual-position mapfile, finalize step, SLURM driver jobs
 - **v2.0.0** - Modular CLI with step-by-step control
 - **v1.x** - Nextflow-based monolithic pipeline (see [README.md](README.md))
 
