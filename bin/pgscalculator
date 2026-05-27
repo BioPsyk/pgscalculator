@@ -41,6 +41,7 @@ COMMANDS:
         format-sumstat    Format and add build coordinates to sumstat
         filter-variants   Filter sumstat to inclusion list variants
         calc-posteriors   Calculate posterior effects using sbayesR
+        calc-ldpred2      Calculate posterior effects using LDpred2 (genome-wide)
         format-posteriors Map posteriors to genotype variant IDs
         calc-score        Calculate PGS using plink2
         combine-scores    Combine per-chromosome scores
@@ -318,6 +319,33 @@ OPTIONS:
 OUTPUT:
     {outdir}/sumstat_{name}/posteriors/
         chr{1-22}.snpRes    Posterior SNP effects per chromosome
+EOF
+            ;;
+        calc-ldpred2)
+            cat << EOF
+pgscalculator calc-ldpred2 - Calculate posterior effects using LDpred2
+
+USAGE:
+    pgscalculator calc-ldpred2 --sumstat NAME --config FILE [options]
+
+DESCRIPTION:
+    Runs genome-wide LDpred2 (auto or inf mode) on the LDpred2-filtered
+    summary statistics. This is a single non-array job (not chr-parallel).
+
+DEPENDENCIES:
+    Requires ldpred2.ld_dir in config, prep-ldref-ldpred2,
+    prep-inclusion-list-ldpred2, and filter-variants --method ldpred2.
+
+OPTIONS:
+    --sumstat NAME   Name of sumstat to process
+    --config FILE    Path to config.yaml file (required)
+    --verbose        Enable verbose output
+    --dry-run        Show what would be done without executing
+
+OUTPUT:
+    {outdir}/sumstats/{name}/work/posteriors_ldpred2/
+        chr{1-22}.snpRes    Posterior SNP effects per chromosome (ldref_snpid keyed)
+        FAILED_*            Soft-failure markers (match/sfbm/ldsc/ldpred2)
 EOF
             ;;
         format-posteriors)
@@ -655,6 +683,12 @@ dispatch_command() {
             [[ -z "$SUMSTAT_NAME" ]] && { log_error "Sumstat name required. Use --sumstat NAME"; exit 1; }
             source "${STEPS_DIR}/calc_posteriors.sh"
             run_calc_posteriors "$SUMSTAT_NAME" "$CHROMOSOME"
+            ;;
+        calc-ldpred2)
+            require_file "$CONFIG_FILE" "Config file required. Use --config FILE"
+            [[ -z "$SUMSTAT_NAME" ]] && { log_error "Sumstat name required. Use --sumstat NAME"; exit 1; }
+            source "${STEPS_DIR}/calc_ldpred2.sh"
+            run_calc_ldpred2 "$SUMSTAT_NAME"
             ;;
         format-posteriors)
             require_file "$CONFIG_FILE" "Config file required. Use --config FILE"
