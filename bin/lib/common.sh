@@ -144,6 +144,8 @@ parse_config() {
         
         # Check for section (key with nested values)
         if [[ "$line" =~ ^([a-zA-Z_][a-zA-Z0-9_]*):$ ]]; then
+            # methods: uses list syntax handled by load_active_methods(), not nested keys
+            [[ "${BASH_REMATCH[1]}" == "methods" ]] && continue
             current_section="${BASH_REMATCH[1]}"
             current_subsection=""
             continue
@@ -182,6 +184,8 @@ parse_config() {
         if [[ "$line" =~ ^([a-zA-Z_][a-zA-Z0-9_]*):\ *(.*) ]]; then
             current_section=""
             local key="${BASH_REMATCH[1]}"
+            # methods: [a, b] or block list — handled by load_active_methods()
+            [[ "$key" == "methods" ]] && continue
             local value="${BASH_REMATCH[2]}"
             # Remove quotes if present
             value="${value%\"}"
@@ -208,6 +212,222 @@ get_config() {
     
     local value="${!var_name:-$default}"
     echo "$value"
+}
+
+# Parse YAML list: block-style (key:\n  - a) or inline (key: [a, b])
+parse_yaml_list() {
+    local key="$1"
+    local file="$2"
+    awk -v key="$key" '
+        BEGIN { in_list = 0 }
+        $0 ~ "^"key":[[:space:]]*\\[" {
+            line = $0
+            sub("^"key":[[:space:]]*\\[", "", line)
+            sub("\\][[:space:]]*$", "", line)
+            gsub(/'"'"'/, "", line)
+            n = split(line, parts, /,[[:space:]]*/)
+            for (i = 1; i <= n; i++) {
+                gsub(/^[ \t]+|[ \t]+$/, "", parts[i])
+                if (parts[i] != "") print parts[i]
+            }
+            exit
+        }
+        $0 ~ "^"key":" { in_list = 1; next }
+        in_list && /^  - / { gsub(/^  - */, ""); gsub(/[ \t]+$/, ""); print; next }
+        in_list && /^[^ ]/ { exit }
+    ' "$file"
+}
+
+# Parse nested YAML values (supports one or two levels under a section).
+parse_yaml_nested() {
+    local section="$1"
+    local key="$2"
+    local file="$3"
+    awk -v section="$section" -v key="$key" '
+        BEGIN {
+            in_section = 0
+            in_subsection = 0
+            n = split(key, parts, /\./)
+            key1 = parts[1]
+            key2 = (n >= 2 ? parts[2] : "")
+        }
+        $0 ~ "^"section":[[:space:]]*$" {
+            in_section = 1
+            in_subsection = 0
+            next
+        }
+        in_section && /^[^[:space:]][^:]*:[[:space:]]*$/ {
+            in_section = 0
+            in_subsection = 0
+        }
+        !in_section { next }
+
+        n == 1 && $0 ~ "^[[:space:]]{2}"key1":[[:space:]]*" {
+            line = $0
+            sub("^[[:space:]]{2}"key1":[[:space:]]*", "", line)
+            gsub(/[{}]/, "", line)
+            gsub(/^[ \t]+|[ \t]+$/, "", line)
+            print line
+            exit
+        }
+
+        n >= 2 && $0 ~ "^[[:space:]]{2}"key1":[[:space:]]*$" {
+            in_subsection = 1
+            next
+        }
+        n >= 2 && in_subsection && /^[[:space:]]{2}[a-zA-Z_][a-zA-Z0-9_]*:[[:space:]]*$/ && $0 !~ "^[[:space:]]{2}"key1":[[:space:]]*$" {
+            in_subsection = 0
+        }
+        n >= 2 && in_subsection && $0 ~ "^[[:space:]]{4}"key2":[[:space:]]*" {
+            line = $0
+            sub("^[[:space:]]{4}"key2":[[:space:]]*", "", line)
+            gsub(/[{}]/, "", line)
+            gsub(/^[ \t]+|[ \t]+$/, "", line)
+            print line
+            exit
+        }
+    ' "$file"
+}
+
+# Normalize comma/space-separated method names to a space-separated lowercase list.
+normalize_methods_list() {
+    local raw="$1"
+    local out=""
+    local tok
+
+    raw="${raw//,/ }"
+    for tok in $raw; do
+        tok="${tok,,}"
+        tok="${tok// /}"
+        [[ -z "$tok" ]] && continue
+        case "$tok" in
+            sbayesr|ldpred2) out="${out:+${out} }${tok}" ;;
+            *)
+                log_error "Unknown method: '${tok}' (expected: sbayesr, ldpred2)"
+                return 1
+                ;;
+        esac
+    done
+
+    if [[ -z "$out" ]]; then
+        out="sbayesr"
+    fi
+    echo "$out"
+}
+
+# Return 0 when method is in the active methods list (space-separated).
+has_method() {
+    local method="${1,,}"
+    local methods_list="${2:-${CFG_METHODS:-sbayesr}}"
+    local m
+
+    for m in $methods_list; do
+        [[ "${m,,}" == "$method" ]] && return 0
+    done
+    return 1
+}
+
+# Default map basename inside ldpred2.ld_dir from ldpred2.ld_variant_set.
+ldpred2_default_map_basename() {
+    local set="${1:-${CFG_LDPRED2_LD_VARIANT_SET:-hm3_plus}}"
+
+    case "$set" in
+        hm3) echo "map_hm3.rds" ;;
+        hm3_plus) echo "map_hm3_plus.rds" ;;
+        *)
+            log_error "ldpred2.ld_variant_set: '${set}' is not recognised (expected hm3 or hm3_plus)"
+            return 1
+            ;;
+    esac
+}
+
+# Resolve ldpred2.ld_meta_file (explicit config value or default under ld_dir).
+resolve_ldpred2_ld_meta_file() {
+    if [[ -n "${CFG_LDPRED2_LD_META_FILE:-}" ]]; then
+        echo "${CFG_LDPRED2_LD_META_FILE}"
+        return 0
+    fi
+    if [[ -z "${CFG_LDPRED2_LD_DIR:-}" ]]; then
+        return 1
+    fi
+
+    local map_basename
+    map_basename=$(ldpred2_default_map_basename) || return 1
+    echo "${CFG_LDPRED2_LD_DIR%/}/${map_basename}"
+}
+
+# Fail fast when ldpred2 is active but required LDpred2 config is missing.
+validate_active_methods_config() {
+    local methods_list="${CFG_METHODS:-sbayesr}"
+
+    if ! has_method ldpred2 "$methods_list"; then
+        return 0
+    fi
+
+    if [[ -z "${CFG_LDPRED2_LD_DIR:-}" ]]; then
+        log_error "methods includes 'ldpred2' but ldpred2.ld_dir is not set in config"
+        log_error "Set ldpred2.ld_dir (and optionally ldpred2.ld_meta_file) or remove ldpred2 from methods"
+        exit 1
+    fi
+
+    local meta_file
+    meta_file=$(resolve_ldpred2_ld_meta_file) || {
+        log_error "methods includes 'ldpred2' but ldpred2.ld_meta_file could not be resolved"
+        log_error "Set ldpred2.ld_meta_file explicitly or fix ldpred2.ld_variant_set"
+        exit 1
+    }
+    if [[ -z "$meta_file" ]]; then
+        log_error "methods includes 'ldpred2' but ldpred2.ld_meta_file is not set and could not be defaulted"
+        exit 1
+    fi
+
+    export CFG_LDPRED2_LD_META_FILE_RESOLVED="$meta_file"
+    log_debug "Resolved ldpred2.ld_meta_file: ${meta_file}"
+}
+
+# Resolve active methods: CLI override > config methods: > default [sbayesr].
+# Exports CFG_METHODS (space-separated) and runs validate_active_methods_config().
+load_active_methods() {
+    local methods_cli="${1:-}"
+    local config_file="${2:-}"
+    local raw_methods=""
+
+    if [[ -n "$methods_cli" ]]; then
+        raw_methods="$methods_cli"
+    elif [[ -n "$config_file" && -f "$config_file" ]]; then
+        raw_methods=$(parse_yaml_list "methods" "$config_file" | tr '\n' ' ')
+    fi
+
+    if [[ -z "${raw_methods// /}" ]]; then
+        raw_methods="sbayesr"
+    fi
+
+    CFG_METHODS=$(normalize_methods_list "$raw_methods") || exit 1
+    export CFG_METHODS
+    log_debug "Active methods: ${CFG_METHODS}"
+    validate_active_methods_config
+}
+
+# Convert space-separated methods to comma-separated (for --methods CLI).
+methods_to_csv() {
+    echo "${1:-${CFG_METHODS:-sbayesr}}" | tr ' ' ','
+}
+
+# SLURM step profile lookup with score_sbayesr/score_ldpred2 inheriting slurm.score.
+resolve_slurm_step_settings() {
+    local step_profile="$1"
+    local config_file="$2"
+    local step_settings=""
+
+    step_settings=$(parse_yaml_nested "slurm" "$step_profile" "$config_file")
+    if [[ -z "$step_settings" ]]; then
+        case "$step_profile" in
+            score_sbayesr|score_ldpred2)
+                step_settings=$(parse_yaml_nested "slurm" "score" "$config_file")
+                ;;
+        esac
+    fi
+    echo "$step_settings"
 }
 
 # =============================================================================
@@ -284,12 +504,8 @@ get_sumstat_step_dir() {
     echo "${work_dir}/${step}"
 }
 
-# Method-explicit naming for the filter-variants step (Phase 1 §5.4).
-# Renames any legacy work/filtered/ directory to work/filtered_sbayesr/ so
-# downstream tooling that targets per-method paths can find the existing
-# outputs without re-running the step. Idempotent and silent when nothing
-# needs moving. The .completed marker (and every other file) inside the
-# directory moves along with the rename, preserving the step-completed state.
+# Rename legacy work/filtered/ -> work/filtered_sbayesr/ (Phase 1 §5.4).
+# Idempotent: no-op when legacy dir is absent or the new dir already exists.
 migrate_filtered_dirs() {
     local sumstat_dir="$1"
 
@@ -313,8 +529,6 @@ migrate_sumstat_all_step_dirs() {
     for step in formatted filtered posteriors posteriors_mapped scores scores_combined; do
         migrate_sumstat_step_dir "$sumstat_dir" "$step"
     done
-    # After the layout-level migration into work/, also apply the method-explicit
-    # rename for filter-variants so legacy work/filtered/ becomes work/filtered_sbayesr/.
     migrate_filtered_dirs "$sumstat_dir"
 }
 

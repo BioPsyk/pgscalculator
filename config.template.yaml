@@ -28,6 +28,10 @@ filters:
 
 whichn: totalN
 
+# Which posterior methods to compute. Omit for sBayesR-only (default).
+# Override per run with: ./pgscalculator-v2.sh ... --methods sbayesr,ldpred2
+#methods: [sbayesr]
+
 sbayesr:
   gamma: "0.0,0.01,0.1,1"
   pi: "0.95,0.02,0.02,0.01"
@@ -44,13 +48,25 @@ sbayesr:
   no_mcmc_bin: false
   impute_n: false
 
-# LDpred2 method (opt-in). The full calc-ldpred2 step lands in a later commit;
-# for now these keys drive prep-ldref-ldpred2 only. Uncomment + adjust paths to
-# enable. See docs/references.md for how to obtain the reference data.
+# LDpred2 method (opt-in). Uncomment + adjust paths to enable LDpred2 alongside sBayesR.
+# When ldpred2 is listed in methods:, ldpred2.ld_dir is required (ld_meta_file may be
+# omitted — it defaults to map_hm3{,_plus}.rds under ld_dir). See docs/references.md.
 #ldpred2:
+#  mode: auto
 #  ld_variant_set: hm3_plus                                                # hm3 | hm3_plus
 #  ld_dir:         /path/to/references/ld-ldpred2/hm3_plus                 # holds LD_with_blocks_chr{1..22}.rds
-#  ld_meta_file:   /path/to/references/ld-ldpred2/hm3_plus/map_hm3_plus.rds  # optional; defaults under ld_dir for the chosen variant set
+#  ld_meta_file:   /path/to/references/ld-ldpred2/hm3_plus/map_hm3_plus.rds
+#  shrink_corr: 0.95
+#  allow_jump_sign: false
+#  hyper_p_max: 0.2
+#  hyper_p_length: 30
+#  burn_in: 500
+#  num_iter: 500
+#  use_mle: true
+#  coef_shrink_keep: 0.95
+#  merge_by_rsid: false
+#  seed: 1
+#  threads: 16
 
 # Scoring columns (variant_id allele effect)
 score_columns: 1 2 5
@@ -73,6 +89,9 @@ slurm:
   prep:               { mem: 10g, cpus: 1, time: '1:00:00', max_parallel: 22 }
   sumstat:            { mem: 1g, cpus: 1, time: '0:30:00', max_parallel: 22 }
   weights_sbayesr:    { mem: 20g, cpus: 6, time: '2:00:00', max_parallel: 22 }
+  weights_ldpred2:    { mem: 64g, cpus: 16, time: '4:00:00' }              # single genome-wide job (Phase 6+)
   weights_benchmark:   { mem: 2g, cpus: 2, time: '0:30:00', max_parallel: 22 }
   score:              { mem: 10g, cpus: 4, time: '0:30:00', max_parallel: 22 }
+  score_sbayesr:      { mem: 10g, cpus: 4, time: '0:30:00', max_parallel: 22 }  # inherits score: if omitted
+  score_ldpred2:      { mem: 10g, cpus: 4, time: '0:30:00', max_parallel: 22 }  # inherits score: if omitted
   finalize:           { mem: 16g, cpus: 1, time: '1:00:00' }

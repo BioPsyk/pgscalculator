@@ -18,6 +18,8 @@ function general_usage(){
   echo "Optional:"
   echo "  -i <dir>          Path to sumstats folder (required for non-prep steps)"
   echo "  -o <dir>          Path to output directory (overrides config)"
+  echo "  --methods <list>  Active posterior methods: sbayesr, ldpred2, or both"
+  echo "                   (comma-separated; overrides config methods:)"
   echo "  --force           Force re-run of steps even if already completed"
   echo "  --sbatch          Submit as SLURM job using sbatch settings from config"
   echo "                   For per-sumstat steps (sumstat/weights/score), this submits a"
@@ -72,6 +74,7 @@ function general_usage(){
 ################################################################################
 present_dir="${PWD}"
 project_dir="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+source "${project_dir}/bin/lib/common.sh"
 
 ################################################################################
 # Parameter parsing
@@ -84,6 +87,7 @@ infold=""
 outdir=""
 steps_arg=""
 chromosomes_override=""
+methods_cli=""
 devmode=""
 force_mode=""
 use_sbatch=false
@@ -128,6 +132,10 @@ while [ $i -lt ${#paramarray[@]} ]; do
       ;;
     -o)
       outdir="${paramarray[$((i+1))]}"
+      i=$((i+2))
+      ;;
+    --methods)
+      methods_cli="${paramarray[$((i+1))]}"
       i=$((i+2))
       ;;
     -d)
@@ -183,6 +191,11 @@ fi
 
 config_file_host=$(realpath "$config_file")
 
+# Load config + resolve active methods (CLI --methods overrides config methods:)
+parse_config "$config_file_host"
+load_active_methods "$methods_cli" "$config_file_host"
+echo "Active methods: $(methods_to_csv "$CFG_METHODS")"
+
 ################################################################################
 # Parse config file (simple YAML parsing with awk)
 ################################################################################
@@ -193,76 +206,10 @@ parse_yaml_value() {
 }
 
 # Parse nested YAML values (supports one or two levels under a section).
-# Examples:
-#   parse_yaml_nested "slurm" "account" file            -> slurm.account
-#   parse_yaml_nested "filters" "inclusion_list.gt" file -> filters.inclusion_list.gt
-parse_yaml_nested() {
-  local section="$1"
-  local key="$2"
-  local file="$3"
-  awk -v section="$section" -v key="$key" '
-    BEGIN {
-      in_section = 0
-      in_subsection = 0
-      n = split(key, parts, /\./)
-      key1 = parts[1]
-      key2 = (n >= 2 ? parts[2] : "")
-    }
-    # Enter target top-level section
-    $0 ~ "^"section":[[:space:]]*$" {
-      in_section = 1
-      in_subsection = 0
-      next
-    }
-    # Leave section when a new top-level key starts
-    in_section && /^[^[:space:]][^:]*:[[:space:]]*$/ {
-      in_section = 0
-      in_subsection = 0
-    }
-    !in_section { next }
-
-    # One-level key under section: "  account: value"
-    n == 1 && $0 ~ "^[[:space:]]{2}"key1":[[:space:]]*" {
-      line = $0
-      sub("^[[:space:]]{2}"key1":[[:space:]]*", "", line)
-      gsub(/[{}]/, "", line)
-      gsub(/^[ \t]+|[ \t]+$/, "", line)
-      print line
-      exit
-    }
-
-    # Two-level key under section:
-    #   "  inclusion_list:"
-    #   "    gt: value"
-    n >= 2 && $0 ~ "^[[:space:]]{2}"key1":[[:space:]]*$" {
-      in_subsection = 1
-      next
-    }
-    n >= 2 && in_subsection && /^[[:space:]]{2}[a-zA-Z_][a-zA-Z0-9_]*:[[:space:]]*$/ && $0 !~ "^[[:space:]]{2}"key1":[[:space:]]*$" {
-      in_subsection = 0
-    }
-    n >= 2 && in_subsection && $0 ~ "^[[:space:]]{4}"key2":[[:space:]]*" {
-      line = $0
-      sub("^[[:space:]]{4}"key2":[[:space:]]*", "", line)
-      gsub(/[{}]/, "", line)
-      gsub(/^[ \t]+|[ \t]+$/, "", line)
-      print line
-      exit
-    }
-  ' "$file"
-}
+# Defined in bin/lib/common.sh as parse_yaml_nested().
 
 # Parse a YAML list (e.g., modules:\n  - tools\n  - singularity/4.1.2)
-parse_yaml_list() {
-  local key="$1"
-  local file="$2"
-  awk -v key="$key" '
-    BEGIN { in_list = 0 }
-    $0 ~ "^"key":" { in_list = 1; next }
-    in_list && /^  - / { gsub(/^  - */, ""); gsub(/[ \t]+$/, ""); print; next }
-    in_list && /^[^ ]/ { exit }
-  ' "$file"
-}
+# Defined in bin/lib/common.sh as parse_yaml_list().
 
 # Parse inline YAML dict (e.g., "{ mem: 10g, cpus: 6, time: '1:00:00' }")
 parse_inline_dict() {
@@ -912,7 +859,7 @@ infold_host=$(realpath "${infold}")
   submit_array_for_step() {
     local step_profile="$1"
 
-    step_settings=$(parse_yaml_nested "slurm" "$step_profile" "$config_file_host")
+    step_settings=$(resolve_slurm_step_settings "$step_profile" "$config_file_host")
     slurm_mem=""
     slurm_cpus=""
     slurm_time=""
@@ -939,6 +886,14 @@ infold_host=$(realpath "${infold}")
     elif [[ "$step_profile" == "weights_benchmark" ]]; then
       slurm_mem="${slurm_mem:-2g}"
       slurm_cpus="${slurm_cpus:-2}"
+      slurm_time="${slurm_time:-0:30:00}"
+    elif [[ "$step_profile" == "weights_ldpred2" ]]; then
+      slurm_mem="${slurm_mem:-64g}"
+      slurm_cpus="${slurm_cpus:-16}"
+      slurm_time="${slurm_time:-4:00:00}"
+    elif [[ "$step_profile" == "score_sbayesr" || "$step_profile" == "score_ldpred2" || "$step_profile" == "score" ]]; then
+      slurm_mem="${slurm_mem:-10g}"
+      slurm_cpus="${slurm_cpus:-4}"
       slurm_time="${slurm_time:-0:30:00}"
     else
       slurm_mem="${slurm_mem:-20g}"
@@ -1023,6 +978,7 @@ infold_host=$(realpath "${infold}")
     [[ -n "$outdir" ]] && run_cmd="${run_cmd} -o ${outdir}"
     [[ -n "$devmode" ]] && run_cmd="${run_cmd} -d"
     [[ -n "$force_mode" ]] && run_cmd="${run_cmd} --force"
+    run_cmd="${run_cmd} --methods $(methods_to_csv "$CFG_METHODS")"
 
     task_wrap="CHR=\$(sed -n \"\${SLURM_ARRAY_TASK_ID}p\" \"${chr_file}\"); \
 if [[ -z \"\$CHR\" ]]; then echo \"Error: could not resolve chromosome for task \$SLURM_ARRAY_TASK_ID\" >&2; exit 1; fi; \
@@ -1139,6 +1095,7 @@ rc=\$?; echo \"[INFO] Finished ${step_profile} chr\${CHR} at \$(date) (exit=\$rc
     [[ -n "$outdir" ]] && run_cmd="${run_cmd} -o ${outdir}"
     [[ -n "$devmode" ]] && run_cmd="${run_cmd} -d"
     [[ -n "$force_mode" ]] && run_cmd="${run_cmd} --force"
+    run_cmd="${run_cmd} --methods $(methods_to_csv "$CFG_METHODS")"
 
     sbatch_args=(--parsable)
     sbatch_args+=(--mem="${slurm_mem}")
@@ -1190,6 +1147,7 @@ rc=\$?; echo \"[INFO] Finished ${step_profile} chr\${CHR} at \$(date) (exit=\$rc
   [[ -n "$outdir" ]] && run_base="${run_base} -o ${outdir}"
   [[ -n "$devmode" ]] && run_base="${run_base} -d"
   [[ -n "$force_mode" ]] && run_base="${run_base} --force"
+  run_base="${run_base} --methods $(methods_to_csv "$CFG_METHODS")"
 
   if [[ "$has_prep" == true ]]; then
     echo "Running prep-genotypes and prep-ldref inside driver job..."
@@ -1299,7 +1257,7 @@ if [[ "$use_sbatch" == true ]]; then
   if [[ "$has_prep" == true ]]; then
     # Prep driver job (runs prep-genotypes/ldref, submits prep-inclusion-list array)
     step_profile="prep"
-    step_settings=$(parse_yaml_nested "slurm" "$step_profile" "$config_file_host")
+    step_settings=$(resolve_slurm_step_settings "$step_profile" "$config_file_host")
     slurm_mem=""
     slurm_cpus=""
     slurm_time=""
@@ -1321,6 +1279,7 @@ if [[ "$use_sbatch" == true ]]; then
     [[ -n "$devmode" ]] && run_cmd="${run_cmd} -d"
     [[ -n "$force_mode" ]] && run_cmd="${run_cmd} --force"
     [[ "$do_cleanup" == true ]] && run_cmd="${run_cmd} --cleanup"
+    run_cmd="${run_cmd} --methods $(methods_to_csv "$CFG_METHODS")"
 
     sbatch_args=(--parsable)
     sbatch_args+=(--mem="${slurm_mem}")
@@ -1388,6 +1347,7 @@ if [[ "$use_sbatch" == true ]]; then
   [[ -n "$devmode" ]] && run_cmd="${run_cmd} -d"
   [[ -n "$force_mode" ]] && run_cmd="${run_cmd} --force"
   [[ "$do_cleanup" == true ]] && run_cmd="${run_cmd} --cleanup"
+  run_cmd="${run_cmd} --methods $(methods_to_csv "$CFG_METHODS")"
 
   sbatch_args=(--parsable)
   sbatch_args+=(--mem="${slurm_mem}")
@@ -1660,6 +1620,10 @@ awk '
   }
 ' "$config_file_host" >> "${config_yaml_host}"
 
+# Ensure container config reflects the resolved active methods (CLI override wins).
+sed -i '/^methods:/d' "${config_yaml_host}"
+echo "methods: [$(methods_to_csv "$CFG_METHODS")]" >> "${config_yaml_host}"
+
 # Add/override chromosome range if specified
 if [[ -n "$cfg_chromosomes" ]]; then
   # Remove existing chromosomes line and add new one
@@ -1711,6 +1675,8 @@ fi
 if [[ -n "$force_mode" ]]; then
   cli_cmd="${cli_cmd} ${force_mode}"
 fi
+
+cli_cmd="${cli_cmd} --methods $(methods_to_csv "$CFG_METHODS")"
 
 ################################################################################
 # Build mount options

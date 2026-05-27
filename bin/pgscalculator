@@ -61,6 +61,8 @@ OPTIONS:
     --sumstat NAME      Name of sumstat to process (for per-sumstat commands)
     --method NAME       Posterior method (sbayesr|ldpred2) for method-parameterised
                         steps. Default: sbayesr.
+    --methods LIST      Active posterior methods for this run (sbayesr, ldpred2, or
+                        comma-separated both). Overrides config methods:.
     --force             Force re-run of steps even if already completed
     --verbose           Enable verbose output
     --dry-run           Show what would be done without executing
@@ -492,6 +494,7 @@ parse_args() {
     FORCE=0
     MAF_THRESHOLD=""
     METHOD=""
+    METHODS=""
     
     while [[ $# -gt 0 ]]; do
         case "$1" in
@@ -529,6 +532,10 @@ parse_args() {
                 ;;
             --method)
                 METHOD="$2"
+                shift 2
+                ;;
+            --methods)
+                METHODS="$2"
                 shift 2
                 ;;
             --verbose|-v)
@@ -592,6 +599,7 @@ dispatch_command() {
     # Load config if provided
     if [[ -n "$CONFIG_FILE" ]]; then
         parse_config "$CONFIG_FILE"
+        load_active_methods "${METHODS:-}" "$CONFIG_FILE"
     fi
     
     case "$cmd" in
