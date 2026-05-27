@@ -204,7 +204,8 @@ write_augmented_sumstat_v2() {
     LC_ALL=C join -t $'\t' -a 1 -e NA -o auto "${tmpdir}/vm_base.tsv" "${tmpdir}/ss_sorted.tsv" > "$current"
 
     local m eaf_added=0
-    local -a pe_col=() postp_col=0 eaf_col=0
+    local -A pe_col=()
+    local postp_col=0 eaf_col=0
     local ncol=8
 
     for m in $ordered; do
