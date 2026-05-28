@@ -19,7 +19,7 @@ Nextflow pipeline version remains in root `VERSION` (unchanged).
 - **Discovery-mode finalize:** `augmented_sumstat.gz` with `postEffect_<method>` columns only when mapped posteriors exist on disk
 - **Incremental runs:** run sBayesR and LDpred2 on different days in the same `outdir` without re-running sBayesR
 - **SLURM:** `weights_ldpred2` (single genome-wide job), `score_sbayesr` / `score_ldpred2` profiles
-- **Container:** multi-stage `r_builder` with `pak` + LDpred2 R stack; image tag **2.2.0** (`docker/VERSION`)
+- **Container:** multi-stage `r_builder` with `pak` + LDpred2 R stack (requires image **0.7.0+**, see `docker/VERSION`; independent of pipeline `VERSION.v2`)
 - **Tests:** unit tests for methods config, driver dispatch, format-posteriors LDpred2, incremental finalize; smoke `tests/smoke/v2.2-2026-05-26/`
 
 ### Changed
@@ -28,16 +28,20 @@ Nextflow pipeline version remains in root `VERSION` (unchanged).
 - `combine-scores` emits one gzipped score file per discovered method
 - Legacy `work/filtered/` and `work/posteriors_mapped/` layouts are migrated automatically
 
-### Container
+### Container (0.7.0 — only if you need LDpred2 or have not rebuilt since Phase 1)
 
-Rebuild and pull after upgrading:
+The **pipeline** version is `2.2.0` (`VERSION.v2`). The **image** version is `0.7.0` (`docker/VERSION`). It was bumped once when the `r_builder` stage and `bigsnpr` stack landed (commit `2d6299c`); phases 2–11 did not change the Dockerfile.
+
+Rebuild only when `docker/Dockerfile` / `docker/VERSION` change, not on every pipeline release:
 
 ```bash
 ./scripts/docker-build.sh
-singularity build sif/ibp-pgscalculator-base_version-2.2.0.sif docker-daemon://ibp-pgscalculator-base:2.2.0
-# or: singularity pull sif/ibp-pgscalculator-base_version-2.2.0.sif docker://biopsyk/ibp-pgscalculator:2.2.0-amd64
-./scripts/test-r-packages.sh --singularity sif/ibp-pgscalculator-base_version-2.2.0.sif
+singularity build sif/ibp-pgscalculator-base_version-0.7.0.sif docker-daemon://ibp-pgscalculator-base:0.7.0
+# or: singularity pull sif/ibp-pgscalculator-base_version-0.7.0.sif docker://biopsyk/ibp-pgscalculator:0.7.0-amd64
+./scripts/test-r-packages.sh --singularity sif/ibp-pgscalculator-base_version-0.7.0.sif
 ```
+
+sBayesR-only runs can keep using an older image (e.g. `0.6.0`) until you enable LDpred2.
 
 ## [1.3.2] - 2025-09-22
 ### Fixed

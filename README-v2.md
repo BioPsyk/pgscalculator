@@ -44,15 +44,15 @@ cd pgscalculator
 
 ```bash
 mkdir -p sif
-singularity pull sif/ibp-pgscalculator-base_version-2.2.0.sif docker://biopsyk/ibp-pgscalculator:2.2.0-amd64
+singularity pull sif/ibp-pgscalculator-base_version-0.7.0.sif docker://biopsyk/ibp-pgscalculator:0.7.0-amd64
 ```
 
-Or build locally after `docker/VERSION` is set to `2.2.0`:
+Image version (`docker/VERSION`, currently **0.7.0**) is **independent** of the pipeline version (`VERSION.v2`, **2.2.0**). Rebuild the image only when the Dockerfile changes (e.g. LDpred2 R packages added in Phase 1). sBayesR-only can use **0.6.0** until you enable LDpred2.
 
 ```bash
 ./scripts/docker-build.sh
-singularity build sif/ibp-pgscalculator-base_version-2.2.0.sif docker-daemon://ibp-pgscalculator-base:2.2.0
-./scripts/test-r-packages.sh --singularity sif/ibp-pgscalculator-base_version-2.2.0.sif
+singularity build sif/ibp-pgscalculator-base_version-0.7.0.sif docker-daemon://ibp-pgscalculator-base:0.7.0
+./scripts/test-r-packages.sh --singularity sif/ibp-pgscalculator-base_version-0.7.0.sif
 ```
 
 ### Reference Data
@@ -317,7 +317,7 @@ For interactive use or custom workflows:
 # Start interactive container session
 singularity shell --contain --cleanenv \
   -B /faststorage:/faststorage \
-  sif/ibp-pgscalculator-base_version-2.2.0.sif
+  sif/ibp-pgscalculator-base_version-0.7.0.sif
 
 # Inside container - run individual steps
 pgscalculator prep-genotypes --config /path/to/config.yaml
