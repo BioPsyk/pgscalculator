@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-# pgscalculator v2.1.0 wrapper script
+# pgscalculator v2.2.0 wrapper script
 # Config-first approach: paths in config.yaml, minimal CLI
 
 ################################################################################
@@ -151,7 +151,7 @@ while [ $i -lt ${#paramarray[@]} ]; do
       i=$((i+1))
       ;;
     -v)
-      cat ${project_dir}/VERSION 1>&2
+      cat "${project_dir}/VERSION.v2" 1>&2
       exit 0
       ;;
     -h|--help)
@@ -1783,7 +1783,7 @@ config_yaml_container="${outdir_container}${config_yaml_host#${outdir_host}}"
 
 # Copy original config and update paths for container
 cat > "${config_yaml_host}" << EOF
-# pgscalculator v2.1.0 - Auto-generated config for container
+# pgscalculator v2.2.0 - Auto-generated config for container
 # Generated from: ${config_file_host}
 input: ${indir_container}
 outdir: ${outdir_container}
@@ -1954,7 +1954,7 @@ fi
 ################################################################################
 # Execute
 ################################################################################
-echo "Running pgscalculator v2.1.0 in Singularity"
+echo "Running pgscalculator v2.2.0 in Singularity"
 echo "Config: ${config_file_host}"
 echo "Output: ${outdir_host}"
   echo "Command: ${cli_cmd}"

@@ -1,5 +1,5 @@
 #!/bin/bash
-# pgscalculator v2.0.0 - Main CLI entry point
+# pgscalculator v2.2.0 - Main CLI entry point
 # Modular PGS calculation pipeline with step-by-step control
 
 set -euo pipefail
@@ -16,7 +16,7 @@ source "${LIB_DIR}/common.sh"
 # VERSION AND HELP
 # =============================================================================
 
-VERSION="2.0.0"
+VERSION="2.2.0"
 
 print_version() {
     echo "pgscalculator v${VERSION}"

@@ -4,6 +4,41 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.2.0] - 2026-05-26
+
+pgscalculator **v2** release (wrapper `pgscalculator-v2.sh`, CLI `bin/pgscalculator`). The v1
+Nextflow pipeline version remains in root `VERSION` (unchanged).
+
+### Added
+
+- **LDpred2** posterior method (`calc-ldpred2`, `run_ldpred2.R`) via `bigsnpr` / LDpred2-auto
+- **`methods:`** config key and **`--methods`** CLI (`sbayesr`, `ldpred2`, or both)
+- **Prep (opt-in):** `prep-ldref-ldpred2`, `prep-inclusion-list-ldpred2` when `ldpred2.ld_dir` is set
+- **Per-method work dirs:** `filtered_<method>/`, `posteriors_mapped_<method>/`, `scores_<method>/`
+- **Per-method outputs:** `scores_sbayesr.gz`, `scores_ldpred2.gz`; `scores.gz` → `scores_sbayesr.gz` when sBayesR-only
+- **Discovery-mode finalize:** `augmented_sumstat.gz` with `postEffect_<method>` columns only when mapped posteriors exist on disk
+- **Incremental runs:** run sBayesR and LDpred2 on different days in the same `outdir` without re-running sBayesR
+- **SLURM:** `weights_ldpred2` (single genome-wide job), `score_sbayesr` / `score_ldpred2` profiles
+- **Container:** multi-stage `r_builder` with `pak` + LDpred2 R stack; image tag **2.2.0** (`docker/VERSION`)
+- **Tests:** unit tests for methods config, driver dispatch, format-posteriors LDpred2, incremental finalize; smoke `tests/smoke/v2.2-2026-05-26/`
+
+### Changed
+
+- `filter-variants` and `format-posteriors` are method-parameterised (`--method sbayesr|ldpred2`)
+- `combine-scores` emits one gzipped score file per discovered method
+- Legacy `work/filtered/` and `work/posteriors_mapped/` layouts are migrated automatically
+
+### Container
+
+Rebuild and pull after upgrading:
+
+```bash
+./scripts/docker-build.sh
+singularity build sif/ibp-pgscalculator-base_version-2.2.0.sif docker-daemon://ibp-pgscalculator-base:2.2.0
+# or: singularity pull sif/ibp-pgscalculator-base_version-2.2.0.sif docker://biopsyk/ibp-pgscalculator:2.2.0-amd64
+./scripts/test-r-packages.sh --singularity sif/ibp-pgscalculator-base_version-2.2.0.sif
+```
+
 ## [1.3.2] - 2025-09-22
 ### Fixed
 - **Critical sorting issue in variant_map_for_sbayesr.sh that caused incomplete variant mappings**

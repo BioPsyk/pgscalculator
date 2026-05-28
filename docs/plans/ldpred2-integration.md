@@ -1,7 +1,7 @@
 % LDpred2 integration plan
 
 **Status:** Draft / not started
-**Target version:** v2.2.0 (additive; sBayesR-only configs remain valid)
+**Target version:** v2.2.0 (released; additive — sBayesR-only configs remain valid)
 **Owner:** TBD
 **Last updated:** 2026-05-13
 

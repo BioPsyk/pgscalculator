@@ -44,7 +44,15 @@ cd pgscalculator
 
 ```bash
 mkdir -p sif
-singularity pull sif/ibp-pgscalculator-base_version-2.0.0.sif docker://biopsyk/ibp-pgscalculator:2.0.0-amd64
+singularity pull sif/ibp-pgscalculator-base_version-2.2.0.sif docker://biopsyk/ibp-pgscalculator:2.2.0-amd64
+```
+
+Or build locally after `docker/VERSION` is set to `2.2.0`:
+
+```bash
+./scripts/docker-build.sh
+singularity build sif/ibp-pgscalculator-base_version-2.2.0.sif docker-daemon://ibp-pgscalculator-base:2.2.0
+./scripts/test-r-packages.sh --singularity sif/ibp-pgscalculator-base_version-2.2.0.sif
 ```
 
 ### Reference Data
@@ -309,7 +317,7 @@ For interactive use or custom workflows:
 # Start interactive container session
 singularity shell --contain --cleanenv \
   -B /faststorage:/faststorage \
-  sif/ibp-pgscalculator-base_version-2.0.0.sif
+  sif/ibp-pgscalculator-base_version-2.2.0.sif
 
 # Inside container - run individual steps
 pgscalculator prep-genotypes --config /path/to/config.yaml
@@ -384,7 +392,7 @@ To **re-run only LDpred2** (e.g. new LD ref), add `--force` with `--methods ldpr
 See `config.template.yaml` for a complete annotated example. Key sections:
 
 ```yaml
-# pgscalculator v2.1.0 Configuration
+# pgscalculator v2.2.0 Configuration
 
 # Optional: HPC modules to load before running (omit if singularity is already in PATH)
 #modules:
