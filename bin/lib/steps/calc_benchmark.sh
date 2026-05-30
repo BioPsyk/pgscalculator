@@ -10,52 +10,87 @@ check_calc_benchmark_deps() {
     require_dir "${CFG_GENODIR}" "Genotype directory not found"
 }
 
+# Compute a benchmark (MAF filter + LD prune + P+T scoring) per method. Each
+# method's benchmark is restricted to that method's filtered (LD-ref) variant
+# set, so the P+T baseline is judged within the same variant universe as the
+# method it is compared against (§11). A single calc-benchmark invocation
+# covers every active method; the SLURM driver dispatches one method per task
+# via CFG_METHOD.
 run_calc_benchmark() {
     local sumstat_name="$1"
+
+    log_step "Running calc-benchmark for: $sumstat_name"
+    check_calc_benchmark_deps
+
+    local outdir="${CFG_OUTDIR}"
+    local sumstat_dir
+    sumstat_dir=$(get_sumstat_dir "$outdir" "$sumstat_name")
+
+    local methods
+    if [[ -n "${CFG_METHOD:-}" ]]; then
+        methods="${CFG_METHOD}"
+    else
+        methods="${CFG_METHODS:-sbayesr}"
+    fi
+
+    local method ran=0
+    for method in $methods; do
+        case "$method" in
+            sbayesr|ldpred2) ;;
+            *) log_warn "calc-benchmark: skipping unknown method '${method}'"; continue ;;
+        esac
+        migrate_sumstat_step_dir "$sumstat_dir" "$(method_filtered_dir_name "$method")"
+        local filtered_dir
+        filtered_dir=$(get_method_filtered_dir "$sumstat_dir" "$method")
+        if [[ ! -d "$filtered_dir" ]]; then
+            log_info "calc-benchmark: no filtered variants for method '${method}' (skipping)"
+            continue
+        fi
+        run_calc_benchmark_method "$sumstat_dir" "$method" "$filtered_dir" && ran=1
+    done
+
+    [[ $ran -eq 0 ]] && log_warn "calc-benchmark produced no benchmarks (no filtered variants found)"
+    return 0
+}
+
+run_calc_benchmark_method() {
+    local sumstat_dir="$1" method="$2" filtered_dir="$3"
+
     # Config from benchmark section (CFG_BENCHMARK_MAF_THRESHOLD, CFG_BENCHMARK_INDEP_PAIRWISE)
     local maf_threshold="${CFG_BENCHMARK_MAF_THRESHOLD:-0.05}"
     local indep_raw="${CFG_BENCHMARK_INDEP_PAIRWISE:-250 50 0.25}"
     local indep_pairwise
     indep_pairwise=$(echo "$indep_raw" | sed 's/[][]//g; s/,/ /g' | awk '{$1=$1;print}')
     [[ -z "$indep_pairwise" ]] && indep_pairwise="250 50 0.25"
-    
-    log_step "Running calc-benchmark for: $sumstat_name"
-    check_calc_benchmark_deps
-    
-    local outdir="${CFG_OUTDIR}"
-    local prep_dir=$(get_prep_dir "$outdir")
-    local sumstat_dir=$(get_sumstat_dir "$outdir" "$sumstat_name")
-    migrate_sumstat_step_dir "$sumstat_dir" "$(method_filtered_dir_name sbayesr)"
-    local filtered_dir
-    filtered_dir=$(get_method_filtered_dir "$sumstat_dir" "sbayesr")
-    local step_dir="${sumstat_dir}/work/benchmark"
+
+    local step_dir
+    step_dir=$(get_method_benchmark_dir "$sumstat_dir" "$method")
     ensure_dir "$step_dir"
-    
-    require_dir "$filtered_dir" "Run 'pgscalculator filter-variants' first"
-    
+
     if check_step_completed "$step_dir"; then
-        log_info "Step already completed."
+        log_info "calc-benchmark (${method}): already completed."
         return 0
     fi
-    
+
     local genodir="${CFG_GENODIR}"
     local genofile="${CFG_GENOFILE}"
-    
-    log_info "MAF threshold: ${maf_threshold}; indep-pairwise: ${indep_pairwise}"
-    
+
+    log_substep "Benchmark for method '${method}' (MAF ${maf_threshold}; indep-pairwise ${indep_pairwise})"
+
     local success_count=0
     for chr in $(get_chromosomes); do
         local filtered_file="${filtered_dir}/chr${chr}_filtered.tsv"
         [[ ! -f "$filtered_file" ]] && continue
-        log_substep "Processing chromosome ${chr}"
+        log_substep "[${method}] Processing chromosome ${chr}"
         if process_benchmark_chr "$chr" "$filtered_file" "$genodir" "$genofile" "$step_dir" "$maf_threshold" "$indep_pairwise"; then
             ((success_count++))
         fi
     done
-    
+
     [[ $success_count -gt 0 ]] && combine_benchmark_scores "$step_dir"
     mark_step_completed "$step_dir"
-    log_info "Output directory: ${step_dir}"
+    log_info "Benchmark (${method}) output directory: ${step_dir}"
+    return 0
 }
 
 process_benchmark_chr() {

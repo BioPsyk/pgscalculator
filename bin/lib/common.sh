@@ -567,6 +567,73 @@ method_scores_gz_name() {
     esac
 }
 
+# Per-method final output file names (§9/§11). Each method gets a fully
+# parallel, self-contained augmented sumstat (with its own benchEffect column)
+# and a per-sample benchmark score file, restricted to that method's LD-ref
+# variant set.
+method_augmented_gz_name() {
+    case "${1:-sbayesr}" in
+        sbayesr) echo "augmented_sbayesr.gz" ;;
+        ldpred2) echo "augmented_ldpred2.gz" ;;
+        *) return 1 ;;
+    esac
+}
+
+method_bench_score_gz_name() {
+    case "${1:-sbayesr}" in
+        sbayesr) echo "bench_score_sbayesr.gz" ;;
+        ldpred2) echo "bench_score_ldpred2.gz" ;;
+        *) return 1 ;;
+    esac
+}
+
+# Per-method benchmark work directory (§11). The benchmark is computed
+# independently per method so it is restricted to that method's filtered
+# variant set (the user wants P+T vs the fancy method judged within each LD
+# reference's variant set, not across a merged set).
+method_benchmark_dir_name() {
+    case "${1:-sbayesr}" in
+        sbayesr) echo "benchmark_sbayesr" ;;
+        ldpred2) echo "benchmark_ldpred2" ;;
+        *) return 1 ;;
+    esac
+}
+
+get_method_benchmark_dir() {
+    local sumstat_dir="$1"
+    local method="$2"
+    local work_dir
+    work_dir=$(get_sumstat_work_dir "$sumstat_dir")
+    local step
+    step=$(method_benchmark_dir_name "$method") || return 1
+    local new_dir="${work_dir}/${step}"
+    # Back-compat: legacy single-method runs wrote work/benchmark (sBayesR).
+    if [[ "$method" == "sbayesr" && ! -d "$new_dir" && -d "${work_dir}/benchmark" ]]; then
+        echo "${work_dir}/benchmark"
+        return 0
+    fi
+    echo "$new_dir"
+}
+
+# Resolve the prep variant map for a method. sBayesR may also have a
+# sumstat-local copy (legacy); prefer the prep-level per-method map.
+get_method_variant_map() {
+    local prep_dir="$1"
+    local sumstat_dir="$2"
+    local method="$3"
+    case "$method" in
+        sbayesr)
+            if [[ -f "${sumstat_dir}/variant_map.tsv" ]]; then
+                echo "${sumstat_dir}/variant_map.tsv"
+            else
+                echo "${prep_dir}/variant_map_sbayesr.tsv"
+            fi
+            ;;
+        ldpred2) echo "${prep_dir}/variant_map_ldpred2.tsv" ;;
+        *) return 1 ;;
+    esac
+}
+
 get_method_scores_dir() {
     local sumstat_dir="$1"
     local method="$2"
