@@ -27,6 +27,17 @@ check_prep_ldref_deps() {
         exit 1
     fi
     require_file "$liftover_ref" "Liftover reference file is required for dual-position mapfile"
+
+    # The sBayesR dual-position map is derived by treating the LD reference's native
+    # PhysPos as GRCh37 and adding GRCh38 via the liftover reference. Make that build
+    # assumption explicit and config-driven. Only GRCh37 LD references are supported
+    # for sBayesR today; a GRCh38-native LD reference would need the symmetric join.
+    local ld_build="${CFG_SBAYESR_LD_BUILD:-GRCh37}"
+    if [[ "$ld_build" != "GRCh37" ]]; then
+        log_error "sbayesr.ld_build='${ld_build}' is not supported (only GRCh37 sBayesR LD references are supported)."
+        log_error "The dual-position map derivation assumes the LD reference PhysPos is GRCh37."
+        exit 1
+    fi
 }
 
 # =============================================================================

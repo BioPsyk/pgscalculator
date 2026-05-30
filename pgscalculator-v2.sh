@@ -94,6 +94,7 @@ methods_cli=""
 method_override=""
 devmode=""
 force_mode=""
+skip_prep=false
 use_sbatch=false
 driver_run=false
 do_cleanup=false
@@ -442,8 +443,8 @@ check_prep_exists() {
   if [[ ! -f "${outdir}/prep/inclusion_list/.rsid_index" ]]; then
     missing="${missing}  - Inclusion index: ${outdir}/prep/inclusion_list/.rsid_index\n"
   fi
-  if [[ ! -f "${outdir}/prep/variant_map.tsv" ]]; then
-    missing="${missing}  - Variant map: ${outdir}/prep/variant_map.tsv\n"
+  if [[ ! -f "${outdir}/prep/variant_map.tsv" ]] && [[ ! -f "${outdir}/prep/variant_map_sbayesr.tsv" ]]; then
+    missing="${missing}  - Variant map: ${outdir}/prep/variant_map_sbayesr.tsv (or variant_map.tsv)\n"
   fi
 
   # Chromosome-specific prep artifacts (must exist for all requested chromosomes)
@@ -1816,6 +1817,27 @@ if [[ -n "$cfg_chromosomes" ]]; then
   echo "chromosomes: ${cfg_chromosomes}" >> "${config_yaml_host}"
 fi
 
+# LDpred2 LD reference: host paths in the copied yaml are rewritten for the container.
+ldpred2_lddir_host=""
+ldpred2_lddir_container=""
+if has_method ldpred2 "$CFG_METHODS" && [[ -n "${CFG_LDPRED2_LD_DIR:-}" ]]; then
+  if [[ ! -d "${CFG_LDPRED2_LD_DIR}" ]]; then
+    >&2 echo "Error: ldpred2.ld_dir not found: ${CFG_LDPRED2_LD_DIR}"
+    exit 1
+  fi
+  ldpred2_lddir_host=$(realpath "${CFG_LDPRED2_LD_DIR}")
+  if [[ "$ldpred2_lddir_host" == "${project_dir}" ]] || [[ "$ldpred2_lddir_host" == "${project_dir}/"* ]]; then
+    ldpred2_lddir_container="/pgscalculator${ldpred2_lddir_host#${project_dir}}"
+  else
+    ldpred2_lddir_container="/pgscalculator/ldpred2_ref"
+  fi
+  sed -i "s|${ldpred2_lddir_host}|${ldpred2_lddir_container}|g" "${config_yaml_host}"
+  if [[ -n "${CFG_LDPRED2_LD_META_FILE:-}" ]] && [[ -f "${CFG_LDPRED2_LD_META_FILE}" ]]; then
+    ldpred2_meta_host=$(realpath "${CFG_LDPRED2_LD_META_FILE}")
+    sed -i "s|${ldpred2_meta_host}|${ldpred2_lddir_container}/$(basename "${ldpred2_meta_host}")|g" "${config_yaml_host}"
+  fi
+fi
+
 ################################################################################
 # Determine image
 ################################################################################
@@ -1876,6 +1898,10 @@ mount_opts=""
 mount_opts="${mount_opts} ${mountflag} ${project_dir}:/pgscalculator"
 mount_opts="${mount_opts} ${mountflag} ${outdir_host}:${outdir_container}"
 mount_opts="${mount_opts} ${mountflag} ${lddir_host}:${lddir_container}"
+
+if [[ -n "$ldpred2_lddir_host" ]] && [[ "$ldpred2_lddir_container" == "/pgscalculator/ldpred2_ref" ]]; then
+  mount_opts="${mount_opts} ${mountflag} ${ldpred2_lddir_host}:${ldpred2_lddir_container}:ro"
+fi
 
 # Ensure we have a writable temp location with enough space, and bind it as /tmp
 # inside the container. Many tools (e.g., sort) spill temporary files to /tmp.

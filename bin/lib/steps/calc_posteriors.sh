@@ -36,10 +36,10 @@ run_calc_posteriors() {
     local outdir="${CFG_OUTDIR}"
     local sumstat_dir
     sumstat_dir=$(get_sumstat_dir "$outdir" "$sumstat_name")
-    migrate_sumstat_step_dir "$sumstat_dir" "filtered"
+    migrate_sumstat_step_dir "$sumstat_dir" "$(method_filtered_dir_name sbayesr)"
     migrate_sumstat_step_dir "$sumstat_dir" "posteriors"
     local filter_dir
-    filter_dir=$(get_sumstat_step_dir "$sumstat_dir" "filtered")
+    filter_dir=$(get_method_filtered_dir "$sumstat_dir" "sbayesr")
     local step_dir
     step_dir=$(get_sumstat_step_dir "$sumstat_dir" "posteriors")
     ensure_dir "$step_dir"

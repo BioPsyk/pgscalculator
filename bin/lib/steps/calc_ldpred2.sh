@@ -75,6 +75,7 @@ run_calc_ldpred2() {
     local seed="${CFG_LDPRED2_SEED:-1}"
     local ncores="${CFG_LDPRED2_THREADS:-${CFG_LDPRED2_NCORES:-1}}"
     local genotype_build="${CFG_GENOTYPE_BUILD:-GRCh37}"
+    local ld_build="${CFG_LDPRED2_LD_BUILD:-GRCh37}"
     local merge_by_rsid="${CFG_LDPRED2_MERGE_BY_RSID:-false}"
 
     local logs_dir="${sumstat_dir}/logs"
@@ -125,6 +126,7 @@ run_calc_ldpred2() {
         --seed "$seed"
         --ncores "$ncores"
         --genotype-build "$genotype_build"
+        --ld-build "$ld_build"
         --merge-by-rsid "$merge_r"
         --plot-file "$plot_file"
     )

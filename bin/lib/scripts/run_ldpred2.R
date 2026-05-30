@@ -95,19 +95,32 @@ p <- add_argument(p, "--out-dir", type = "character",
                   help = "Output directory for chr{N}.snpRes files")
 p <- add_argument(p, "--mode", type = "character", default = "auto",
                   help = "LDpred2 mode: auto | inf")
-p <- add_argument(p, "--shrink-corr", type = "numeric", default = 0.95)
-p <- add_argument(p, "--allow-jump-sign", type = "logical", default = FALSE)
-p <- add_argument(p, "--hyper-p-max", type = "numeric", default = 0.2)
-p <- add_argument(p, "--hyper-p-length", type = "integer", default = 30L)
-p <- add_argument(p, "--seed", type = "integer", default = 1L)
-p <- add_argument(p, "--ncores", type = "integer", default = 1L)
+p <- add_argument(p, "--shrink-corr", type = "numeric", default = 0.95,
+                  help = "Correlation shrinkage before LDpred2")
+p <- add_argument(p, "--allow-jump-sign", type = "logical", default = FALSE,
+                  help = "Allow sign flips in LDpred2-auto")
+p <- add_argument(p, "--hyper-p-max", type = "numeric", default = 0.2,
+                  help = "Max grid value for p (auto mode)")
+p <- add_argument(p, "--hyper-p-length", type = "integer", default = 30L,
+                  help = "Grid length for p (auto mode)")
+p <- add_argument(p, "--seed", type = "integer", default = 1L,
+                  help = "Random seed")
+p <- add_argument(p, "--ncores", type = "integer", default = 1L,
+                  help = "Number of CPU cores")
 p <- add_argument(p, "--genotype-build", type = "character", default = "GRCh37",
-                  help = "GRCh37 or GRCh38 (selects pos column for matching)")
-p <- add_argument(p, "--merge-by-rsid", type = "logical", default = FALSE)
-p <- add_argument(p, "--effective-sample-size", type = "numeric", default = NA)
-p <- add_argument(p, "--n-cases", type = "numeric", default = NA)
-p <- add_argument(p, "--n-controls", type = "numeric", default = NA)
-p <- add_argument(p, "--plot-file", type = "character", default = "")
+                  help = "Deprecated: genome build of the genotype files (no longer used for LD matching)")
+p <- add_argument(p, "--ld-build", type = "character", default = "GRCh37",
+                  help = "Genome build of the LD reference's native positions (GRCh37 or GRCh38)")
+p <- add_argument(p, "--merge-by-rsid", type = "logical", default = FALSE,
+                  help = "Match sumstat to LD map by RSID instead of chr:pos")
+p <- add_argument(p, "--effective-sample-size", type = "numeric", default = NA,
+                  help = "Fallback effective sample size")
+p <- add_argument(p, "--n-cases", type = "numeric", default = NA,
+                  help = "Case count for h2 scaling")
+p <- add_argument(p, "--n-controls", type = "numeric", default = NA,
+                  help = "Control count for h2 scaling")
+p <- add_argument(p, "--plot-file", type = "character", default = "",
+                  help = "Optional path for LDpred2-auto diagnostic plot")
 argv <- parse_args(p)
 
 required_args <- c("sumstat_dir", "ld_dir", "ld_meta", "out_dir")
@@ -119,6 +132,18 @@ for (arg_name in required_args) {
 
 if (!argv$mode %in% c("auto", "inf")) {
     stop("--mode must be 'auto' or 'inf'")
+}
+
+# Clamp requested cores to what is actually available to the process. bigsnpr's
+# assert_cores() aborts (rather than degrading) if ncores exceeds the cgroup/OS
+# core count, so a threads/cpus mismatch would otherwise fail a long-running job.
+ncores <- argv$ncores
+avail_cores <- tryCatch(bigparallelr::nb_cores(), error = function(e) 1L)
+if (is.na(ncores) || ncores < 1L) ncores <- 1L
+if (ncores > avail_cores) {
+    cat(sprintf("[OK] Requested %d cores but only %d available; using %d\n",
+                ncores, avail_cores, avail_cores))
+    ncores <- avail_cores
 }
 
 sumstat_dir <- argv$sumstat_dir
@@ -179,10 +204,14 @@ sumstats <- sumstats[
     !is.na(chr) & !is.na(pos) & !is.na(beta) & !is.na(beta_se) & beta_se > 0
 ]
 
-if (!is.na(argv$`effective-sample-size`)) {
-    sumstats[, n_eff := argv$`effective-sample-size`]
-} else if (!is.na(argv$`n-cases`) && !is.na(argv$`n-controls`)) {
-    n_eff_derived <- 4 / (1 / argv$`n-cases` + 1 / argv$`n-controls`)
+eff_n <- argv$effective_sample_size
+n_cases <- argv$n_cases
+n_controls <- argv$n_controls
+if (length(eff_n) == 1 && !is.na(eff_n)) {
+    sumstats[, n_eff := eff_n]
+} else if (length(n_cases) == 1 && length(n_controls) == 1 &&
+           !is.na(n_cases) && !is.na(n_controls)) {
+    n_eff_derived <- 4 / (1 / n_cases + 1 / n_controls)
     sumstats[, n_eff := n_eff_derived]
 }
 
@@ -193,22 +222,36 @@ if (nrow(sumstats) < 100) {
 }
 
 # --- LD reference map ---------------------------------------------------------
+# The filtered sumstat positions are GRCh38 (cleansumstats standard; filter-variants
+# matches the formatted sumstat on pos_b38). So we match against whichever LD-map
+# column is in GRCh38. `ld_build` declares the build of the LD map's native `pos`:
+#   - ld_build GRCh38 -> native `pos` is already GRCh38, match on it directly
+#   - ld_build GRCh37 -> native `pos` is GRCh37, so match on the `pos_hg38` column
+# This keeps matching positional (via the dbSNP-reconciled variant map) and never
+# relies on the LD reference's own rsids, which may diverge from the dbSNP backbone.
 map_ldref <- readRDS(ld_meta)
-build <- toupper(argv$`genotype-build`)
-if (build %in% c("GRCH38", "HG38")) {
+ld_build <- toupper(if (length(argv$ld_build) == 1 && !is.na(argv$ld_build)) {
+    argv$ld_build
+} else {
+    "GRCH37"
+})
+if (ld_build %in% c("GRCH38", "HG38")) {
+    if (!("pos" %in% colnames(map_ldref))) {
+        fail_with(failed_match, "LD map missing pos column")
+    }
+} else {
     if (!("pos_hg38" %in% colnames(map_ldref))) {
-        fail_with(failed_match, "LD map missing pos_hg38 for GRCh38 matching")
+        fail_with(failed_match,
+                  "LD map missing pos_hg38 (needed to match a GRCh38 sumstat against a GRCh37-native LD reference)")
     }
     map_ldref$pos <- map_ldref$pos_hg38
-} else if (!("pos" %in% colnames(map_ldref))) {
-    fail_with(failed_match, "LD map missing pos column")
 }
 
 if (!("block_id" %in% colnames(map_ldref)) && ("group_id" %in% colnames(map_ldref))) {
     map_ldref$block_id <- map_ldref$group_id
 }
 
-join_by_pos <- !isTRUE(argv$`merge-by-rsid`)
+join_by_pos <- !isTRUE(argv$merge_by_rsid)
 cat(sprintf("[OK] Matching %d sumstat rows to LD reference (join_by_pos=%s)\n",
             nrow(sumstats), join_by_pos))
 
@@ -220,7 +263,9 @@ df_beta <- tryCatch(
     }
 )
 
-drops <- c("_NUM_ID_.ss", "_NUM_ID_", "rsid.ss")
+# Keep `_NUM_ID_` (row index into the LD map) — it is required below to subset the
+# per-chromosome LD matrices. Only drop the duplicated sumstat-side columns.
+drops <- c("_NUM_ID_.ss", "rsid.ss")
 df_beta <- df_beta[, !(names(df_beta) %in% drops), drop = FALSE]
 
 if (nrow(df_beta) < 100) {
@@ -249,7 +294,20 @@ if (nrow(df_beta) < 100) {
 }
 
 # --- Build genome-wide SFBM ---------------------------------------------------
-tmp_file <- tempfile(tmpdir = out_dir, pattern = "ldpred2_corr_")
+# The SFBM backing file is memory-mapped by bigsnpr. Many shared/network
+# filesystems (e.g. the /faststorage Lustre/GDK mounts) reject mmap with
+# "Error when mapping file: Invalid argument", so place the temporary backing on
+# node-local, mmap-capable storage (TMPDIR if set, else /tmp). It is removed at
+# exit; only the final chr*.snpRes outputs are written to out_dir.
+# NB: TMPDIR may be set-but-empty (e.g. exported as ""), in which case
+# Sys.getenv() returns "" rather than the `unset` fallback. Guard against that and
+# fall back to R's resolved session tempdir(), which is always valid and writable.
+sfbm_tmpdir <- Sys.getenv("TMPDIR")
+if (!nzchar(sfbm_tmpdir) || !dir.exists(sfbm_tmpdir)) {
+    sfbm_tmpdir <- tempdir()
+}
+tmp_file <- tempfile(tmpdir = sfbm_tmpdir, pattern = "ldpred2_corr_")
+on.exit(unlink(paste0(tmp_file, c("", ".sbk", ".rds")), force = TRUE), add = TRUE)
 ld_size <- 0
 corr <- NULL
 
@@ -302,7 +360,7 @@ ldsc <- tryCatch(
         chi2 = (beta / beta_se)^2,
         sample_size = n_eff,
         blocks = NULL,
-        ncores = argv$ncores
+        ncores = ncores
     )),
     error = function(e) {
         fail_with(failed_ldsc, conditionMessage(e))
@@ -336,10 +394,10 @@ if (argv$mode == "inf") {
         snp_ldpred2_auto(
             corr, df_beta,
             h2_init = h2_est,
-            vec_p_init = seq_log(1e-4, argv$`hyper-p-max`, length.out = argv$`hyper-p-length`),
-            allow_jump_sign = argv$`allow-jump-sign`,
-            shrink_corr = argv$`shrink-corr`,
-            ncores = argv$ncores
+            vec_p_init = seq_log(1e-4, argv$hyper_p_max, length.out = argv$hyper_p_length),
+            allow_jump_sign = argv$allow_jump_sign,
+            shrink_corr = argv$shrink_corr,
+            ncores = ncores
         ),
         error = function(e) {
             fail_with(failed_ldpred2, conditionMessage(e))
@@ -354,7 +412,7 @@ if (argv$mode == "inf") {
     beta_est <- auto_res$beta
     postp_est <- auto_res$postp
 
-    if (nzchar(argv$`plot-file`)) {
+    if (nzchar(argv$plot_file)) {
         auto <- multi_auto[[1]]
         dta <- data.frame(
             path_p_est = auto$path_p_est,
@@ -376,8 +434,8 @@ if (argv$mode == "inf") {
             ncol = 1,
             align = "hv"
         )
-        ggsave(argv$`plot-file`, plt, width = 6, height = 8)
-        cat(sprintf("[OK] Wrote chain diagnostics: %s\n", argv$`plot-file`))
+        ggsave(argv$plot_file, plt, width = 6, height = 8)
+        cat(sprintf("[OK] Wrote chain diagnostics: %s\n", argv$plot_file))
     }
 }
 

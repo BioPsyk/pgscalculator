@@ -36,6 +36,10 @@ methods: [sbayesr]
 #methods: [ldpred2]
 
 sbayesr:
+  # Genome build of the sBayesR LD reference's native positions (GRCh37 or GRCh38).
+  # The dual-position variant map is derived from this via the liftover_reference.
+  # Currently only GRCh37 is supported for the sBayesR LD reference.
+  ld_build: GRCh37
   gamma: "0.0,0.01,0.1,1"
   pi: "0.95,0.02,0.02,0.01"
   burn_in: 2000
@@ -56,6 +60,7 @@ sbayesr:
 # omitted — it defaults to map_hm3{,_plus}.rds under ld_dir). See docs/references.md.
 #ldpred2:
 #  mode: auto
+#  ld_build: GRCh37                                                        # genome build of the LD reference's native positions (bigsnpr map_hm3 is GRCh37)
 #  ld_variant_set: hm3_plus                                                # hm3 | hm3_plus
 #  ld_dir:         /path/to/references/ld-ldpred2/hm3_plus                 # holds LD_with_blocks_chr{1..22}.rds
 #  ld_meta_file:   /path/to/references/ld-ldpred2/hm3_plus/map_hm3_plus.rds
