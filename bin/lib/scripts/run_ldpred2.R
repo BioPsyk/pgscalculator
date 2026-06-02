@@ -240,16 +240,37 @@ sumstats <- sumstats[
     !is.na(chr) & !is.na(pos) & !is.na(beta) & !is.na(beta_se) & beta_se > 0
 ]
 
+# Sample-size handling: prefer the per-variant N column. It is the
+# LDpred2-recommended input (it captures per-variant N variation in
+# meta-analysed sumstats) and is already metadata-filled upstream by
+# filter-variants (add_sample_size). The metadata-derived scalar
+# (--effective-sample-size, or case/control) is only a *fallback* used to fill
+# rows whose per-variant N is missing/invalid (or the whole column when it is
+# absent entirely).
 eff_n <- argv$effective_sample_size
 n_cases <- argv$n_cases
 n_controls <- argv$n_controls
+fallback_n <- NA_real_
 if (length(eff_n) == 1 && !is.na(eff_n)) {
-    sumstats[, n_eff := eff_n]
+    fallback_n <- as.numeric(eff_n)
 } else if (length(n_cases) == 1 && length(n_controls) == 1 &&
            !is.na(n_cases) && !is.na(n_controls)) {
-    n_eff_derived <- 4 / (1 / n_cases + 1 / n_controls)
-    sumstats[, n_eff := n_eff_derived]
+    fallback_n <- 4 / (1 / n_cases + 1 / n_controls)
 }
+
+n_from_col <- sum(is.finite(sumstats$n_eff) & sumstats$n_eff > 0)
+if (!is.na(fallback_n) && fallback_n > 0) {
+    sumstats[!(is.finite(n_eff) & n_eff > 0), n_eff := fallback_n]
+}
+n_from_fallback <- sum(is.finite(sumstats$n_eff) & sumstats$n_eff > 0) - n_from_col
+cat(sprintf("[OK] N source: per-variant column for %d rows%s\n", n_from_col,
+            if (!is.na(fallback_n) && fallback_n > 0)
+                sprintf("; metadata fallback (%s) for %d rows",
+                        fmt_num(fallback_n), max(0L, n_from_fallback))
+            else ""))
+add_diag("n_per_variant", n_from_col)
+add_diag("n_metadata_fallback", if (!is.na(fallback_n) && fallback_n > 0) max(0L, n_from_fallback) else 0L)
+add_diag("n_metadata_fallback_value", if (!is.na(fallback_n)) fmt_num(fallback_n) else "NA")
 
 sumstats <- sumstats[!is.na(n_eff) & n_eff > 0]
 
