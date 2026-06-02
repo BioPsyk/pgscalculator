@@ -1327,7 +1327,14 @@ rc=\$?; echo \"[INFO] Finished ${step_profile} chr\${CHR} at \$(date) (exit=\$rc
 
   if [[ "$has_prep" == true ]]; then
     echo "Running prep-genotypes and prep-ldref inside driver job..."
-    eval "${run_base} --steps prep-genotypes,prep-ldref"
+    # When LDpred2 is active, also convert its LD-reference map (single pass,
+    # Rscript). prep-ldref-ldpred2 only needs the LD dir, so it runs alongside
+    # the sBayesR ldref prep. Self-skips when ldpred2.ld_dir is unset.
+    prep_driver_steps="prep-genotypes,prep-ldref"
+    if has_method ldpred2 "$CFG_METHODS"; then
+      prep_driver_steps="${prep_driver_steps},prep-ldref-ldpred2"
+    fi
+    eval "${run_base} --steps ${prep_driver_steps}"
 
     # Run prep-inclusion-list as a SLURM array (per-chromosome)
     submit_array_for_step "prep"
@@ -1335,6 +1342,14 @@ rc=\$?; echo \"[INFO] Finished ${step_profile} chr\${CHR} at \$(date) (exit=\$rc
     # Combine per-chromosome maps + inclusion list after array completes
     echo "Running prep-inclusion-list combine..."
     eval "${run_base} --steps prep-inclusion-combine"
+
+    # LDpred2 variant map: a single whole-genome pass (loops chromosomes
+    # internally, so no per-chromosome array). Needs prep-genotypes (snplist)
+    # and prep-ldref-ldpred2 (map.tsv), both produced above.
+    if has_method ldpred2 "$CFG_METHODS"; then
+      echo "Running prep-inclusion-list-ldpred2 (LDpred2 variant map) inside driver job..."
+      eval "${run_base} --steps prep-inclusion-list-ldpred2"
+    fi
 
     if [[ "$do_cleanup" == true ]]; then
       echo "Cleanup enabled: removing prep tmp/"
