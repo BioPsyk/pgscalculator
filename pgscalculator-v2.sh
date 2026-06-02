@@ -1684,7 +1684,7 @@ else
   IFS="," read -ra steps_list <<< "$steps_arg"
   needs_prep_check=0
   for step in "${steps_list[@]}"; do
-    if [[ ! "$step" =~ ^prep(-genotypes|-ldref|-inclusion-list|-inclusion-combine)?$ ]]; then
+    if [[ ! "$step" =~ ^prep(-genotypes|-ldref|-ldref-ldpred2|-inclusion-list|-inclusion-list-ldpred2|-inclusion-combine)?$ ]]; then
       needs_prep_check=1
       break
     fi
