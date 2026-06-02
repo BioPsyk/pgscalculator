@@ -52,6 +52,51 @@ run_pipeline() {
 
 run_step_group() {
     local group="$1" sumstat_name="$2"; log_substep "Running: $group"
+
+    # The sumstat / weights / score groups are method-aware: the method-
+    # parameterised steps run once per active method (CFG_METHODS). This makes a
+    # plain `run --all` (or `run --steps sumstat,weights,score`) execute the full
+    # sBayesR *and* LDpred2 paths locally, matching what the SLURM driver does by
+    # dispatching one method per task. The driver itself never reaches this code
+    # with these group names — it remaps them to concrete step names with an
+    # explicit --method (see pgscalculator-v2.sh §6.4).
+    local methods="${CFG_METHODS:-sbayesr}"
+    case "$group" in
+        sumstat)
+            run_single_step "format-sumstat" "$sumstat_name" || return 1
+            local m
+            for m in $methods; do
+                CFG_METHOD="$m" run_single_step "filter-variants" "$sumstat_name" || { unset CFG_METHOD || true; return 1; }
+            done
+            unset CFG_METHOD || true
+            return 0
+            ;;
+        weights)
+            local m
+            for m in $methods; do
+                if [[ "$m" == "ldpred2" ]]; then
+                    CFG_METHOD="$m" run_single_step "calc-ldpred2" "$sumstat_name" || return 1
+                else
+                    CFG_METHOD="$m" run_single_step "calc-posteriors" "$sumstat_name" || return 1
+                fi
+                CFG_METHOD="$m" run_single_step "format-posteriors" "$sumstat_name" || return 1
+            done
+            # calc-benchmark iterates active methods internally; clear CFG_METHOD
+            # so it does not get pinned to the last loop value.
+            unset CFG_METHOD || true
+            run_single_step "calc-benchmark" "$sumstat_name" || return 1
+            return 0
+            ;;
+        score)
+            local m
+            for m in $methods; do
+                CFG_METHOD="$m" run_single_step "calc-score" "$sumstat_name" || { unset CFG_METHOD || true; return 1; }
+            done
+            unset CFG_METHOD || true
+            return 0
+            ;;
+    esac
+
     # `--steps` historically refers to step groups (prep/sumstat/posteriors/score),
     # but the wrapper may also pass concrete step names (e.g. combine-scores,finalize-output).
     # Use a default expansion to avoid "unbound variable" under `set -u`.
