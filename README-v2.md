@@ -511,13 +511,20 @@ outdir/
         ├── scores_sbayesr.gz          # sBayesR PGS (IID, SCORE_SUM, ALLELE_CT, N_VARIANTS)
         ├── scores_ldpred2.gz          # LDpred2 PGS (when that method has been run)
         ├── scores.gz                  # Symlink → scores_sbayesr.gz (sBayesR-only / back-compat)
-        ├── augmented_sumstat.gz       # RSID, B, SE, Z, P, MAF, postEffect_<method>, postp_ldpred2?, benchEffect
+        ├── augmented_sbayesr.gz       # sBayesR set: RSID, alleles, B, SE, Z, P, EAF, MAF, postEffect, benchEffect
+        ├── augmented_ldpred2.gz       # LDpred2 set: ... postEffect, postp_ldpred2, benchEffect (its own variant set)
+        ├── augmented_sumstat.gz       # Symlink → augmented_sbayesr.gz (back-compat)
         ├── variant_map.gz             # Variant mapping (rsid ↔ genotype ID; sBayesR map)
-        ├── bench_score.gz             # Benchmark scores (IID, ALLELE_CT, SCORE1_SUM)
+        ├── bench_score_sbayesr.gz     # sBayesR benchmark PGS (IID, ALLELE_CT, SCORE1_SUM)
+        ├── bench_score_ldpred2.gz     # LDpred2 benchmark PGS (its own variant set)
+        ├── bench_score.gz             # Symlink → bench_score_sbayesr.gz (back-compat)
         ├── details/
         │   ├── steps.tsv              # Per-step variant counts
         │   ├── config.yaml            # Config used for this run
-        │   └── run_summary.txt        # Run summary
+        │   ├── run_summary.txt        # Run summary
+        │   └── ldpred2/               # LDpred2 diagnostics (when run)
+        │       ├── summary.tsv        # h2, p, alpha, intercept, match/QC/chain counts
+        │       └── chains.png         # LDpred2-auto p/h2 sampling paths (kept chains)
         ├── logs/                      # Per-sumstat logs
         └── work/                      # Intermediate files (removed with --cleanup)
             ├── formatted/             # Per-chr formatted sumstats

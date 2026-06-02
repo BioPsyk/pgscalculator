@@ -87,7 +87,13 @@ run_finalize_output() {
     # Step 6: Generate stepwise details TSVs
     log_substep "Generating stepwise details"
     generate_stepwise_details "$sumstat_dir" "$step_dir"
-    
+
+    # Step 7: Surface LDpred2 run diagnostics under details/ldpred2/
+    if has_method ldpred2 "${ordered:-}"; then
+        log_substep "Collecting LDpred2 diagnostics"
+        generate_ldpred2_details "$sumstat_dir" "$step_dir"
+    fi
+
     # Mark step as completed
     mark_step_completed "$step_dir"
     
@@ -353,6 +359,32 @@ write_augmented_sumstat_for_method() {
     variant_count=$(zcat "$output_file" | wc -l)
     variant_count=$((variant_count - 1))
     log_info "Generated ${out_name} with ${variant_count} variants"
+}
+
+# Copy the LDpred2 run diagnostics (summary.tsv, chains.png) produced by
+# calc-ldpred2 into details/ldpred2/ for user-facing inspection.
+generate_ldpred2_details() {
+    local sumstat_dir="$1"
+    local details_dir="$2"
+
+    local src_dir
+    src_dir=$(get_sumstat_step_dir "$sumstat_dir" "posteriors_ldpred2")
+    local out_dir="${details_dir}/ldpred2"
+
+    local copied=0 f
+    for f in summary.tsv chains.png; do
+        if [[ -f "${src_dir}/${f}" ]]; then
+            ensure_dir "$out_dir"
+            cp -f "${src_dir}/${f}" "${out_dir}/${f}"
+            copied=1
+        fi
+    done
+
+    if [[ $copied -eq 1 ]]; then
+        log_info "Wrote LDpred2 diagnostics to ${out_dir}/"
+    else
+        log_debug "No LDpred2 diagnostics (summary.tsv/chains.png) found in ${src_dir}"
+    fi
 }
 
 copy_config_to_details() {

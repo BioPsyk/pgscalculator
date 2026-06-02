@@ -120,8 +120,38 @@ p <- add_argument(p, "--n-cases", type = "numeric", default = NA,
 p <- add_argument(p, "--n-controls", type = "numeric", default = NA,
                   help = "Control count for h2 scaling")
 p <- add_argument(p, "--plot-file", type = "character", default = "",
-                  help = "Optional path for LDpred2-auto diagnostic plot")
+                  help = "Optional path for LDpred2-auto diagnostic plot (chains.png)")
+p <- add_argument(p, "--summary-file", type = "character", default = "",
+                  help = "Optional path for the LDpred2 run diagnostics table (summary.tsv)")
 argv <- parse_args(p)
+
+# Diagnostics collected through the run and flushed to --summary-file at the end
+# (long format: metric<TAB>value). Written even on a successful partial run so
+# the user can sanity-check h2 / p / variant counts.
+diag_env <- new.env(parent = emptyenv())
+diag_env$rows <- list()
+add_diag <- function(metric, value) {
+    if (is.null(value) || length(value) == 0) value <- NA
+    diag_env$rows[[length(diag_env$rows) + 1L]] <- c(metric, as.character(value))
+}
+write_summary <- function() {
+    path <- argv$summary_file
+    if (is.null(path) || length(path) != 1 || is.na(path) || !nzchar(path)) {
+        return(invisible(FALSE))
+    }
+    if (length(diag_env$rows) == 0) return(invisible(FALSE))
+    dir.create(dirname(path), recursive = TRUE, showWarnings = FALSE)
+    con <- file(path, "w")
+    on.exit(close(con), add = TRUE)
+    writeLines("metric\tvalue", con)
+    for (r in diag_env$rows) writeLines(paste(r[1], r[2], sep = "\t"), con)
+    cat(sprintf("[OK] Wrote run diagnostics: %s\n", path))
+    invisible(TRUE)
+}
+fmt_num <- function(x, digits = 6) {
+    if (is.null(x) || length(x) != 1 || is.na(x) || !is.finite(x)) return("NA")
+    trimws(formatC(as.numeric(x), format = "g", digits = digits))
+}
 
 required_args <- c("sumstat_dir", "ld_dir", "ld_meta", "out_dir")
 for (arg_name in required_args) {
@@ -151,6 +181,12 @@ ld_dir <- argv$ld_dir
 ld_meta <- argv$ld_meta
 out_dir <- argv$out_dir
 dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
+
+add_diag("mode", argv$mode)
+add_diag("seed", argv$seed)
+add_diag("ncores_used", ncores)
+add_diag("shrink_corr", fmt_num(argv$shrink_corr))
+add_diag("ld_meta", basename(ld_meta))
 
 failed_match <- file.path(out_dir, "FAILED_match")
 failed_sfbm <- file.path(out_dir, "FAILED_sfbm")
@@ -252,6 +288,9 @@ if (!("block_id" %in% colnames(map_ldref)) && ("group_id" %in% colnames(map_ldre
 }
 
 join_by_pos <- !isTRUE(argv$merge_by_rsid)
+add_diag("ld_build", ld_build)
+add_diag("match_by", if (join_by_pos) "chr:pos" else "rsid")
+add_diag("n_sumstat_input", nrow(sumstats))
 cat(sprintf("[OK] Matching %d sumstat rows to LD reference (join_by_pos=%s)\n",
             nrow(sumstats), join_by_pos))
 
@@ -275,6 +314,7 @@ if (nrow(df_beta) < 100) {
     )
 }
 cat(sprintf("[OK] snp_match retained %d variants\n", nrow(df_beta)))
+add_diag("n_matched", nrow(df_beta))
 
 # --- Allele-frequency QC (bigsnpr vignette) -----------------------------------
 sd_ldref <- sqrt(2 * df_beta$af_UKBB * (1 - df_beta$af_UKBB))
@@ -289,9 +329,11 @@ if (n_bad > 0) {
     df_beta <- df_beta[!is_bad, , drop = FALSE]
 }
 
+add_diag("n_qc_removed", n_bad)
 if (nrow(df_beta) < 100) {
     fail_with(failed_match, "Too few variants remain after allelic SD QC")
 }
+add_diag("n_final", nrow(df_beta))
 
 # --- Build genome-wide SFBM ---------------------------------------------------
 # The SFBM backing file is memory-mapped by bigsnpr. Many shared/network
@@ -369,6 +411,9 @@ ldsc <- tryCatch(
 )
 
 h2_est <- ldsc[["h2"]]
+add_diag("ld_ref_size", ld_size)
+add_diag("ldsc_intercept", fmt_num(ldsc[["int"]], 4))
+add_diag("ldsc_h2", fmt_num(h2_est, 6))
 if (!is.finite(h2_est) || is.na(h2_est)) {
     fail_with(failed_ldsc, sprintf("LDSC returned non-finite h2: %s", h2_est))
 }
@@ -387,6 +432,7 @@ if (argv$mode == "inf") {
             NULL
         }
     )
+    add_diag("h2_est", fmt_num(h2_est, 6))
 } else {
     cat("[OK] Running LDpred2-auto\n")
     set.seed(argv$seed)
@@ -406,36 +452,74 @@ if (argv$mode == "inf") {
     )
 
     auto_res <- get_betas_auto(multi_auto)
-    if (length(auto_res$keep) == 0) {
+    n_chains_total <- length(multi_auto)
+    n_chains_kept <- length(auto_res$keep)
+    add_diag("n_chains_total", n_chains_total)
+    add_diag("n_chains_kept", n_chains_kept)
+    if (n_chains_kept == 0) {
         fail_with(failed_ldpred2, "All LDpred2-auto chains diverged")
     }
     beta_est <- auto_res$beta
     postp_est <- auto_res$postp
 
+    # Summarise hyper-parameters across the kept (stable) chains.
+    kept <- multi_auto[auto_res$keep]
+    chain_scalar <- function(field) {
+        v <- vapply(kept, function(a) {
+            x <- tryCatch(a[[field]], error = function(e) NA_real_)
+            if (is.null(x) || length(x) != 1) NA_real_ else as.numeric(x)
+        }, numeric(1))
+        v[is.finite(v)]
+    }
+    p_vals <- chain_scalar("p_est")
+    h2_vals <- chain_scalar("h2_est")
+    alpha_vals <- chain_scalar("alpha_est")
+    p_est_final <- if (length(p_vals)) median(p_vals) else NA_real_
+    h2_est_final <- if (length(h2_vals)) median(h2_vals) else NA_real_
+    alpha_est_final <- if (length(alpha_vals)) median(alpha_vals) else NA_real_
+    add_diag("p_est", fmt_num(p_est_final, 6))
+    add_diag("h2_est", fmt_num(h2_est_final, 6))
+    add_diag("alpha_est", fmt_num(alpha_est_final, 6))
+    cat(sprintf("[OK] LDpred2-auto kept %d/%d chains; p=%s h2=%s\n",
+                n_chains_kept, n_chains_total, fmt_num(p_est_final), fmt_num(h2_est_final)))
+
     if (nzchar(argv$plot_file)) {
-        auto <- multi_auto[[1]]
-        dta <- data.frame(
-            path_p_est = auto$path_p_est,
-            path_h2_est = auto$path_h2_est,
-            x = seq_along(auto$path_p_est)
+        # Overlay the post-burn-in p / h2 sampling paths of every kept chain so
+        # the user can eyeball convergence/agreement across chains.
+        dta <- do.call(rbind, lapply(seq_along(auto_res$keep), function(j) {
+            a <- kept[[j]]
+            data.frame(
+                x = seq_along(a$path_p_est),
+                path_p_est = a$path_p_est,
+                path_h2_est = a$path_h2_est,
+                chain = factor(auto_res$keep[j])
+            )
+        }))
+        plt <- tryCatch(
+            plot_grid(
+                ggplot(dta, aes(y = path_p_est, x = x, color = chain)) +
+                    geom_point(size = 0.6, show.legend = FALSE) +
+                    theme_bigstatsr() +
+                    geom_hline(yintercept = p_est_final, col = "blue", linetype = "dashed") +
+                    scale_y_log10() +
+                    labs(y = "p", x = "iteration"),
+                ggplot(dta, aes(y = path_h2_est, x = x, color = chain)) +
+                    geom_point(size = 0.6, show.legend = FALSE) +
+                    theme_bigstatsr() +
+                    geom_hline(yintercept = h2_est_final, col = "blue", linetype = "dashed") +
+                    labs(y = "h2", x = "iteration"),
+                ncol = 1,
+                align = "hv"
+            ),
+            error = function(e) {
+                cat(sprintf("[WARN] chain plot failed: %s\n", conditionMessage(e)))
+                NULL
+            }
         )
-        plt <- plot_grid(
-            ggplot(dta, aes(y = path_p_est, x = x)) +
-                geom_point() +
-                theme_bigstatsr() +
-                geom_hline(aes(yintercept = auto$p_est), col = "blue") +
-                scale_y_log10() +
-                labs(y = "p"),
-            ggplot(dta, aes(y = path_h2_est, x = x)) +
-                geom_point() +
-                theme_bigstatsr() +
-                geom_hline(aes(yintercept = auto$h2_est), col = "blue") +
-                labs(y = "h2"),
-            ncol = 1,
-            align = "hv"
-        )
-        ggsave(argv$plot_file, plt, width = 6, height = 8)
-        cat(sprintf("[OK] Wrote chain diagnostics: %s\n", argv$plot_file))
+        if (!is.null(plt)) {
+            ggsave(argv$plot_file, plt, width = 6, height = 8)
+            cat(sprintf("[OK] Wrote chain diagnostics: %s\n", argv$plot_file))
+        }
     }
 }
 
@@ -460,6 +544,9 @@ for (chr in 1:22) {
         postp_est[idx]
     )
 }
+
+add_diag("n_posteriors_written", nrow(df_beta))
+write_summary()
 
 cat(sprintf("[OK] Wrote posteriors to %s\n", out_dir))
 invisible(TRUE)

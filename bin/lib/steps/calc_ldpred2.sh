@@ -80,15 +80,19 @@ run_calc_ldpred2() {
 
     local logs_dir="${sumstat_dir}/logs"
     ensure_dir "$logs_dir"
-    local plot_file="${logs_dir}/ldpred2_chains.png"
     local log_file="${logs_dir}/calc_ldpred2.log"
+    # Diagnostics live with the step output so they survive incremental re-runs
+    # and can be copied into details/ldpred2/ by finalize-output.
+    local plot_file="${step_dir}/chains.png"
+    local summary_file="${step_dir}/summary.tsv"
 
-    local metadata_file="${CFG_INPUT}/cleaned_metadata.yaml"
     local which_n="${CFG_WHICHN:-totalN}"
     local -a meta_args=()
     local eff_n case_n ctrl_n total_n
+    local metadata_file=""
+    [[ -n "${CFG_INPUT:-}" ]] && metadata_file="${CFG_INPUT}/cleaned_metadata.yaml"
 
-    if [[ -f "$metadata_file" ]]; then
+    if [[ -n "$metadata_file" && -f "$metadata_file" ]]; then
         if [[ "$which_n" == "effectiveN" ]]; then
             eff_n=$(awk -F': ' '$1=="stats_EffectiveN"{gsub(/^[ \t]+|[ \t]+$/, "", $2); print $2; exit}' "$metadata_file")
             case_n=$(awk -F': ' '$1=="stats_CaseN"{gsub(/^[ \t]+|[ \t]+$/, "", $2); print $2; exit}' "$metadata_file")
@@ -129,6 +133,7 @@ run_calc_ldpred2() {
         --ld-build "$ld_build"
         --merge-by-rsid "$merge_r"
         --plot-file "$plot_file"
+        --summary-file "$summary_file"
     )
     cmd+=("${meta_args[@]}")
 

@@ -4,6 +4,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **Per-method augmented sumstats:** `augmented_sbayesr.gz` and `augmented_ldpred2.gz`, each restricted to its own LD-reference variant set, keyed by rsid, with its own `benchEffect` column kept inside the file. `augmented_sumstat.gz` becomes a back-compat symlink to the sBayesR file.
+- **Per-method benchmarks:** `calc-benchmark` runs once per active method (`work/benchmark_<method>/`), and finalize emits `bench_score_sbayesr.gz` / `bench_score_ldpred2.gz` (`bench_score.gz` → sBayesR, back-compat).
+- **LDpred2 diagnostics:** `details/ldpred2/summary.tsv` (mode, seed, h2/p/alpha estimates, LDSC intercept/h2, match/QC/chain counts) and `details/ldpred2/chains.png` (overlaid p/h2 sampling paths of all kept LDpred2-auto chains).
+
+### Changed
+
+- `finalize-output` produces one self-contained augmented file per discovered method instead of a single combined `augmented_sumstat.gz` with `postEffect_<method>` columns. This avoids result files containing variants outside a method's LD reference.
+- LDpred2 chain diagnostics moved from `logs/ldpred2_chains.png` to `details/ldpred2/chains.png` (now overlaying all kept chains rather than the first only).
+
+### Fixed
+
+- `calc-ldpred2` no longer aborts under `set -u` when `input:` (cleansumstats metadata) is not configured; the per-variant `N` column is used as a fallback.
+
 ## [2.2.0] - 2026-05-26
 
 pgscalculator **v2** release (wrapper `pgscalculator-v2.sh`, CLI `bin/pgscalculator`). The v1

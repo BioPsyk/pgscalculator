@@ -446,7 +446,15 @@ LDpred2 variant map.
     (`SNP A1 A2 Freq Effect SE PIP`) — fill `SE = NA`, `PIP = postp_est`. The
     downstream `format-posteriors` step only consumes `SNP`, `A1`, `A2`,
     `Freq`, `Effect`, so this stays compatible.
-11. Diagnostic plot of chain convergence → `logs/ldpred2_chains.png`.
+11. Run diagnostics written to `work/posteriors_ldpred2/` and copied by
+    `finalize-output` into `details/ldpred2/`:
+    - `summary.tsv` — long-format metric/value table: mode, seed, shrink_corr,
+      ld_build, match/QC/chain counts (`n_sumstat_input`, `n_matched`,
+      `n_qc_removed`, `n_final`, `ld_ref_size`), `ldsc_intercept`, `ldsc_h2`,
+      `n_chains_total`, `n_chains_kept`, and the kept-chain medians `p_est`,
+      `h2_est`, `alpha_est`.
+    - `chains.png` — overlaid p / h2 sampling paths of every kept (stable)
+      LDpred2-auto chain, with the final median estimate marked.
 
 **Failure modes** (all soft-fail, write placeholder, mirroring sBayesR
 behavior):
