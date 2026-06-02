@@ -708,6 +708,14 @@ infold_host=$(realpath "${infold}")
     declare -A finished
     declare -A task_state
     declare -A task_failed
+    # Mark each associative array as "set" so ${#arr[@]} is safe under `set -u`
+    # while still empty. Bash (incl. 5.1) treats the length of a declared-but-
+    # never-assigned associative array as an unbound-variable error, which would
+    # crash the watcher on its very first loop iteration (finished is empty).
+    started[__init]=1;     unset 'started[__init]'
+    finished[__init]=1;    unset 'finished[__init]'
+    task_state[__init]=1;  unset 'task_state[__init]'
+    task_failed[__init]=1; unset 'task_failed[__init]'
     start_ts=$(date +%s)
 
     while [[ ${#finished[@]} -lt $chr_count ]]; do
