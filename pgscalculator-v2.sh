@@ -1114,7 +1114,9 @@ rc=\$?; echo \"[INFO] Finished ${step_profile} chr\${CHR} at \$(date) (exit=\$rc
 
     # Sanity-check expected outputs exist after a successful array.
     # This catches cases where tasks return 0 but accidentally write nothing.
-    if [[ -n "$sumstat_name" ]]; then
+    # sumstat_name is unset in prep mode (set -u), and this block only applies
+    # to the sumstat/weights/score profiles anyway, so guard the access.
+    if [[ -n "${sumstat_name:-}" ]]; then
       base_sumstat_out="${outdir_host}/sumstats/${sumstat_name}/work"
       if [[ "$step_profile" == "sumstat" ]]; then
         local m n_filtered sumstat_warn=0
