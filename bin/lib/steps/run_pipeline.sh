@@ -127,6 +127,7 @@ run_single_step() {
         prep-ldref-ldpred2) export CFG_STEP_GROUP="prep"; source "${STEPS_DIR}/prep_ldref_ldpred2.sh"; run_prep_ldref_ldpred2; rc=$?;;
         prep-inclusion-list) export CFG_STEP_GROUP="prep"; source "${STEPS_DIR}/prep_inclusion_list.sh"; run_prep_inclusion_list; rc=$?;;
         prep-inclusion-list-ldpred2) export CFG_STEP_GROUP="prep"; source "${STEPS_DIR}/prep_inclusion_list_ldpred2.sh"; run_prep_inclusion_list_ldpred2; rc=$?;;
+        prep-inclusion-list-ldpred2-combine) export CFG_STEP_GROUP="prep"; source "${STEPS_DIR}/prep_inclusion_list_ldpred2.sh"; run_prep_inclusion_list_ldpred2_combine; rc=$?;;
         prep-inclusion-combine) export CFG_STEP_GROUP="prep"; source "${STEPS_DIR}/prep_inclusion_list.sh"; run_prep_inclusion_list_combine; rc=$?;;
         format-sumstat) source "${STEPS_DIR}/format_sumstat.sh"; run_format_sumstat "$sumstat_name"; rc=$?;;
         # filter-variants: method dispatch via CFG_METHOD env var (set from

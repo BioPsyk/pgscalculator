@@ -1034,7 +1034,14 @@ infold_host=$(realpath "${infold}")
     elif [[ "$step_profile" == "score" || "$step_profile" == "score_sbayesr" || "$step_profile" == "score_ldpred2" ]]; then
       steps_arg_for_task="calc-score"
     elif [[ "$step_profile" == "prep" ]]; then
+      # Per-chromosome prep array: build the sBayesR variant-map partial, and
+      # (when LDpred2 is active) the LDpred2 variant-map partial in the same
+      # task. Both honour --_chr / CFG_CHROMOSOMES and write per-chr partials
+      # that their respective combine steps assemble afterwards.
       steps_arg_for_task="prep-inclusion-list"
+      if has_method ldpred2 "$CFG_METHODS"; then
+        steps_arg_for_task="prep-inclusion-list,prep-inclusion-list-ldpred2"
+      fi
     elif [[ "$step_profile" == "weights_sbayesr" ]]; then
       steps_arg_for_task="calc-posteriors,format-posteriors"
     elif [[ "$step_profile" == "weights_benchmark" ]]; then
@@ -1368,12 +1375,12 @@ rc=\$?; echo \"[INFO] Finished ${step_profile} chr\${CHR} at \$(date) (exit=\$rc
     echo "Running prep-inclusion-list combine..."
     eval "${run_base} --steps prep-inclusion-combine"
 
-    # LDpred2 variant map: a single whole-genome pass (loops chromosomes
-    # internally, so no per-chromosome array). Needs prep-genotypes (snplist)
-    # and prep-ldref-ldpred2 (map.tsv), both produced above.
+    # LDpred2 variant map: the per-chromosome partials were built by the prep
+    # array above (one task per chromosome, same as sBayesR); just concatenate
+    # them here. Needs prep-genotypes (snplist) and prep-ldref-ldpred2 (map.tsv).
     if has_method ldpred2 "$CFG_METHODS"; then
-      echo "Running prep-inclusion-list-ldpred2 (LDpred2 variant map) inside driver job..."
-      eval "${run_base} --steps prep-inclusion-list-ldpred2"
+      echo "Running prep-inclusion-list-ldpred2 combine (LDpred2 variant map)..."
+      eval "${run_base} --steps prep-inclusion-list-ldpred2-combine"
     fi
 
     if [[ "$do_cleanup" == true ]]; then
@@ -1709,7 +1716,7 @@ else
   IFS="," read -ra steps_list <<< "$steps_arg"
   needs_prep_check=0
   for step in "${steps_list[@]}"; do
-    if [[ ! "$step" =~ ^prep(-genotypes|-ldref|-ldref-ldpred2|-inclusion-list|-inclusion-list-ldpred2|-inclusion-combine)?$ ]]; then
+    if [[ ! "$step" =~ ^prep(-genotypes|-ldref|-ldref-ldpred2|-inclusion-list|-inclusion-list-ldpred2|-inclusion-list-ldpred2-combine|-inclusion-combine)?$ ]]; then
       needs_prep_check=1
       break
     fi
