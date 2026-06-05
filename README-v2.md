@@ -21,10 +21,13 @@ _Created by Jesper R. Gådin, Morten Dybdahl Krebs, and Andrew Schork (IBP)_
 - **LDpred2** (`calc-ldpred2`): genome-wide posterior estimation via `bigsnpr` (single job, not chr-parallel)
 - **`methods:` config** and **`--methods` CLI**: choose `sbayesr`, `ldpred2`, or both per submission
 - **Per-method outputs**: `scores_sbayesr.gz`, `scores_ldpred2.gz` (symlink `scores.gz` → `scores_sbayesr.gz` when sBayesR-only)
-- **Discovery-mode finalize**: `augmented_sumstat.gz` includes `postEffect_<method>` columns only for methods with mapped posteriors on disk
+- **Per-method augmented sumstats**: each method gets its own self-contained `augmented_<method>.gz` (restricted to that method's LD-reference variant set, with its own `benchEffect` column inside); `augmented_sumstat.gz` is a back-compat symlink to the sBayesR file
+- **Per-method benchmarks**: `bench_score_sbayesr.gz` / `bench_score_ldpred2.gz` (`bench_score.gz` → sBayesR, back-compat)
+- **Discovery-driven, method-aware finalize**: finalize produces an augmented file for each method with mapped posteriors on disk and re-runs when a new method is added (incremental-safe)
+- **LDpred2 diagnostics**: `details/ldpred2/summary.tsv` + `chains.png`
 - **Incremental runs**: run sBayesR today and LDpred2 tomorrow in the same `outdir` without re-running sBayesR (see [Incremental runs](#incremental-runs))
 - **New prep steps** (opt-in when `ldpred2.ld_dir` is set): `prep-ldref-ldpred2`, `prep-inclusion-list-ldpred2`
-- **Smoke tests**: `tests/smoke/v2.2-2026-05-26/` (sBayesR-only, LDpred2-only, both, incremental Day-2 script)
+- **Smoke tests**: `tests/smoke/v2.2-2026-05-26/` (sBayesR-only, LDpred2-only, both, incremental Day-2 script + chr22 acceptance test)
 
 ## Quick Start
 
@@ -243,7 +246,7 @@ pgscalculator v2.2.0
 | 8 | `calc-benchmark` | Benchmark scores (MAF filter + LD pruning; method-agnostic) |
 | 9 | `calc-score --method` | Calculate PGS with plink2 per chromosome per method |
 | 10 | `combine-scores` | Merge per-chr scores into `scores_<method>.gz` |
-| 11 | `finalize-output` | Discovery-mode `augmented_sumstat.gz`, `variant_map.gz`, `bench_score.gz` |
+| 11 | `finalize-output` | Per-method `augmented_<method>.gz` + `bench_score_<method>.gz`, `variant_map.gz`, LDpred2 diagnostics (method-aware, incremental-safe) |
 
 ## Usage
 
@@ -288,7 +291,7 @@ The wrapper script (`pgscalculator-v2.sh`) uses a config-first approach:
 | `sumstat` | `format-sumstat`, `filter-variants` | Format sumstat; filter per active method |
 | `weights` | sBayesR: `calc-posteriors`, `format-posteriors`; LDpred2: `calc-ldpred2`, `format-posteriors`; `calc-benchmark` | Posterior weights for active methods + benchmark |
 | `score` | `calc-score` | PGS per chromosome per active method |
-| `finalize` | `combine-scores`, `finalize-output` | Per-method score files + discovery-mode augmented sumstat |
+| `finalize` | `combine-scores`, `finalize-output` | Per-method score files, `augmented_<method>.gz`, `bench_score_<method>.gz` (method-aware) |
 
 > **Note:** With `--sbatch`, sBayesR weights and benchmark run as chr-parallel arrays; LDpred2 weights run as a **single genome-wide** job (`weights_ldpred2`). Score arrays are submitted per active method (`score_sbayesr`, `score_ldpred2`).
 
@@ -367,21 +370,22 @@ On smaller HPC sites you can run **sBayesR and LDpred2 on different days** in th
   -i /path/to/sumstat_TRAIT
 ```
 
-Produces `scores_sbayesr.gz` and `augmented_sumstat.gz` with `postEffect_sbayesr` only.
+Produces `scores_sbayesr.gz` and `augmented_sbayesr.gz` (with `augmented_sumstat.gz` symlinked to it).
 
 **Day 2 — add LDpred2** (same config `outdir`, same sumstat):
 
 ```bash
 ./pgscalculator-v2.sh --config config.yaml \
-  --steps weights,score,finalize \
+  --steps sumstat,weights,score,finalize \
   --methods ldpred2 \
   -i /path/to/sumstat_TRAIT
 ```
 
-- Runs LDpred2 filter/weights/score only; **does not** touch sBayesR `work/` outputs or `scores_sbayesr.gz`.
-- `finalize-output` uses **discovery mode**: rebuilds `augmented_sumstat.gz` with every `postEffect_<method>` column for which `work/posteriors_mapped_<method>/` has data (Day-1 sBayesR + Day-2 LDpred2).
+- **Include `sumstat`** on Day 2: `filter-variants` must run for LDpred2 (its LD-reference variant set differs from sBayesR's, so `work/filtered_ldpred2/` has to be built). `format-sumstat` is method-agnostic and is skipped as already complete.
+- Runs the LDpred2 filter/weights/score path only; **does not** touch sBayesR `work/` outputs. `scores_sbayesr.gz` and `augmented_sbayesr.gz` stay **byte-identical** to Day 1.
+- `finalize-output` is **discovery-driven and method-aware**: it writes `augmented_ldpred2.gz` (and `bench_score_ldpred2.gz`, `details/ldpred2/`) for the newly added method, and re-runs even though Day 1 already marked finalize complete. Each method keeps its own self-contained augmented file — there is no combined file with `postEffect_<method>` columns.
 
-A scripted example: `tests/smoke/v2.2-2026-05-26/run_incremental_day2.sh`.
+A scripted example (`run_incremental_day2.sh`) and an automated chr22 acceptance test with built-in byte-identity assertions (`integration_incremental_chr22.sh`) live under `tests/smoke/v2.2-2026-05-26/`.
 
 To **re-run only LDpred2** (e.g. new LD ref), add `--force` with `--methods ldpred2`; sBayesR markers and outputs stay intact.
 
@@ -488,7 +492,7 @@ bash tests/smoke/v2.2-2026-05-26/run_local.sh config.sbayesr.yaml
 bash tests/smoke/v2.2-2026-05-26/run_local.sh config.ldpred2.yaml
 ```
 
-Unit tests for methods, driver dispatch, and incremental finalize: `tests/unit/test_*methods*`, `test_driver_dispatch.sh`, `test_incremental_finalize.sh`.
+Unit tests (run all via `tests/run-unit-tests.sh`) cover methods config, driver dispatch + prep-step classifier, format-posteriors LDpred2, the LDpred2 variant-map join (`test_variant_map_for_ldpred2.sh`), phase-9 discovery, and the method-aware incremental finalize guard (`test_incremental_finalize.sh`). The chr22 incremental acceptance test is `tests/smoke/v2.2-2026-05-26/integration_incremental_chr22.sh`.
 
 ## Output Structure
 
@@ -538,7 +542,8 @@ outdir/
             ├── scores_ldpred2/        # Per-chr LDpred2 plink2 scores
             ├── scores_combined_sbayesr/
             ├── scores_combined_ldpred2/
-            └── benchmark/             # Benchmark intermediate files
+            ├── benchmark_sbayesr/     # sBayesR benchmark intermediate files
+            └── benchmark_ldpred2/     # LDpred2 benchmark intermediate files
 ```
 
 ## Troubleshooting

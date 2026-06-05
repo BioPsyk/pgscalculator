@@ -23,6 +23,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - `calc-ldpred2` no longer aborts under `set -u` when `input:` (cleansumstats metadata) is not configured.
+- **Incremental finalize:** `finalize-output` is now method-aware. Previously a single `details/.completed` marker meant a Day-2 run (adding a new method) was skipped entirely, so the new method's `augmented_<method>.gz` was never written. Finalize now re-runs whenever a discovered method is missing its augmented file.
+- **Single-chromosome local prep:** `prep-inclusion-list` / `prep-inclusion-list-ldpred2` no longer fall into per-chromosome "array task" (partial-only) mode just because the config lists a single chromosome (e.g. `chromosomes: 22`). The wrapper now sets `single_chr_task` only when `--_chr` is passed (driver array task), so a normal local `--steps prep` on a single-chromosome config runs the full prep including the combine.
+- **Silent prerequisite failures:** the `pgscalculator-v2.sh` prep/sumstat/posteriors prerequisite checks captured the helper's status with `var=$(...); if [[ $? -ne 0 ]]`, which under an inherited `errexit` aborted at the assignment before printing guidance. They now use `if ! var=$(...)`, so the "Run … first" instructions are actually shown.
+
+### Docs
+
+- `README-v2.md`: "What's New in v2.2", pipeline-step/step-group tables, and the output tree updated to the per-method augmented/benchmark model (`augmented_<method>.gz`, `bench_score_<method>.gz`, `work/benchmark_<method>/`, `details/ldpred2/`). The **Incremental runs** section now shows the correct Day-2 command (`--steps sumstat,weights,score,finalize`, since `filter-variants` must run for the new method), documents the byte-identity guarantee for Day-1 sBayesR outputs, and references the chr22 acceptance test.
+- `docs/plans/general-design.md`: "Posterior methods (v2.2)", incremental/sequential-runs, per-method failure isolation, the output directory tree, and the augmented/benchmark output schemas updated from the single-combined-file model to per-method files. The historical finalize-join recipe now carries a v2.2 supersession note. `config.template.yaml` confirmed already current (`methods`, `whichn`, `sbayesr.ld_build`, full `ldpred2` block, per-method SLURM profiles).
+
+### Tests
+
+- Unit: `test_variant_map_for_ldpred2.sh` (LDpred2 variant-map join: direct/swap/complement/miss, af→a2freq reconciliation, array-task partial vs. full-run+combine equivalence, opt-in skip); method-aware finalize completion guard added to `test_incremental_finalize.sh`; prep-step classifier regression guard added to `test_driver_dispatch.sh`.
+- Fixed missing executable bits on `test_driver_dispatch.sh`, `test_format_posteriors_ldpred2.sh`, `test_phase9_discovery.sh` (the runner stopped before reaching them, so they never ran).
+- Integration: `tests/smoke/v2.2-2026-05-26/integration_incremental_chr22.sh` — real-data chr22 incremental acceptance (Day-1 sBayesR → Day-2 add LDpred2; asserts `scores_sbayesr.gz`/`augmented_sbayesr.gz` byte-identical and both methods' outputs + diagnostics present).
 
 ## [2.2.0] - 2026-05-26
 

@@ -1068,6 +1068,13 @@ else and can be done first to de-risk the R install. Phases 2–9 have a
 near-linear dependency chain. Phase 10's incremental-run test depends on
 Phase 9 (discovery-mode finalize) — it's the acceptance test for [§6.5].
 
+**Status:** Phases 1–11 complete. Phase 9/10 landed the *per-method* augmented/benchmark
+outputs (`augmented_<method>.gz`, `bench_score_<method>.gz`) rather than the single
+combined `augmented_sumstat.gz` with `postEffect_<method>` columns originally sketched in
+the Phase 9/10 scope above — see [§6] and `general-design.md`. Phase 11 reconciled
+`README-v2.md` and `general-design.md` to that model and confirmed `config.template.yaml`
+is current. Phase 12 (version bump / container retag) is the remaining item.
+
 ---
 
 ## 13. Open questions for review

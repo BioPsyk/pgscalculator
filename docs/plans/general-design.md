@@ -427,16 +427,25 @@ LDpred2 prep steps are **opt-in**: they run when `ldpred2.ld_dir` is set. The us
 The driver treats `methods:` as which jobs to **submit now**, not which prior outputs to
 delete. Per-method `.completed` markers live under each method's `work/` subdirectory.
 
-`finalize-output` uses **discovery mode**: `postEffect_<method>` columns appear in
-`augmented_sumstat.gz` only when `work/posteriors_mapped_<method>/` contains non-empty
-`.snpRes` files. This allows Day-1 (sBayesR) and Day-2 (LDpred2) runs in the same
-`outdir` without re-running sBayesR. See `README-v2.md` §Incremental runs.
+`finalize-output` is **discovery-driven and method-aware**: it produces one
+self-contained `augmented_<method>.gz` for each method that has non-empty mapped
+posteriors (`work/posteriors_mapped_<method>/` or `posteriors_mapped/` for sBayesR) on
+disk, and re-runs whenever a discovered method is still missing its augmented file —
+even if a previous method already wrote the single `details/.completed` marker. This
+allows Day-1 (sBayesR) and Day-2 (LDpred2) runs in the same `outdir` without re-running
+or disturbing sBayesR: `scores_sbayesr.gz` and `augmented_sbayesr.gz` stay byte-identical.
+
+A Day-2 run that adds a new method must include the **`sumstat`** group so
+`filter-variants` builds that method's `work/filtered_<method>/` (each method's LD-ref
+variant set differs); `format-sumstat` is method-agnostic and is skipped as already
+complete. See `README-v2.md` §Incremental runs.
 
 ### Per-method failure isolation
 
 If LDpred2 fails entirely, sBayesR and benchmark outputs are still produced.
-`scores_ldpred2.gz` may be header-only; `augmented_sumstat.gz` omits LDpred2 columns
-until a successful LDpred2 run populates `posteriors_mapped_ldpred2/`.
+`scores_ldpred2.gz` may be header-only and `augmented_ldpred2.gz` is simply not written
+until a successful LDpred2 run populates `posteriors_mapped_ldpred2/`. The sBayesR
+outputs (`augmented_sbayesr.gz`, `scores_sbayesr.gz`) are independent and unaffected.
 
 ## Output files (v2)
 
@@ -444,13 +453,18 @@ until a successful LDpred2 run populates `posteriors_mapped_ldpred2/`.
 
 ```
 <outdir>/sumstats/<sumstat_name>/
-├── augmented_sumstat.gz     # User output: discovery-mode augmented sumstat
+├── augmented_sbayesr.gz     # User output: sBayesR augmented sumstat (its variant set)
+├── augmented_ldpred2.gz     # User output: LDpred2 augmented sumstat (its variant set; when run)
+├── augmented_sumstat.gz     # Symlink → augmented_sbayesr.gz (back-compat)
 ├── scores_sbayesr.gz        # User output: sBayesR PGS scores
 ├── scores_ldpred2.gz        # User output: LDpred2 PGS scores (when method run)
 ├── scores.gz                # Symlink → scores_sbayesr.gz (sBayesR-only / back-compat)
-├── bench_score.gz           # User output: benchmark PGS scores
+├── bench_score_sbayesr.gz   # User output: sBayesR benchmark PGS scores
+├── bench_score_ldpred2.gz   # User output: LDpred2 benchmark PGS scores (when run)
+├── bench_score.gz           # Symlink → bench_score_sbayesr.gz (back-compat)
 ├── variant_map.gz           # User output: variant map (RSID as col1; sBayesR map)
 ├── details/                 # Run metadata (steps.tsv, config copy, run summary)
+│   └── ldpred2/             #   LDpred2 diagnostics (summary.tsv, chains.png; when run)
 ├── logs/                    # Pipeline and SLURM logs
 └── work/                    # All intermediate/working files
     ├── formatted/           #   Per-chr formatted sumstat
@@ -462,39 +476,56 @@ until a successful LDpred2 run populates `posteriors_mapped_ldpred2/`.
     ├── posteriors_mapped_ldpred2/
     ├── scores/              #   Per-chr sBayesR score files
     ├── scores_ldpred2/      #   Per-chr LDpred2 score files
-    ├── benchmark/           #   Benchmark work (per-chr pruning, scoring)
+    ├── benchmark_sbayesr/   #   sBayesR benchmark work (per-chr pruning, scoring)
+    ├── benchmark_ldpred2/   #   LDpred2 benchmark work
     ├── scores_combined_sbayesr/
     └── scores_combined_ldpred2/
 ```
 
 Only user-facing output files are at the sumstat root level. All intermediate and working data is under `work/`.
 
-### augmented_sumstat.gz
+### augmented_&lt;method&gt;.gz (per method)
 
-Per-sumstat file for auditing and back-tracing. **Same row set as the variant map** (one row per variant in `variant_map.gz`), so users can join on `RSID`. Contains only the sumstat columns needed for interpretation plus calculated MAF, posterior effect, and (when available) benchmark effect. CHR, POS, and genoID are omitted because **RSID is the key** for lookups in the variant map.
+Finalize writes **one self-contained augmented file per posterior method** —
+`augmented_sbayesr.gz`, `augmented_ldpred2.gz` — rather than a single combined file with
+`postEffect_<method>` columns. `augmented_sumstat.gz` is a back-compat **symlink** to
+`augmented_sbayesr.gz`.
 
-**Schema (v2.2, discovery-driven):** columns after `MAF` depend on which methods have
-mapped posteriors on disk. Typical layouts:
+Each file is **restricted to its own method's variant set** (the variants in that
+method's LD reference that survived filtering/matching), keyed by `RSID` so users can
+join on the variant map. The two methods' LD references contain largely different
+variant sets, so the row counts differ — keeping them separate avoids one giant union
+file padded with NAs for variants absent from a method's LD reference. CHR, POS, and
+genoID are omitted because **RSID is the key** for lookups in `variant_map.gz`. The
+method's benchmark effect is kept **inside** the same file (no separate augmented
+benchmark file), so posterior vs. benchmark can be compared within the method's variant
+set.
+
+**Schema:**
 
 ```
-# sBayesR only:
-RSID  EffectAllele  OtherAllele  B  SE  Z  P  EAF  MAF  postEffect_sbayesr  benchEffect
+# augmented_sbayesr.gz:
+RSID  EffectAllele  OtherAllele  B  SE  Z  P  EAF  MAF  postEffect  benchEffect
 
-# Both methods:
-RSID  EffectAllele  OtherAllele  B  SE  Z  P  EAF  MAF  postEffect_sbayesr  postEffect_ldpred2  postp_ldpred2  benchEffect
+# augmented_ldpred2.gz (adds the LDpred2 posterior inclusion probability):
+RSID  EffectAllele  OtherAllele  B  SE  Z  P  EAF  MAF  postEffect  postp_ldpred2  benchEffect
 ```
 
-- **From sumstat:** `RSID`, `EffectAllele`, `OtherAllele`, `B`, `SE`, `Z`, `P` (NA where sumstat did not match). B/SE/Z/P are read from per-chr **sBayesR** matched files (`work/filtered_sbayesr/chr*_matched.tsv`).
-- **EAF:** From the first joined posterior file (sBayesR `Freq` when present).
-  - **SE** is derived in matched files via `add_beta_se` before saving.
+- **From sumstat:** `RSID`, `EffectAllele`, `OtherAllele`, `B`, `SE`, `Z`, `P` — read from that method's per-chr matched files (`work/filtered_<method>/chr*_matched.tsv`).
+- **EAF:** From the method's mapped posterior file (`Freq` when present). **SE** is derived in matched files via `add_beta_se` before saving.
 - **Added:** `MAF` — genotype-based (`maf_computed.tsv`) with LD-ref EAF fallback.
-- **Added:** `postEffect_sbayesr`, `postEffect_ldpred2` — per-method posterior effects (column omitted if that method has no mapped outputs).
-- **Added:** `postp_ldpred2` — LDpred2 posterior inclusion probability (when LDpred2 column is present).
-- **Added:** `benchEffect` — benchmark effect (method-agnostic).
+- **Added:** `postEffect` — that method's posterior effect.
+- **Added:** `postp_ldpred2` — LDpred2 posterior inclusion probability (LDpred2 file only).
+- **Added:** `benchEffect` — that method's P+T benchmark weight (NA outside the pruned set).
 
 Users who need chr/pos or genotype IDs join on `RSID` against the variant map.
 
-**Memory use (finalize-output):** Building `augmented_sumstat.gz` uses a Unix **sort + join** pipeline. B/SE/Z/P are extracted directly from the per-chr matched files (already mapfile-restricted, ~1M rows), sorted by LDREF_SNPID, then joined with the variant_map base table. Posteriors, benchmark effects, and MAF are joined subsequently. No intermediate `sumstat_augmented.tsv.gz` is needed. Memory stays low and independent of the original sumstat size.
+**Memory use (finalize-output):** Each `augmented_<method>.gz` is built with a Unix
+**sort + join** pipeline. B/SE/Z/P are extracted directly from that method's per-chr
+matched files (already mapfile-restricted, ~1M rows), sorted by LDREF_SNPID, then joined
+with the variant_map base table. The method's posteriors, benchmark effects, and MAF are
+joined subsequently. No intermediate `sumstat_augmented.tsv.gz` is needed. Memory stays
+low and independent of the original sumstat size.
 
 ### scores_sbayesr.gz / scores_ldpred2.gz
 
@@ -511,11 +542,16 @@ IID  SCORE_SUM  ALLELE_CT  N_VARIANTS
 - `ALLELE_CT`: Total allele count across chromosomes.
 - `N_VARIANTS`: Number of variants used in scoring (may differ between methods).
 
-### bench_score.gz
+### bench_score_&lt;method&gt;.gz (per method)
 
-Benchmark PGS score output (observed GWAS effects, LD-pruned + MAF-filtered).
+Benchmark PGS score output (observed GWAS effects, LD-pruned + MAF-filtered), produced
+**per method** — `bench_score_sbayesr.gz`, `bench_score_ldpred2.gz` — because each
+method's benchmark is restricted to that method's LD-reference variant set (so the
+benchmark is a like-for-like P+T comparison within the same variant universe as the
+Bayesian score it is judged against). `bench_score.gz` is a back-compat **symlink** to
+`bench_score_sbayesr.gz`.
 
-**Schema:**
+**Schema (each file):**
 ```
 IID  ALLELE_CT  SCORE1_SUM
 ```
@@ -524,7 +560,7 @@ IID  ALLELE_CT  SCORE1_SUM
 - `ALLELE_CT`: Total allele count across chromosomes.
 - `SCORE1_SUM`: Sum of benchmark scores across all chromosomes.
 
-Only produced when the benchmark step has been run (part of `--steps weights`).
+Only produced for methods whose benchmark step has been run (part of `--steps weights`).
 
 ### variant_map.gz
 
@@ -593,6 +629,17 @@ Only at final output time, combine per-chromosome files into consolidated output
 (`variant_map.gz`, augmented sumstat, main score file, etc.) for auditing and back-tracing.
 
 ## Separate finalize step (final output creation) — implemented
+
+> **v2.2 note (per-method outputs):** the join recipe below was written for the original
+> single-method, single-`augmented_sumstat.gz` design. In v2.2 the **same** sort+join
+> pipeline is run **once per posterior method**, each time restricted to that method's
+> variant set and its own matched files / mapped posteriors / benchmark, emitting
+> `augmented_<method>.gz` (sBayesR: 11 cols; LDpred2: +`postp_ldpred2`). `augmented_sumstat.gz`
+> / `bench_score.gz` are back-compat symlinks to the sBayesR files. See the
+> **augmented_&lt;method&gt;.gz (per method)** subsection under "Output files (v2)" above for
+> the authoritative current schema. Where this section says `work/benchmark/` or
+> `posteriors_mapped/`, read the per-method equivalents (`work/benchmark_<method>/`,
+> `posteriors_mapped[_ldpred2]/`).
 
 **Problem:** Today `score` includes calc-score (array) plus combine-scores and finalize-output run **in the driver process** after the score array. Finalize-output is memory-heavy (large awk over variant_map + full augmented sumstat); with a small driver (e.g. 5g) it can OOM on large sumstats.
 
@@ -895,6 +942,6 @@ The driver job:
   during prep; variant filtering uses only ID-based inclusion lists (`ss`, `ld`, `gt`).
 - Conversions to/from LD reference and genotype IDs only use the mapfile.
 - Final output includes the full mapfile (`variant_map.gz`) with both position columns.
-- Output files (v2): augmented_sumstat.gz has **same row set as variant map**, RSID + sumstat effect columns + EAF + MAF + postEffect + benchEffect; scores.gz has IID and score columns; bench_score.gz has benchmark scores; variant_map.gz has RSID (liftover-derived) as col1 and **all LD ref liftover variants**, with genotype/sumstat columns NA where no match.
+- Output files (v2.2): one `augmented_<method>.gz` **per posterior method** (restricted to that method's LD-ref variant set), each with RSID + sumstat effect columns + EAF + MAF + postEffect (+ `postp_ldpred2` for LDpred2) + benchEffect inside; `augmented_sumstat.gz` symlinks to the sBayesR file. `scores_<method>.gz` has IID and score columns; `bench_score_<method>.gz` has per-method benchmark scores; `variant_map.gz` has RSID (liftover-derived) as col1 and **all LD ref liftover variants**, with genotype/sumstat columns NA where no match.
 - Scoring uses posteriors file only (no separate inclusion list for scoring).
 - Benchmark: LD pruning + MAF filter + plink --score with observed effects; benchmark weights/scores as in v1-style.
