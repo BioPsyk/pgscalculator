@@ -1249,9 +1249,24 @@ rc=\$?; echo \"[INFO] Finished ${step_profile} chr\${CHR} at \$(date) (exit=\$rc
 
   submit_finalize_job() {
     base_sumstat_out="${outdir_host}/sumstats/${sumstat_name}"
-    if ! sumstat_has_any_scores_gz "$base_sumstat_out"; then
-      >&2 echo "Error: cannot run finalize: no scores_*.gz under ${base_sumstat_out}/"
-      >&2 echo "Run combine-scores first (e.g. --steps score,finalize)."
+    # This job runs combine-scores + finalize-output. combine-scores is what
+    # PRODUCES scores_<method>.gz, so the prerequisite is the per-chromosome
+    # .sscore output of the score arrays (work/scores*/chr*.sscore), NOT the
+    # combined .gz (which we are about to create). Fall back to accepting an
+    # already-combined scores_*.gz for finalize re-runs.
+    local _m _scores_subdir _have_scores=0
+    for _m in ${CFG_METHODS:-sbayesr}; do
+      _scores_subdir="scores"
+      [[ "$_m" == "ldpred2" ]] && _scores_subdir="scores_ldpred2"
+      if ls "${base_sumstat_out}/work/${_scores_subdir}"/chr*.sscore >/dev/null 2>&1; then
+        _have_scores=1
+        break
+      fi
+    done
+    if [[ "$_have_scores" -eq 0 ]] && ! sumstat_has_any_scores_gz "$base_sumstat_out"; then
+      >&2 echo "Error: cannot run finalize: no per-chromosome scores (work/scores*/chr*.sscore)"
+      >&2 echo "and no combined scores_*.gz under ${base_sumstat_out}/"
+      >&2 echo "Run the score step first (e.g. --steps score,finalize)."
       exit 1
     fi
 
