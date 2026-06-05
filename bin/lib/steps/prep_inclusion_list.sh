@@ -54,9 +54,12 @@ run_prep_inclusion_list() {
     local geno_dir="${prep_dir}/genotypes"
     local ldref_dir="${prep_dir}/ldref"
     
-    # If running per-chromosome (driver/array), only build that chromosome map
+    # If running as a per-chromosome array task (driver sets single_chr_task via
+    # --_chr), only build that chromosome's partial; the combine step assembles
+    # the full map afterwards. A genuinely single-chromosome config in a normal
+    # local run does NOT set this flag, so it runs the full prep incl. combine.
     local specific_chr=""
-    if [[ -n "${CFG_CHROMOSOMES:-}" ]] && [[ "${CFG_CHROMOSOMES}" =~ ^(chr)?[0-9]+$ ]]; then
+    if [[ "${CFG_SINGLE_CHR_TASK:-0}" == "1" ]] && [[ -n "${CFG_CHROMOSOMES:-}" ]] && [[ "${CFG_CHROMOSOMES}" =~ ^(chr)?[0-9]+$ ]]; then
         specific_chr="${CFG_CHROMOSOMES#chr}"
     fi
     

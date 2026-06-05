@@ -45,11 +45,25 @@ export LDPRED2_LD_DIR="/path/to/references/ld-ldpred2/hm3_plus"
 bash tests/smoke/v2.2-2026-05-26/run_incremental_day2.sh
 ```
 
+Day 2 runs `--steps sumstat,weights,score,finalize --methods ldpred2`: `sumstat`
+is included so `filter-variants` builds `filtered_ldpred2/` (LDpred2's LD-ref
+variant set differs from sBayesR's); `format-sumstat` is method-agnostic and is
+skipped as already complete from Day 1.
+
 After both days, check per-sumstat outputs:
 
-- `scores_sbayesr.gz` from Day 1 unchanged
-- `scores_ldpred2.gz` from Day 2
-- `augmented_sumstat.gz` header includes `postEffect_sbayesr` and `postEffect_ldpred2`
+- `scores_sbayesr.gz` and `augmented_sbayesr.gz` from Day 1 are **byte-identical** (unchanged)
+- `scores_ldpred2.gz` + `augmented_ldpred2.gz` (with `postEffect`, `postp_ldpred2`, `benchEffect`) from Day 2
+- `details/ldpred2/summary.tsv` + `chains.png`
+
+### Incremental acceptance test (chr22, automated)
+
+End-to-end Day-1→Day-2 acceptance on real data with built-in assertions
+(byte-identity of the sBayesR outputs + presence of the LDpred2 outputs):
+
+```bash
+bash tests/smoke/v2.2-2026-05-26/integration_incremental_chr22.sh
+```
 
 ### Method correlation (when both score files exist)
 

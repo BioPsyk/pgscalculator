@@ -1724,9 +1724,10 @@ else
 fi
 
 if [[ "$needs_prep_check" -eq 1 ]]; then
-  # Non-prep steps require prep to be completed
-  missing_prep=$(check_prep_exists "$outdir_host")
-  if [[ $? -ne 0 ]]; then
+  # Non-prep steps require prep to be completed. Use `if ! var=$(...)` so a
+  # non-zero return surfaces the guidance below instead of being swallowed by
+  # an inherited errexit (the assignment's exit status would otherwise abort).
+  if ! missing_prep=$(check_prep_exists "$outdir_host"); then
     >&2 echo "Error: Prep outputs not found."
     >&2 echo ""
     >&2 echo "Missing:"
@@ -1742,8 +1743,7 @@ fi
 
 # Check sumstat prerequisite for weights
 if [[ "$steps_arg" == *"weights"* ]] && [[ "$steps_arg" != *"sumstat"* ]]; then
-  missing_sumstat=$(check_sumstat_exists "$outdir_host" "$sumstat_name")
-  if [[ $? -ne 0 ]]; then
+  if ! missing_sumstat=$(check_sumstat_exists "$outdir_host" "$sumstat_name"); then
     >&2 echo "Error: Sumstat formatting not completed."
     >&2 echo ""
     >&2 echo "Missing:"
@@ -1760,8 +1760,7 @@ fi
 
 # Check weights (posteriors output) prerequisite for score
 if [[ "$steps_arg" == *"score"* ]] && [[ "$steps_arg" != *"weights"* ]]; then
-  missing_posteriors=$(check_posteriors_exists "$outdir_host" "$sumstat_name")
-  if [[ $? -ne 0 ]]; then
+  if ! missing_posteriors=$(check_posteriors_exists "$outdir_host" "$sumstat_name"); then
     >&2 echo "Error: Weights (posteriors) calculation not completed."
     >&2 echo ""
     >&2 echo "Missing:"
@@ -1862,6 +1861,16 @@ if [[ -n "$cfg_chromosomes" ]]; then
   # Remove existing chromosomes line and add new one
   sed -i '/^chromosomes:/d' "${config_yaml_host}"
   echo "chromosomes: ${cfg_chromosomes}" >> "${config_yaml_host}"
+fi
+
+# Signal a per-chromosome array task to chr-parallel prep steps. This is set
+# ONLY when --_chr was passed (i.e. the driver submitted a per-chr array task),
+# so that prep-inclusion-list / prep-inclusion-list-ldpred2 build a partial and
+# defer the combine. A genuinely single-chromosome config (e.g. chromosomes: 22)
+# in a normal local run leaves this unset and runs the full prep incl. combine.
+sed -i '/^single_chr_task:/d' "${config_yaml_host}"
+if [[ -n "$chromosomes_override" ]]; then
+  echo "single_chr_task: 1" >> "${config_yaml_host}"
 fi
 
 # LDpred2 LD reference: host paths in the copied yaml are rewritten for the container.

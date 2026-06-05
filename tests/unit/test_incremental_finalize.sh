@@ -158,6 +158,29 @@ else
     echo "- [OK] scores_ldpred2.gz created"
 fi
 
+# --- finalize completion guard must be method-aware (incremental regression) --
+# finalize-output marks a single details/.completed; a Day-1 (sBayesR) run must
+# not cause a Day-2 (LDpred2) finalize to be skipped. finalize_outputs_present
+# is the predicate the guard uses: it is true only when EVERY listed method
+# already has its augmented_<method>.gz on disk.
+echo ">> Test finalize completion guard is method-aware"
+assert_present() {
+    local label="$1"; shift
+    if finalize_outputs_present "$@"; then echo "- [OK] ${label}"; else echo "- [FAIL] ${label}: expected present(0)"; failures=$((failures + 1)); fi
+}
+assert_absent() {
+    local label="$1"; shift
+    if finalize_outputs_present "$@"; then echo "- [FAIL] ${label}: expected absent(1)"; failures=$((failures + 1)); else echo "- [OK] ${label}"; fi
+}
+# Both augmented files exist at this point (created above).
+assert_present "guard: both methods present -> skip ok"   "$sumstat_dir" "sbayesr ldpred2"
+assert_present "guard: empty method list -> nothing to do" "$sumstat_dir" ""
+# Simulate Day-1 state (only sBayesR augmented present): a Day-2 ldpred2 run
+# must NOT be skipped.
+rm -f "${sumstat_dir}/augmented_ldpred2.gz"
+assert_present "guard: sbayesr-only present"               "$sumstat_dir" "sbayesr"
+assert_absent  "guard: ldpred2 missing -> must re-run"     "$sumstat_dir" "sbayesr ldpred2"
+
 if [[ $failures -gt 0 ]]; then
     echo "Tests failed: ${failures}"
     exit 1

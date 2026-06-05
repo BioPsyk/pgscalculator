@@ -28,7 +28,10 @@ echo "Config: ${CONFIG}"
 echo "Sumstat: ${SUMSTAT_DIR}"
 echo ""
 
-"$WRAPPER" --config "$CONFIG" --steps weights,score,finalize \
+# Include 'sumstat' so filter-variants runs for ldpred2 (its LD-ref variant set
+# differs from sBayesR). format-sumstat is method-agnostic and already complete
+# from Day 1, so it is skipped; only filter-variants (ldpred2) is new.
+"$WRAPPER" --config "$CONFIG" --steps sumstat,weights,score,finalize \
   --methods ldpred2 -i "$SUMSTAT_DIR"
 
 echo "Done. Compare scores_sbayesr.gz to Day-1 copy; augmented_sumstat should list both postEffect_* columns."

@@ -39,6 +39,17 @@ score_profile_mapped_dir() {
   fi
 }
 
+# Prep-step classifier (kept in sync with pgscalculator-v2.sh). A bare prep step
+# name must NOT trip the per-sumstat prerequisite check. A past regression
+# narrowed this regex and silently dropped the LDpred2 prep steps.
+is_prep_step() {
+  local step="$1"
+  if [[ "$step" =~ ^prep(-genotypes|-ldref|-ldref-ldpred2|-inclusion-list|-inclusion-list-ldpred2|-inclusion-list-ldpred2-combine|-inclusion-combine)?$ ]]; then
+    return 0
+  fi
+  return 1
+}
+
 VERBOSE=0
 failures=0
 tmpdir=""
@@ -77,6 +88,26 @@ else
   echo "- [FAIL] score_ldpred2 mapped dir: got '${dir}'"
   failures=$((failures + 1))
 fi
+
+# Prep-step classifier: every prep step (incl. LDpred2 + combine) must classify
+# as prep; non-prep steps must not.
+for s in prep prep-genotypes prep-ldref prep-ldref-ldpred2 prep-inclusion-list \
+         prep-inclusion-list-ldpred2 prep-inclusion-list-ldpred2-combine prep-inclusion-combine; do
+  if is_prep_step "$s"; then
+    echo "- [OK] classifier: '${s}' is prep"
+  else
+    echo "- [FAIL] classifier: '${s}' should be prep"
+    failures=$((failures + 1))
+  fi
+done
+for s in format-sumstat filter-variants calc-ldpred2 score finalize prep-bogus; do
+  if is_prep_step "$s"; then
+    echo "- [FAIL] classifier: '${s}' should NOT be prep"
+    failures=$((failures + 1))
+  else
+    echo "- [OK] classifier: '${s}' is not prep"
+  fi
+done
 
 if [[ $failures -gt 0 ]]; then
   echo "Tests failed: ${failures}"

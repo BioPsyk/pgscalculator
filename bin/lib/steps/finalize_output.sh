@@ -16,6 +16,21 @@ check_finalize_output_deps() {
     validate_required_config "CFG" "OUTDIR"
 }
 
+# Return 0 only if every discovered method already has its augmented_<method>.gz
+# in the sumstat dir. Used to make the finalize completion check method-aware so
+# incremental runs that add a new method actually re-run. An empty method list
+# means there is nothing to (re)produce, so it counts as present.
+finalize_outputs_present() {
+    local sumstat_dir="$1"
+    local methods="$2"
+    local m gz
+    for m in $methods; do
+        gz=$(method_augmented_gz_name "$m") || return 1
+        [[ -f "${sumstat_dir}/${gz}" ]] || return 1
+    done
+    return 0
+}
+
 # =============================================================================
 # MAIN STEP FUNCTION
 # =============================================================================
@@ -41,23 +56,29 @@ run_finalize_output() {
         log_error "No scores_*.gz found. Run 'pgscalculator combine-scores' first."
         exit 1
     fi
-    
-    # Check if already completed
-    if check_step_completed "$step_dir"; then
-        log_info "Step already completed. Use --force to re-run."
+
+    # Discover the methods with mapped posteriors on disk up front, so the
+    # completion check is method-aware. An incremental run (§6.5) that adds a
+    # new method must re-run finalize even though a prior method already marked
+    # the step complete; otherwise the new method's augmented_<method>.gz would
+    # never be written.
+    migrate_sumstat_all_step_dirs "$sumstat_dir"
+    local discovered ordered
+    discovered=$(discover_posterior_methods "$sumstat_dir")
+    ordered=$(order_discovered_methods "$discovered")
+
+    # Check if already completed for every discovered method.
+    if check_step_completed "$step_dir" && finalize_outputs_present "$sumstat_dir" "$ordered"; then
+        log_info "Step already completed for all methods (${ordered:-none}). Use --force to re-run."
         return 0
     fi
-    
+
     # Steps 1-2: Per-method, self-contained outputs (§11).
     # Each method that produced mapped posteriors gets its own augmented_<method>.gz
     # (restricted to that method's LD-reference variant set, with its own
     # benchEffect column kept inside the file) and a per-sample
     # bench_score_<method>.gz. sBayesR additionally gets back-compat aliases
     # (augmented_sumstat.gz, bench_score.gz).
-    migrate_sumstat_all_step_dirs "$sumstat_dir"
-    local discovered ordered
-    discovered=$(discover_posterior_methods "$sumstat_dir")
-    ordered=$(order_discovered_methods "$discovered")
     if [[ -z "$ordered" ]]; then
         log_warn "No mapped posteriors on disk; skipping augmented/benchmark outputs"
     else

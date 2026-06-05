@@ -11,5 +11,8 @@ sif
 test-v2/out*/
 test-v2*
 
+# Generated per-run smoke configs (templated from the committed config.*.yaml)
+tests/smoke/**/.config.*.yaml
+
 # Whitepaper (separate doc)
 PGS_DST_whitepaper.md

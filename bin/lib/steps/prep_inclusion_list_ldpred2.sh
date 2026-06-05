@@ -62,10 +62,12 @@ run_prep_inclusion_list_ldpred2() {
 
     local geno_dir="${prep_dir}/genotypes"
 
-    # Single-chromosome (driver/array) mode: build only that chromosome's
-    # partial and stop. The combine step assembles the final map afterwards.
+    # Per-chromosome array-task mode (driver sets single_chr_task via --_chr):
+    # build only that chromosome's partial and stop; the combine step assembles
+    # the final map afterwards. A genuinely single-chromosome config in a normal
+    # local run does NOT set this flag, so it runs the full prep incl. combine.
     local specific_chr=""
-    if [[ -n "${CFG_CHROMOSOMES:-}" ]] && [[ "${CFG_CHROMOSOMES}" =~ ^(chr)?[0-9]+$ ]]; then
+    if [[ "${CFG_SINGLE_CHR_TASK:-0}" == "1" ]] && [[ -n "${CFG_CHROMOSOMES:-}" ]] && [[ "${CFG_CHROMOSOMES}" =~ ^(chr)?[0-9]+$ ]]; then
         specific_chr="${CFG_CHROMOSOMES#chr}"
     fi
 
