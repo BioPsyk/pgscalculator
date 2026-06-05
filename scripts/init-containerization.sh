@@ -15,9 +15,8 @@ function format_mount_flags() {
 cd "${project_dir}"
 
 mounts=(
-  "docs" "assets" "bin" "conf" "modules"
-  "main.nf" "nextflow.config" "tests" "lib"
-  "VERSION"
+  "docs" "assets" "bin" "conf" "tests"
+  "config.template.yaml" "VERSION"
 )
 
 image_tag="ibp-pgscalculator-base:"$(cat "docker/VERSION")

@@ -1,5 +1,4 @@
 .git
-.nextflow*
 work
 tmp
 sif
@@ -7,6 +6,4 @@ out
 out_test_*
 references
 test-v2
-concatenate_plink_maf
 PGS_DST_whitepaper.md
-README-v2.md

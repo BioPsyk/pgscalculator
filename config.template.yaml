@@ -30,7 +30,7 @@ whichn: totalN
 
 # Which posterior methods to compute for each submission.
 # Omit entirely for sBayesR-only (default, same as v2.1).
-# Override per run: ./pgscalculator-v2.sh ... --methods sbayesr,ldpred2
+# Override per run: ./pgscalculator.sh ... --methods sbayesr,ldpred2
 methods: [sbayesr]
 #methods: [sbayesr, ldpred2]
 #methods: [ldpred2]

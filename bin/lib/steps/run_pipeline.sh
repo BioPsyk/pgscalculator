@@ -59,7 +59,7 @@ run_step_group() {
     # sBayesR *and* LDpred2 paths locally, matching what the SLURM driver does by
     # dispatching one method per task. The driver itself never reaches this code
     # with these group names — it remaps them to concrete step names with an
-    # explicit --method (see pgscalculator-v2.sh §6.4).
+    # explicit --method (see pgscalculator.sh §6.4).
     local methods="${CFG_METHODS:-sbayesr}"
     case "$group" in
         sumstat)

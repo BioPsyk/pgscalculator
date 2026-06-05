@@ -1,26 +1,4 @@
 # =============================================================================
-# Nextflow builder
-# =============================================================================
-# Represents docker.io/library/gradle:jdk11-openj9 at 2021-01-14
-FROM gradle:8.5-jdk11 AS java_builder
-
-RUN apt-get update --fix-missing
-
-ARG NEXTFLOW_VERSION="24.10.4"
-
-WORKDIR /pgscalculator
-
-# Download and install Nextflow standalone distribution
-RUN curl -fsSL https://github.com/nextflow-io/nextflow/releases/download/v${NEXTFLOW_VERSION}/nextflow-${NEXTFLOW_VERSION}-dist > /usr/local/bin/nextflow && \
-    chmod +x /usr/local/bin/nextflow && \
-    # Pre-download basic plugin dependencies
-    nextflow plugin install nf-validation
-
-RUN mkdir -p /root/.nextflow
-
-VOLUME /root/.nextflow
-
-# =============================================================================
 # b3sum builder (not packaged for Debian)
 # =============================================================================
 FROM rust:1.84-slim-bookworm AS rust_builder
@@ -85,8 +63,6 @@ RUN R -e "pak::pkg_install(c( \
 # =============================================================================
 FROM eclipse-temurin:11
 
-COPY --from=java_builder /usr/local/bin/nextflow /usr/local/bin/nextflow
-COPY --from=java_builder /root/.nextflow /root/.nextflow
 COPY --from=rust_builder /usr/local/cargo/bin/b3sum /usr/bin/b3sum
 
 WORKDIR /pgscalculator
@@ -149,27 +125,12 @@ RUN wget https://s3.amazonaws.com/plink2-assets/alpha5/plink2_linux_x86_64_20240
     mv plink2 /usr/local/bin/
 
 # Set up directories with correct permissions
-RUN useradd -rm -s /bin/bash -g users nextflow && \
-    mkdir -p /pgscalculator/.nextflow && \
-    chown -R nextflow:users /pgscalculator && \
+RUN useradd -rm -s /bin/bash -g users pgsuser && \
+    chown -R pgsuser:users /pgscalculator && \
     chmod -R 777 /pgscalculator && \
     chmod g+s /pgscalculator
 
-# Then set nextflow for offline mode
-ENV NXF_OFFLINE=true
-
-USER nextflow
-
-## Initialize Nextflow in the final image
-#RUN nextflow -version && \
-#    nextflow info && \
-#    # Run a simple workflow to ensure dependencies are downloaded
-#    echo "workflow { println 'Hello' }" > test.nf && \
-#    nextflow run test.nf && \
-#    rm test.nf
-
-
-
+USER pgsuser
 
 # pgscalculator v2 CLI
 COPY bin/ /pgscalculator/bin/

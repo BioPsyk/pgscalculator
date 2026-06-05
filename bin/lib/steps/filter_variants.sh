@@ -43,7 +43,7 @@ check_filter_variants_deps() {
 }
 
 # Validate sumstat metadata has required N field for posterior calculations.
-# This is a safety net for non-sbatch runs (sbatch runs check earlier in pgscalculator-v2.sh).
+# This is a safety net for non-sbatch runs (sbatch runs check earlier in pgscalculator.sh).
 validate_sumstat_n_field() {
     local metadata_file="$1"
     local which_n="$2"

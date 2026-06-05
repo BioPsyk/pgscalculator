@@ -7,7 +7,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PGS_DIR="$(dirname "$(dirname "$(dirname "$SCRIPT_DIR")")")"
 
-WRAPPER="${PGS_DIR}/pgscalculator-v2.sh"
+WRAPPER="${PGS_DIR}/pgscalculator.sh"
 CONFIG="${SCRIPT_DIR}/config.yaml"
 
 # Output directory for this run (removed at start for a from-scratch run)

@@ -438,7 +438,7 @@ or disturbing sBayesR: `scores_sbayesr.gz` and `augmented_sbayesr.gz` stay byte-
 A Day-2 run that adds a new method must include the **`sumstat`** group so
 `filter-variants` builds that method's `work/filtered_<method>/` (each method's LD-ref
 variant set differs); `format-sumstat` is method-agnostic and is skipped as already
-complete. See `README-v2.md` §Incremental runs.
+complete. See `README.md` §Incremental runs.
 
 ### Per-method failure isolation
 
@@ -776,7 +776,7 @@ workflows: **prep jobs** and **per-sumstat driver jobs**.
 User submission                     SLURM cluster
      │
      ▼
-./pgscalculator-v2.sh --sbatch --steps sumstat,weights,score -i sumstat_814
+./pgscalculator.sh --sbatch --steps sumstat,weights,score -i sumstat_814
      │
      └──► Driver job (pgs_sumstat_814_driver) ──────────────────────────────────►
               │
@@ -918,11 +918,11 @@ The driver job:
 
 ```bash
 # Step 1: Prep (shared across all sumstats)
-./pgscalculator-v2.sh --config config.yaml --steps prep --sbatch
+./pgscalculator.sh --config config.yaml --steps prep --sbatch
 
 # Step 2: Per-sumstat (can submit many in parallel; each gets its own driver job)
-./pgscalculator-v2.sh --config config.yaml --steps sumstat,weights,score -i /path/to/sumstat_814 --sbatch
-./pgscalculator-v2.sh --config config.yaml --steps sumstat,weights,score -i /path/to/sumstat_815 --sbatch
+./pgscalculator.sh --config config.yaml --steps sumstat,weights,score -i /path/to/sumstat_814 --sbatch
+./pgscalculator.sh --config config.yaml --steps sumstat,weights,score -i /path/to/sumstat_815 --sbatch
 # ... etc
 ```
 

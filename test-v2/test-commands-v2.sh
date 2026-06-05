@@ -33,7 +33,7 @@ genodir_plink2="${pgsfold}/references/genotypes_test/plink2"
 genofile_plink2="${pgsfold}/references/genotypes_test/mapfiles/plink2_genodir_genofiles.txt"
 
 # Config file
-configfile="${pgsfold}/conf/sbayesr.config"
+configfile="${pgsfold}/config.template.yaml"
 
 # Test sumstat ID (example)
 id=814
@@ -59,7 +59,7 @@ echo 'Starting pgscalculator v2 - Full Pipeline'
 echo 'Sumstat ID: ${id}'
 date
 
-/bin/bash ${pgsfold}/pgscalculator-v2.sh \
+/bin/bash ${pgsfold}/pgscalculator.sh \
   -i ${infold} \
   -l ${ldref} \
   -g ${genodir} \
@@ -95,7 +95,7 @@ echo 'Starting pgscalculator v2 - Reduced Sumstat'
 echo 'Sumstat ID: ${id}'
 date
 
-/bin/bash ${pgsfold}/pgscalculator-v2.sh \
+/bin/bash ${pgsfold}/pgscalculator.sh \
   -i ${infold} \
   -l ${ldref} \
   -g ${genodir} \
@@ -129,7 +129,7 @@ echo 'Starting pgscalculator v2 - Posteriors Only'
 echo 'Sumstat ID: ${id}'
 date
 
-/bin/bash ${pgsfold}/pgscalculator-v2.sh \
+/bin/bash ${pgsfold}/pgscalculator.sh \
   -i ${infold} \
   -l ${ldref} \
   -g ${genodir} \
@@ -164,7 +164,7 @@ sbatch --mem=10g --ntasks 1 --cpus-per-task 6 --time=0:30:00 \
 echo 'Starting pgscalculator v2 - Prep Steps Only'
 date
 
-/bin/bash ${pgsfold}/pgscalculator-v2.sh \
+/bin/bash ${pgsfold}/pgscalculator.sh \
   -i ${infold} \
   -l ${ldref} \
   -g ${genodir} \
@@ -189,7 +189,7 @@ echo 'Starting pgscalculator v2 - Posteriors (skip prep)'
 echo 'Sumstat ID: ${id}'
 date
 
-/bin/bash ${pgsfold}/pgscalculator-v2.sh \
+/bin/bash ${pgsfold}/pgscalculator.sh \
   -i ${infold} \
   -l ${ldref} \
   -c ${configfile} \
@@ -212,7 +212,7 @@ echo 'Starting pgscalculator v2 - Scoring (skip prep)'
 echo 'Sumstat ID: ${id}'
 date
 
-/bin/bash ${pgsfold}/pgscalculator-v2.sh \
+/bin/bash ${pgsfold}/pgscalculator.sh \
   -i ${infold} \
   -l ${ldref} \
   -g ${genodir} \
@@ -243,7 +243,7 @@ id=814
 infold="${indir}/sumstat_${id}"
 
 # Run wrapper script directly (for debugging):
-/bin/bash ${pgsfold}/pgscalculator-v2.sh \
+/bin/bash ${pgsfold}/pgscalculator.sh \
   -i ${infold} \
   -l ${ldref} \
   -g ${genodir_plink2} \
@@ -291,7 +291,7 @@ while read id ; do
     --wrap="
   echo 'Batch: ${id}'
   date
-  /bin/bash ${pgsfold}/pgscalculator-v2.sh \
+  /bin/bash ${pgsfold}/pgscalculator.sh \
     -i ${infold} \
     -l ${ldref} \
     -g ${genodir} \
@@ -314,7 +314,7 @@ done < ${inlist}
 #   -l ${pgsfold}/references/ld-sbayesr/ukb/band_ukb_10k_hm3 \
 #   -g ${pgsfold}/references/genotypes_test/plink \
 #   -f ${pgsfold}/references/genotypes_test/mapfiles/plink_genodir_genofiles.txt \
-#   -c ${pgsfold}/conf/sbayesr.config \
+#   -c ${pgsfold}/config.template.yaml \
 #   -o ${outdir}/sumstat_${id} \
 #   -d
 

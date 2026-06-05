@@ -15,7 +15,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PGS_DIR="$(dirname "$(dirname "$(dirname "$SCRIPT_DIR")")")"
-WRAPPER="${PGS_DIR}/pgscalculator-v2.sh"
+WRAPPER="${PGS_DIR}/pgscalculator.sh"
 
 DEFAULT_SUMSTAT_DIR="/faststorage/project/ibp_pipeline_cleansumstats/raw_library/sumstat_clean_library/version_1.12.0/sumstat_5759"
 SUMSTAT_DIR="${SUMSTAT_DIR:-$DEFAULT_SUMSTAT_DIR}"

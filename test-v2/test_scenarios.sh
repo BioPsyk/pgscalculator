@@ -15,7 +15,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PGS_DIR="$(dirname "$SCRIPT_DIR")"
-WRAPPER="${PGS_DIR}/pgscalculator-v2.sh"
+WRAPPER="${PGS_DIR}/pgscalculator.sh"
 
 # Base paths (adjust as needed)
 INPUT_DIR="/faststorage/project/ibp_migration_opengdk/PROJECT_pgscalculator/pgscalculator/sumstats/5668"

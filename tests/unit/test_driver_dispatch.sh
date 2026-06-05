@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Unit tests for Phase 8 driver helpers (defined in pgscalculator-v2.sh).
+# Unit tests for Phase 8 driver helpers (defined in pgscalculator.sh).
 
 set -euo pipefail
 
@@ -7,7 +7,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 source "${PROJECT_DIR}/bin/lib/common.sh"
 
-# Re-define driver helpers (kept in sync with pgscalculator-v2.sh).
+# Re-define driver helpers (kept in sync with pgscalculator.sh).
 build_sumstat_filter_chr_cmds() {
   local run_cmd="$1"
   local body=""
@@ -39,7 +39,7 @@ score_profile_mapped_dir() {
   fi
 }
 
-# Prep-step classifier (kept in sync with pgscalculator-v2.sh). A bare prep step
+# Prep-step classifier (kept in sync with pgscalculator.sh). A bare prep step
 # name must NOT trip the per-sumstat prerequisite check. A past regression
 # narrowed this regex and silently dropped the LDpred2 prep steps.
 is_prep_step() {

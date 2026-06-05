@@ -1,6 +1,6 @@
 ## pgscalculator v2.1 local smoke test (2026-01-11)
 
-This folder is a lightweight, reproducible smoke test for the current `pgscalculator-v2.sh` config format.
+This folder is a lightweight, reproducible smoke test for the current `pgscalculator.sh` config format.
 
 It reuses the same **genotypes** and **LD reference** paths as the existing `test-v2/test_scenarios.sh`.
 
@@ -69,7 +69,7 @@ After a successful run, you can confirm the finalize step (all joins via `LC_ALL
 - **Prep tmp**: `out/prep/tmp/`
 
 By default (for development), work/tmp are **kept**. If you want to remove them after a successful run, pass:
-- `--cleanup` to `pgscalculator-v2.sh` (works for both local runs and SLURM driver jobs)
+- `--cleanup` to `pgscalculator.sh` (works for both local runs and SLURM driver jobs)
 
 ### Warnings you may see
 

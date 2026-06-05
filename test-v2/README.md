@@ -13,7 +13,7 @@ cd /home/jesgaaopen/ibp_pipeline_pgscalculator/pgscalculator/test-v2
 ./test_scenarios.sh all
 
 # Run scenario 1 (no reference files - compute MAF from genotypes)
-../pgscalculator-v2.sh --config out_test_scenario1/config.yaml --steps prep --sbatch
+../pgscalculator.sh --config out_test_scenario1/config.yaml --steps prep --sbatch
 ```
 
 ### Test Scenarios
@@ -131,7 +131,7 @@ filters:
 
 ## See Also
 
-- [README-v2.md](../README-v2.md) - Full v2 documentation
+- [README.md](../README.md) - Full v2 documentation
 - [pipeline-output-spec.md](../docs/pipeline-output-spec.md) - Output format specification
 - [pipeline-output-plan.md](../docs/pipeline-output-plan.md) - Implementation details
 

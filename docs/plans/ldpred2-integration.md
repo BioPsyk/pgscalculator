@@ -197,7 +197,7 @@ genome-wide, with `ncores` set to the slurm `weights_ldpred2.cpus` value.
 
 | Existing artifact                                   | Reused as-is for LDpred2? | Notes |
 |-----------------------------------------------------|---------------------------|-------|
-| `pgscalculator-v2.sh` wrapper (mounts, sbatch dispatch) | **Yes** + 1 new bind for LDpred2 LD ref dir + new `weights_ldpred2` profile |
+| `pgscalculator.sh` wrapper (mounts, sbatch dispatch) | **Yes** + 1 new bind for LDpred2 LD ref dir + new `weights_ldpred2` profile |
 | `bin/pgscalculator` CLI dispatcher                  | **Yes** + new `calc-ldpred2`, `format-posteriors-ldpred2`, `prep-ldref-ldpred2` commands |
 | `bin/lib/common.sh` parse_config, log helpers, get_chromosomes, etc. | **Yes** | Already handles arbitrary `prefix.subkey` keys → `CFG_LDPRED2_*` will Just Work |
 | `prep-genotypes`                                    | **Yes**, unchanged | Genotype-only, already method-agnostic |
@@ -524,7 +524,7 @@ driver
 
 Submit-concurrently and wait-for-all is the same pattern the driver already
 uses (just with one more job to track). The `submit_array_for_step()`
-function in `pgscalculator-v2.sh:912` already supports per-`step_profile`
+function in `pgscalculator.sh:912` already supports per-`step_profile`
 behavior — we add a new `weights_ldpred2` branch and a sibling
 `submit_single_job_for_step()` for the non-array case (genome-wide).
 
@@ -565,7 +565,7 @@ else
 fi
 ```
 
-Then around `pgscalculator-v2.sh:1239`:
+Then around `pgscalculator.sh:1239`:
 
 ```bash
 if has_method sbayesr "$cfg_methods"; then submit_array_for_step weights_sbayesr;     fi
@@ -589,13 +589,13 @@ incremental work:
 
 ```bash
 # Day 1: only sBayesR
-./pgscalculator-v2.sh --config config.yaml \
+./pgscalculator.sh --config config.yaml \
   --steps sumstat,weights,score,finalize \
   --methods sbayesr \
   -i /path/to/sumstat_TRAIT --sbatch
 
 # Day 2: add LDpred2 (sBayesR results untouched, finalize re-runs to merge)
-./pgscalculator-v2.sh --config config.yaml \
+./pgscalculator.sh --config config.yaml \
   --steps sumstat,weights,score,finalize \
   --methods ldpred2 \
   -i /path/to/sumstat_TRAIT --sbatch
@@ -660,7 +660,7 @@ The mechanics that make this work:
 If the user wants to force a re-run of just LDpred2 (e.g. new LD ref):
 
 ```bash
-./pgscalculator-v2.sh --config config.yaml \
+./pgscalculator.sh --config config.yaml \
   --steps weights,score,finalize \
   --methods ldpred2 \
   --force \
@@ -747,7 +747,7 @@ variables, so we get `CFG_LDPRED2_MODE`, `CFG_LDPRED2_LD_DIR`,
 The only addition needed in `common.sh` is `parse_yaml_list()` for the
 `methods: [sbayesr, ldpred2]` line (inline array — the current parser only
 handles scalar values). Reuse the existing `parse_yaml_list` from
-`pgscalculator-v2.sh:255` (it handles `modules:` already, but block-style;
+`pgscalculator.sh:255` (it handles `modules:` already, but block-style;
 extend it to also handle inline `[a, b, c]` syntax).
 
 ---
@@ -895,11 +895,11 @@ ENV PATH="/pgscalculator/bin:${PATH}"
 
 Bump container tag to `2.1.0-amd64` (or `2.2.0-amd64` to align with
 pipeline version — decide at release time). Update default in
-`pgscalculator-v2.sh:1673` (`singularity_image_tag`).
+`pgscalculator.sh:1673` (`singularity_image_tag`).
 
 ### 8.5 Mounts
 
-`pgscalculator-v2.sh` needs an additional bind for the LDpred2 LD ref dir:
+`pgscalculator.sh` needs an additional bind for the LDpred2 LD ref dir:
 
 ```bash
 ldpred2_lddir_host=$(realpath "${cfg_ldpred2_ld_dir}")
@@ -1072,7 +1072,7 @@ Phase 9 (discovery-mode finalize) — it's the acceptance test for [§6.5].
 outputs (`augmented_<method>.gz`, `bench_score_<method>.gz`) rather than the single
 combined `augmented_sumstat.gz` with `postEffect_<method>` columns originally sketched in
 the Phase 9/10 scope above — see [§6] and `general-design.md`. Phase 11 reconciled
-`README-v2.md` and `general-design.md` to that model and confirmed `config.template.yaml`
+`README.md` and `general-design.md` to that model and confirmed `config.template.yaml`
 is current. Phase 12 (version bump / container retag) is the remaining item.
 
 ---

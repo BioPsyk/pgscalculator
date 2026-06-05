@@ -8,17 +8,14 @@ COPY assets ./assets
 COPY bin ./bin
 COPY CHANGELOG.md ./CHANGELOG.md
 COPY conf ./conf
+COPY config.template.yaml ./config.template.yaml
 COPY docker ./docker
 COPY docs ./docs
-COPY lib ./lib
-COPY main.nf ./main.nf
-COPY modules ./modules
-COPY nextflow.config ./nextflow.config
 COPY pgscalculator.sh ./pgscalculator.sh
 COPY README.md ./README.md
 COPY scripts ./scripts
 COPY tests ./tests
 COPY VERSION ./VERSION
 
-WORKDIR /home/nextflow
+WORKDIR /home/pgsuser
 
