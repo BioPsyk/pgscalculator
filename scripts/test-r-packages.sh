@@ -5,10 +5,10 @@
 #
 # Usage (docker):
 #   ./scripts/test-r-packages.sh
-#   ./scripts/test-r-packages.sh ibp-pgscalculator-base:0.7.0    # explicit image
+#   ./scripts/test-r-packages.sh ibp-pgscalculator-base:0.8.0    # explicit image
 #
 # Usage (singularity / apptainer):
-#   ./scripts/test-r-packages.sh --singularity sif/ibp-pgscalculator-base_version-0.7.0.sif
+#   ./scripts/test-r-packages.sh --singularity sif/ibp-pgscalculator-base_version-0.8.0.sif
 
 set -euo pipefail
 

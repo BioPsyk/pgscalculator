@@ -47,15 +47,15 @@ cd pgscalculator
 
 ```bash
 mkdir -p sif
-singularity pull sif/ibp-pgscalculator-base_version-0.7.0.sif docker://biopsyk/ibp-pgscalculator:0.7.0-amd64
+singularity pull sif/ibp-pgscalculator-base_version-0.8.0.sif docker://biopsyk/ibp-pgscalculator:0.8.0-amd64
 ```
 
-Image version (`docker/VERSION`, currently **0.7.0**) is **independent** of the pipeline version (`VERSION`, **2.2.0**). Rebuild the image only when the Dockerfile changes (e.g. LDpred2 R packages added in Phase 1). sBayesR-only can use **0.6.0** until you enable LDpred2.
+Image version (`docker/VERSION`, currently **0.8.0**) is **independent** of the pipeline version (`VERSION`, **2.2.0**). Rebuild the image only when the Dockerfile changes. `0.8.0` drops the (unused) Nextflow tooling from the base image; `0.7.0` also runs v2 if you already have it.
 
 ```bash
 ./scripts/docker-build.sh
-singularity build sif/ibp-pgscalculator-base_version-0.7.0.sif docker-daemon://ibp-pgscalculator-base:0.7.0
-./scripts/test-r-packages.sh --singularity sif/ibp-pgscalculator-base_version-0.7.0.sif
+singularity build sif/ibp-pgscalculator-base_version-0.8.0.sif docker-daemon://ibp-pgscalculator-base:0.8.0
+./scripts/test-r-packages.sh --singularity sif/ibp-pgscalculator-base_version-0.8.0.sif
 ```
 
 ### Reference Data
@@ -320,7 +320,7 @@ For interactive use or custom workflows:
 # Start interactive container session
 singularity shell --contain --cleanenv \
   -B /faststorage:/faststorage \
-  sif/ibp-pgscalculator-base_version-0.7.0.sif
+  sif/ibp-pgscalculator-base_version-0.8.0.sif
 
 # Inside container - run individual steps
 pgscalculator prep-genotypes --config /path/to/config.yaml
@@ -612,7 +612,7 @@ Default SLURM resource settings (tunable via config):
 - **v2.2.0** - LDpred2 method, `methods:` / `--methods`, per-method scores, discovery-mode finalize, incremental runs
 - **v2.1.0** - Dual-position mapfile, finalize step, SLURM driver jobs
 - **v2.0.0** - Modular CLI with step-by-step control
-- **v1.x** - Nextflow-based monolithic pipeline (see [README.md](README.md))
+- **v1.x** - Nextflow-based monolithic pipeline, retired and archived at tag [`v1.3.2`](https://github.com/BioPsyk/pgscalculator/tree/v1.3.2) (`git checkout v1.3.2` to recover it)
 
 ## License
 

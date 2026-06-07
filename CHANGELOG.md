@@ -15,7 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Removed
 
 - **Legacy v1 Nextflow pipeline.** Removed `main.nf`, `nextflow.config`, `modules/`, `conf/prscs.config`, `conf/sbayesr.config`, `lib/`, the v1 `pgscalculator.sh` wrapper, `concatenate_plink_maf/` (+ `tests/unit/test_concatenate_plink_maf.sh`), and `scripts/kill-nextflow.sh`. The full v1 pipeline (1.3.2) is archived at git tag **`v1.3.2`** — run `git checkout v1.3.2` to recover it. `conf/init-docker-config.sh` and `assets/` are retained (still used by v2).
-- `docker/Dockerfile` no longer installs Nextflow (removed the `java_builder` stage and `.nextflow`/`NXF_OFFLINE` setup); the runtime user was renamed `nextflow` → `pgsuser`. The next published image should be rebuilt as `0.8.0` (see `docker/README.md`); the existing `0.7.0` image still runs v2 unchanged.
+- `docker/Dockerfile` no longer installs Nextflow (removed the `java_builder` stage and `.nextflow`/`NXF_OFFLINE` setup); the runtime user was renamed `nextflow` → `pgsuser`. Base image bumped to **`0.8.0`** (`docker/VERSION`) and the `README.md` pull/build references updated to match; `0.8.0` must be built + pushed to Docker Hub. The previous `0.7.0` image still runs v2 unchanged (same toolchain).
 
 ### Changed
 
