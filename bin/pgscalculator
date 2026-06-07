@@ -1,0 +1,819 @@
+#!/bin/bash
+# pgscalculator v2.2.0 - Main CLI entry point
+# Modular PGS calculation pipeline with step-by-step control
+
+set -euo pipefail
+
+# Get the directory where this script is located
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+LIB_DIR="${SCRIPT_DIR}/lib"
+STEPS_DIR="${LIB_DIR}/steps"
+
+# Source common library
+source "${LIB_DIR}/common.sh"
+
+# =============================================================================
+# VERSION AND HELP
+# =============================================================================
+
+VERSION="2.2.0"
+
+print_version() {
+    echo "pgscalculator v${VERSION}"
+}
+
+print_usage() {
+    cat << EOF
+pgscalculator v${VERSION} - Modular PGS Calculation Pipeline
+
+USAGE:
+    pgscalculator <command> [options]
+
+COMMANDS:
+    Preparation (run once, reused across sumstats):
+        prep-genotypes    Extract variant IDs from genotype files
+        prep-ldref        Extract RSIDs from LD reference
+        prep-ldref-ldpred2  Validate LDpred2 LD reference and dump its map to TSV (opt-in via ldpred2.ld_dir)
+        prep-inclusion-list  Create variant inclusion list (INFO/MAF filtered, LD intersect)
+        prep-inclusion-list-ldpred2  Build the LDpred2 variant map (opt-in via ldpred2.ld_dir)
+
+    Per-sumstat processing:
+        format-sumstat    Format and add build coordinates to sumstat
+        filter-variants   Filter sumstat to inclusion list variants
+        calc-posteriors   Calculate posterior effects using sbayesR
+        calc-ldpred2      Calculate posterior effects using LDpred2 (genome-wide)
+        format-posteriors Map posteriors to genotype variant IDs
+        calc-score        Calculate PGS using plink2
+        combine-scores    Combine per-chromosome scores
+
+    Optional:
+        calc-benchmark    Calculate benchmark scores (MAF filter + LD pruning)
+
+    Automation:
+        run               Run multiple steps in sequence
+        status            Show pipeline status and completed steps
+
+    Help:
+        help              Show this help message
+        version           Show version information
+
+OPTIONS:
+    --config FILE       Path to config.yaml file (required for most commands)
+    --sumstat NAME      Name of sumstat to process (for per-sumstat commands)
+    --method NAME       Posterior method (sbayesr|ldpred2) for method-parameterised
+                        steps. Default: sbayesr.
+    --methods LIST      Active posterior methods for this run (sbayesr, ldpred2, or
+                        comma-separated both). Overrides config methods:.
+    --force             Force re-run of steps even if already completed
+    --verbose           Enable verbose output
+    --dry-run           Show what would be done without executing
+
+EXAMPLES:
+    # Step-by-step execution
+    pgscalculator prep-genotypes --config config.yaml
+    pgscalculator prep-ldref --config config.yaml
+    pgscalculator prep-inclusion-list --config config.yaml
+    pgscalculator format-sumstat --sumstat trait1 --config config.yaml
+    pgscalculator calc-posteriors --sumstat trait1 --config config.yaml
+    pgscalculator calc-score --sumstat trait1 --config config.yaml
+
+    # Automated execution
+    pgscalculator run --all --sumstat trait1 --config config.yaml
+    pgscalculator run --steps prep,posteriors,score --sumstat trait1 --config config.yaml
+
+    # Check status
+    pgscalculator status --config config.yaml
+
+For more information, see: https://github.com/BioPsyk/pgscalculator
+EOF
+}
+
+print_command_help() {
+    local cmd="$1"
+    
+    case "$cmd" in
+        prep-genotypes)
+            cat << EOF
+pgscalculator prep-genotypes - Extract variant IDs from genotype files
+
+USAGE:
+    pgscalculator prep-genotypes --config FILE [options]
+
+DESCRIPTION:
+    Reads pvar files from the genotype directory and creates a sorted list
+    of all variant IDs. Also creates formatted pvar files for downstream use.
+
+OPTIONS:
+    --config FILE    Path to config.yaml file (required)
+    --verbose        Enable verbose output
+    --dry-run        Show what would be done without executing
+
+OUTPUT:
+    {outdir}/prep/genotypes/
+        snplist_sorted       Sorted list of all genotype variant IDs
+        chr{1-22}_pvar_fmt   Formatted pvar files per chromosome
+EOF
+            ;;
+        prep-ldref)
+            cat << EOF
+pgscalculator prep-ldref - Extract RSIDs from LD reference
+
+USAGE:
+    pgscalculator prep-ldref --config FILE [options]
+
+DESCRIPTION:
+    Reads LD reference info files and extracts RSIDs per chromosome.
+
+OPTIONS:
+    --config FILE    Path to config.yaml file (required)
+    --verbose        Enable verbose output
+    --dry-run        Show what would be done without executing
+
+OUTPUT:
+    {outdir}/prep/ldref/
+        chr{1-22}_ld_rsids   RSIDs from LD reference per chromosome
+EOF
+            ;;
+        prep-ldref-ldpred2)
+            cat << EOF
+pgscalculator prep-ldref-ldpred2 - Prepare LDpred2 LD reference (opt-in)
+
+USAGE:
+    pgscalculator prep-ldref-ldpred2 --config FILE [options]
+
+DESCRIPTION:
+    Validates that an LDpred2 LD reference directory contains all 22
+    LD_with_blocks_chr{N}.rds files, loads the matching map_hm3{,_plus}.rds,
+    and dumps it as a TSV that the LDpred2 sub-pipeline consumes.
+
+    The step is opt-in: if 'ldpred2.ld_dir' is not set in the config file,
+    it logs a 'skipping' message and exits 0, leaving the rest of the prep
+    step group unaffected.
+
+OPTIONS:
+    --config FILE    Path to config.yaml file (required)
+    --verbose        Enable verbose output
+    --dry-run        Show what would be done without executing
+
+CONFIG KEYS:
+    ldpred2.ld_dir            Directory with LD_with_blocks_chr{N}.rds
+    ldpred2.ld_variant_set    hm3 | hm3_plus (default: hm3_plus)
+    ldpred2.ld_meta_file      Optional explicit path to map_hm3{,_plus}.rds
+
+OUTPUT:
+    {outdir}/prep/ldref_ldpred2/
+        map.tsv      chr pos_b37 pos_b38 a0 a1 rsid af_UKBB ld block_id
+        .completed   marker file written on success
+    {outdir}/prep/details/
+        prep_ldref_ldpred2.tsv   provenance (paths, variant counts)
+EOF
+            ;;
+        prep-inclusion-list)
+            cat << EOF
+pgscalculator prep-inclusion-list - Create variant inclusion list
+
+USAGE:
+    pgscalculator prep-inclusion-list --config FILE [options]
+
+DESCRIPTION:
+    Creates a variant inclusion list by:
+    1. Intersecting genotype variants with LD reference RSIDs
+    2. Filtering on INFO > threshold (default: 0.8)
+    3. Filtering on MAF > threshold (default: 0.01)
+
+DEPENDENCIES:
+    Requires prep-genotypes and prep-ldref to be completed first.
+
+OPTIONS:
+    --config FILE    Path to config.yaml file (required)
+    --verbose        Enable verbose output
+    --dry-run        Show what would be done without executing
+
+OUTPUT:
+    {outdir}/prep/inclusion_list/
+        variant_inclusion_list.tsv     Final filtered variant list
+    {outdir}/prep/
+        variant_map_sbayesr.tsv        Full rsid <-> genotype_id crosswalk (sBayesR variant set)
+EOF
+            ;;
+        prep-inclusion-list-ldpred2)
+            cat << EOF
+pgscalculator prep-inclusion-list-ldpred2 - Build the LDpred2 variant map (opt-in)
+
+USAGE:
+    pgscalculator prep-inclusion-list-ldpred2 --config FILE [options]
+
+DESCRIPTION:
+    Joins the LDpred2 LD-reference map produced by prep-ldref-ldpred2
+    (prep/ldref_ldpred2/map.tsv) with the genotype variant IDs from
+    prep-genotypes (prep/genotypes/chr{N}_pvar_fmt), build-aware on
+    chr:pos + alleles. Emits a single chromosome-ordered variant map that
+    carries the LD-score and LD-block-id columns through.
+
+    The step is opt-in: if 'ldpred2.ld_dir' is not set in the config file,
+    it logs a 'skipping' message and exits 0, leaving the rest of the prep
+    step group unaffected.
+
+DEPENDENCIES:
+    Requires prep-genotypes and prep-ldref-ldpred2 to be completed first.
+
+OPTIONS:
+    --config FILE    Path to config.yaml file (required)
+    --verbose        Enable verbose output
+    --dry-run        Show what would be done without executing
+
+OUTPUT:
+    {outdir}/prep/
+        variant_map_ldpred2.tsv   12-col rsid <-> genotype_id crosswalk
+                                  (adds 'ld' + 'block_id' to the sBayesR schema)
+    {outdir}/prep/details/
+        prep_inclusion_list_ldpred2_steps.tsv   provenance + match rate
+    {outdir}/prep/inclusion_list_ldpred2/
+        .completed                marker file written on success
+EOF
+            ;;
+        format-sumstat)
+            cat << EOF
+pgscalculator format-sumstat - Format summary statistics
+
+USAGE:
+    pgscalculator format-sumstat --sumstat NAME --config FILE [options]
+
+DESCRIPTION:
+    Formats the cleaned summary statistics from cleansumstats:
+    1. Adds GRCh37 build coordinates
+    2. Adds/derives N, EAF, Beta, SE as needed
+    3. Filters invalid values
+
+OPTIONS:
+    --sumstat NAME   Name of sumstat (creates sumstat_{NAME} directory)
+    --config FILE    Path to config.yaml file (required)
+    --verbose        Enable verbose output
+    --dry-run        Show what would be done without executing
+
+OUTPUT:
+    {outdir}/sumstat_{name}/formatted/
+        sumstat_formatted.tsv    Formatted summary statistics
+EOF
+            ;;
+        filter-variants)
+            cat << EOF
+pgscalculator filter-variants - Filter sumstat to inclusion list variants
+
+USAGE:
+    pgscalculator filter-variants --sumstat NAME --config FILE [--method sbayesr|ldpred2] [options]
+
+DESCRIPTION:
+    Filters the formatted summary statistics to only include variants
+    present in the per-method inclusion list (variant_map_<method>.tsv).
+    This early filtering significantly reduces memory usage in downstream
+    steps.
+
+    Outputs are written under work/filtered_<method>/ so that the sBayesR
+    and LDpred2 pipelines do not clobber each other. The migration helper
+    migrate_filtered_dirs() renames any legacy work/filtered/ directory to
+    work/filtered_sbayesr/ on the first invocation.
+
+DEPENDENCIES:
+    --method sbayesr:  Requires prep-inclusion-list and format-sumstat.
+    --method ldpred2:  Requires prep-inclusion-list-ldpred2 and format-sumstat
+                       (LDpred2 is opt-in via ldpred2.ld_dir; see plan §5.3).
+
+OPTIONS:
+    --sumstat NAME   Name of sumstat to process
+    --config FILE    Path to config.yaml file (required)
+    --method NAME    Which variant map to filter against (sbayesr|ldpred2).
+                     Default: sbayesr (preserves current behavior).
+    --verbose        Enable verbose output
+    --dry-run        Show what would be done without executing
+
+OUTPUT:
+    {outdir}/sumstats/{name}/work/filtered_<method>/
+        sumstat_filtered.tsv.gz  Filtered summary statistics (full-file mode)
+        chr{1-22}_filtered.tsv   Per-chromosome filtered files
+        chr{1-22}_matched.tsv    Per-chr matched-row table for finalize
+        .completed               Per-method step-completion marker
+EOF
+            ;;
+        calc-posteriors)
+            cat << EOF
+pgscalculator calc-posteriors - Calculate posterior effects using sbayesR
+
+USAGE:
+    pgscalculator calc-posteriors --sumstat NAME --config FILE [options]
+
+DESCRIPTION:
+    Runs sbayesR per chromosome to calculate posterior SNP effects
+    using the HM3 UKB sparse LD reference.
+
+DEPENDENCIES:
+    Requires filter-variants to be completed first.
+
+OPTIONS:
+    --sumstat NAME   Name of sumstat to process
+    --config FILE    Path to config.yaml file (required)
+    --chr NUM        Process only specific chromosome (optional)
+    --verbose        Enable verbose output
+    --dry-run        Show what would be done without executing
+
+OUTPUT:
+    {outdir}/sumstat_{name}/posteriors/
+        chr{1-22}.snpRes    Posterior SNP effects per chromosome
+EOF
+            ;;
+        calc-ldpred2)
+            cat << EOF
+pgscalculator calc-ldpred2 - Calculate posterior effects using LDpred2
+
+USAGE:
+    pgscalculator calc-ldpred2 --sumstat NAME --config FILE [options]
+
+DESCRIPTION:
+    Runs genome-wide LDpred2 (auto or inf mode) on the LDpred2-filtered
+    summary statistics. This is a single non-array job (not chr-parallel).
+
+DEPENDENCIES:
+    Requires ldpred2.ld_dir in config, prep-ldref-ldpred2,
+    prep-inclusion-list-ldpred2, and filter-variants --method ldpred2.
+
+OPTIONS:
+    --sumstat NAME   Name of sumstat to process
+    --config FILE    Path to config.yaml file (required)
+    --verbose        Enable verbose output
+    --dry-run        Show what would be done without executing
+
+OUTPUT:
+    {outdir}/sumstats/{name}/work/posteriors_ldpred2/
+        chr{1-22}.snpRes    Posterior SNP effects per chromosome (ldref_snpid keyed)
+        FAILED_*            Soft-failure markers (match/sfbm/ldsc/ldpred2)
+EOF
+            ;;
+        format-posteriors)
+            cat << EOF
+pgscalculator format-posteriors - Map posteriors to genotype variant IDs
+
+USAGE:
+    pgscalculator format-posteriors --sumstat NAME --config FILE [--method sbayesr|ldpred2] [options]
+
+DESCRIPTION:
+    Maps posterior effects from LD reference SNP ID to genotype variant IDs,
+    producing scoring-ready effect files for plink2. Outputs are written under
+    work/posteriors_mapped_<method>/ so sBayesR and LDpred2 do not clobber each other.
+
+DEPENDENCIES:
+    --method sbayesr:  Requires prep-inclusion-list and calc-posteriors.
+    --method ldpred2:  Requires prep-inclusion-list-ldpred2 and calc-ldpred2.
+
+OPTIONS:
+    --sumstat NAME   Name of sumstat to process
+    --config FILE    Path to config.yaml file (required)
+    --method NAME    Posterior method (sbayesr|ldpred2). Default: sbayesr.
+    --verbose        Enable verbose output
+    --dry-run        Show what would be done without executing
+
+OUTPUT:
+    {outdir}/sumstats/{name}/work/posteriors_mapped_<method>/
+        chr{1-22}.snpRes    Scoring-ready effect files per chromosome
+        .completed          Per-method step-completion marker
+EOF
+            ;;
+        calc-score)
+            cat << EOF
+pgscalculator calc-score - Calculate PGS using plink2
+
+USAGE:
+    pgscalculator calc-score --sumstat NAME --config FILE [options]
+
+DESCRIPTION:
+    Runs plink2 scoring per chromosome using the mapped posteriors
+    and QCed genotype data.
+
+DEPENDENCIES:
+    Requires format-posteriors to be completed first.
+
+OPTIONS:
+    --sumstat NAME   Name of sumstat to process
+    --config FILE    Path to config.yaml file (required)
+    --chr NUM        Process only specific chromosome (optional)
+    --verbose        Enable verbose output
+    --dry-run        Show what would be done without executing
+
+OUTPUT:
+    {outdir}/sumstat_{name}/scores/
+        chr{1-22}.sscore    Per-chromosome score files
+EOF
+            ;;
+        combine-scores)
+            cat << EOF
+pgscalculator combine-scores - Combine per-chromosome scores
+
+USAGE:
+    pgscalculator combine-scores --sumstat NAME --config FILE [options]
+
+DESCRIPTION:
+    Combines per-chromosome scores into a single merged score file.
+
+DEPENDENCIES:
+    Requires calc-score to be completed first.
+
+OPTIONS:
+    --sumstat NAME   Name of sumstat to process
+    --config FILE    Path to config.yaml file (required)
+    --verbose        Enable verbose output
+    --dry-run        Show what would be done without executing
+
+OUTPUT:
+    {outdir}/sumstats/{name}/scores_<method>.gz   Per-method combined scores
+    {outdir}/sumstats/{name}/scores.gz            Symlink to scores_sbayesr.gz (sBayesR only)
+EOF
+            ;;
+        calc-benchmark)
+            cat << EOF
+pgscalculator calc-benchmark - Calculate benchmark scores
+
+USAGE:
+    pgscalculator calc-benchmark --sumstat NAME --config FILE [options]
+
+DESCRIPTION:
+    Calculates benchmark scores using MAF filtering and LD pruning
+    on the original GWAS effect sizes.
+
+DEPENDENCIES:
+    Requires filter-variants and calc-score to be completed first.
+
+OPTIONS:
+    --sumstat NAME   Name of sumstat to process
+    --config FILE    Path to config.yaml file (required)
+    --maf FLOAT      MAF threshold for filtering (default: 0.05)
+    --verbose        Enable verbose output
+    --dry-run        Show what would be done without executing
+
+OUTPUT:
+    {outdir}/sumstat_{name}/work/benchmark/
+        benchmark.sscore    Benchmark score file
+EOF
+            ;;
+        run)
+            cat << EOF
+pgscalculator run - Run multiple steps in sequence
+
+USAGE:
+    pgscalculator run --all --sumstat NAME --config FILE [options]
+    pgscalculator run --steps STEPS --sumstat NAME --config FILE [options]
+
+DESCRIPTION:
+    Runs multiple pipeline steps in sequence. Can run all steps or
+    a specific subset.
+
+STEP GROUPS:
+    prep         Run all prep steps (genotypes, ldref, inclusion-list)
+    sumstat      Run all sumstat formatting steps (format, filter)
+    posteriors   Run posterior calculation and formatting
+    score        Run scoring and combining steps
+    benchmark    Run benchmark scoring (optional)
+
+OPTIONS:
+    --all            Run all steps
+    --steps STEPS    Comma-separated list of step groups to run
+    --sumstat NAME   Name of sumstat to process (required)
+    --config FILE    Path to config.yaml file (required)
+    --skip-prep      Skip prep steps if already completed
+    --verbose        Enable verbose output
+    --dry-run        Show what would be done without executing
+
+EXAMPLES:
+    pgscalculator run --all --sumstat trait1 --config config.yaml
+    pgscalculator run --steps prep,posteriors --sumstat trait1 --config config.yaml
+    pgscalculator run --steps score --sumstat trait1 --config config.yaml --skip-prep
+EOF
+            ;;
+        status)
+            cat << EOF
+pgscalculator status - Show pipeline status
+
+USAGE:
+    pgscalculator status --config FILE [options]
+
+DESCRIPTION:
+    Shows the status of all pipeline steps, indicating which have
+    been completed.
+
+OPTIONS:
+    --config FILE    Path to config.yaml file (required)
+    --sumstat NAME   Show status for specific sumstat (optional)
+EOF
+            ;;
+        *)
+            log_error "Unknown command: $cmd"
+            print_usage
+            exit 1
+            ;;
+    esac
+}
+
+# =============================================================================
+# ARGUMENT PARSING
+# =============================================================================
+
+parse_args() {
+    COMMAND=""
+    CONFIG_FILE=""
+    SUMSTAT_NAME=""
+    CHROMOSOME=""
+    STEPS=""
+    RUN_ALL=0
+    SKIP_PREP=0
+    FORCE=0
+    MAF_THRESHOLD=""
+    METHOD=""
+    METHODS=""
+    
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --config)
+                CONFIG_FILE="$2"
+                shift 2
+                ;;
+            --sumstat)
+                SUMSTAT_NAME="$2"
+                shift 2
+                ;;
+            --chr)
+                CHROMOSOME="$2"
+                shift 2
+                ;;
+            --steps)
+                STEPS="$2"
+                shift 2
+                ;;
+            --all)
+                RUN_ALL=1
+                shift
+                ;;
+            --skip-prep)
+                SKIP_PREP=1
+                shift
+                ;;
+            --force|-f)
+                FORCE=1
+                shift
+                ;;
+            --maf)
+                MAF_THRESHOLD="$2"
+                shift 2
+                ;;
+            --method)
+                METHOD="$2"
+                shift 2
+                ;;
+            --methods)
+                METHODS="$2"
+                shift 2
+                ;;
+            --verbose|-v)
+                VERBOSE=1
+                shift
+                ;;
+            --dry-run|-n)
+                DRY_RUN=1
+                shift
+                ;;
+            --help|-h)
+                if [[ -n "$COMMAND" ]]; then
+                    print_command_help "$COMMAND"
+                else
+                    print_usage
+                fi
+                exit 0
+                ;;
+            --version)
+                print_version
+                exit 0
+                ;;
+            help)
+                if [[ $# -gt 1 ]]; then
+                    print_command_help "$2"
+                else
+                    print_usage
+                fi
+                exit 0
+                ;;
+            version)
+                print_version
+                exit 0
+                ;;
+            -*)
+                log_error "Unknown option: $1"
+                print_usage
+                exit 1
+                ;;
+            *)
+                if [[ -z "$COMMAND" ]]; then
+                    COMMAND="$1"
+                else
+                    log_error "Unexpected argument: $1"
+                    print_usage
+                    exit 1
+                fi
+                shift
+                ;;
+        esac
+    done
+}
+
+# =============================================================================
+# COMMAND DISPATCHING
+# =============================================================================
+
+dispatch_command() {
+    local cmd="$1"
+    
+    # Load config if provided
+    if [[ -n "$CONFIG_FILE" ]]; then
+        parse_config "$CONFIG_FILE"
+        load_active_methods "${METHODS:-}" "$CONFIG_FILE"
+    fi
+    
+    case "$cmd" in
+        prep-genotypes)
+            require_file "$CONFIG_FILE" "Config file required. Use --config FILE"
+            source "${STEPS_DIR}/prep_genotypes.sh"
+            run_prep_genotypes
+            ;;
+        prep-ldref)
+            require_file "$CONFIG_FILE" "Config file required. Use --config FILE"
+            source "${STEPS_DIR}/prep_ldref.sh"
+            run_prep_ldref
+            ;;
+        prep-ldref-ldpred2)
+            require_file "$CONFIG_FILE" "Config file required. Use --config FILE"
+            source "${STEPS_DIR}/prep_ldref_ldpred2.sh"
+            run_prep_ldref_ldpred2
+            ;;
+        prep-inclusion-list)
+            require_file "$CONFIG_FILE" "Config file required. Use --config FILE"
+            source "${STEPS_DIR}/prep_inclusion_list.sh"
+            run_prep_inclusion_list
+            ;;
+        prep-inclusion-list-ldpred2)
+            require_file "$CONFIG_FILE" "Config file required. Use --config FILE"
+            source "${STEPS_DIR}/prep_inclusion_list_ldpred2.sh"
+            run_prep_inclusion_list_ldpred2
+            ;;
+        format-sumstat)
+            require_file "$CONFIG_FILE" "Config file required. Use --config FILE"
+            [[ -z "$SUMSTAT_NAME" ]] && { log_error "Sumstat name required. Use --sumstat NAME"; exit 1; }
+            source "${STEPS_DIR}/format_sumstat.sh"
+            run_format_sumstat "$SUMSTAT_NAME"
+            ;;
+        filter-variants)
+            require_file "$CONFIG_FILE" "Config file required. Use --config FILE"
+            [[ -z "$SUMSTAT_NAME" ]] && { log_error "Sumstat name required. Use --sumstat NAME"; exit 1; }
+            source "${STEPS_DIR}/filter_variants.sh"
+            # Phase 1 §5.4: filter-variants is method-parameterised. Default to
+            # sbayesr to preserve the historical behavior for existing configs.
+            local fv_method="${METHOD:-sbayesr}"
+            case "$fv_method" in
+                sbayesr|ldpred2) ;;
+                *)
+                    log_error "Invalid --method: '${fv_method}' (expected: sbayesr|ldpred2)"
+                    exit 1
+                    ;;
+            esac
+            run_filter_variants "$SUMSTAT_NAME" "" "$fv_method"
+            ;;
+        calc-posteriors)
+            require_file "$CONFIG_FILE" "Config file required. Use --config FILE"
+            [[ -z "$SUMSTAT_NAME" ]] && { log_error "Sumstat name required. Use --sumstat NAME"; exit 1; }
+            source "${STEPS_DIR}/calc_posteriors.sh"
+            run_calc_posteriors "$SUMSTAT_NAME" "$CHROMOSOME"
+            ;;
+        calc-ldpred2)
+            require_file "$CONFIG_FILE" "Config file required. Use --config FILE"
+            [[ -z "$SUMSTAT_NAME" ]] && { log_error "Sumstat name required. Use --sumstat NAME"; exit 1; }
+            source "${STEPS_DIR}/calc_ldpred2.sh"
+            run_calc_ldpred2 "$SUMSTAT_NAME"
+            ;;
+        format-posteriors)
+            require_file "$CONFIG_FILE" "Config file required. Use --config FILE"
+            [[ -z "$SUMSTAT_NAME" ]] && { log_error "Sumstat name required. Use --sumstat NAME"; exit 1; }
+            source "${STEPS_DIR}/format_posteriors.sh"
+            local fp_method="${METHOD:-sbayesr}"
+            case "$fp_method" in
+                sbayesr|ldpred2) ;;
+                *)
+                    log_error "Invalid --method: '${fp_method}' (expected: sbayesr|ldpred2)"
+                    exit 1
+                    ;;
+            esac
+            run_format_posteriors "$SUMSTAT_NAME" "" "$fp_method"
+            ;;
+        calc-score)
+            require_file "$CONFIG_FILE" "Config file required. Use --config FILE"
+            [[ -z "$SUMSTAT_NAME" ]] && { log_error "Sumstat name required. Use --sumstat NAME"; exit 1; }
+            source "${STEPS_DIR}/calc_score.sh"
+            local cs_method="${METHOD:-sbayesr}"
+            case "$cs_method" in
+                sbayesr|ldpred2) ;;
+                *)
+                    log_error "Invalid --method: '${cs_method}' (expected: sbayesr|ldpred2)"
+                    exit 1
+                    ;;
+            esac
+            run_calc_score "$SUMSTAT_NAME" "$CHROMOSOME" "$cs_method"
+            ;;
+        combine-scores)
+            require_file "$CONFIG_FILE" "Config file required. Use --config FILE"
+            [[ -z "$SUMSTAT_NAME" ]] && { log_error "Sumstat name required. Use --sumstat NAME"; exit 1; }
+            source "${STEPS_DIR}/combine_scores.sh"
+            local cs_method="${METHOD:-}"
+            if [[ -n "$cs_method" ]]; then
+                case "$cs_method" in
+                    sbayesr|ldpred2) ;;
+                    *)
+                        log_error "Invalid --method: '${cs_method}' (expected: sbayesr|ldpred2)"
+                        exit 1
+                        ;;
+                esac
+            fi
+            run_combine_scores "$SUMSTAT_NAME" "$cs_method"
+            ;;
+        calc-benchmark)
+            require_file "$CONFIG_FILE" "Config file required. Use --config FILE"
+            [[ -z "$SUMSTAT_NAME" ]] && { log_error "Sumstat name required. Use --sumstat NAME"; exit 1; }
+            source "${STEPS_DIR}/calc_benchmark.sh"
+            run_calc_benchmark "$SUMSTAT_NAME" "$MAF_THRESHOLD"
+            ;;
+        run)
+            require_file "$CONFIG_FILE" "Config file required. Use --config FILE"
+            # Sumstat name is only required for non-prep steps
+            if [[ -z "$SUMSTAT_NAME" ]]; then
+                # For --all runs, sumstat is required.
+                if [[ "$RUN_ALL" -eq 1 ]]; then
+                    log_error "Sumstat name required. Use --sumstat NAME"
+                    exit 1
+                fi
+                # For explicit --steps, allow any prep-only selection.
+                if [[ -n "$STEPS" ]]; then
+                    local needs_sumstat=0
+                    IFS=',' read -ra step_array <<< "$STEPS"
+                    for s in "${step_array[@]}"; do
+                        s="$(echo "$s" | awk '{$1=$1;print}')"
+                        [[ -z "$s" ]] && continue
+                        if [[ "$s" == "prep" ]] || [[ "$s" == prep-* ]]; then
+                            continue
+                        fi
+                        needs_sumstat=1
+                        break
+                    done
+                    if [[ $needs_sumstat -eq 1 ]]; then
+                        log_error "Sumstat name required for non-prep steps. Use --sumstat NAME"
+                        exit 1
+                    fi
+                fi
+            fi
+            source "${STEPS_DIR}/run_pipeline.sh"
+            run_pipeline "$SUMSTAT_NAME" "$STEPS" "$RUN_ALL" "$SKIP_PREP"
+            ;;
+        status)
+            require_file "$CONFIG_FILE" "Config file required. Use --config FILE"
+            source "${STEPS_DIR}/status.sh"
+            show_status "$SUMSTAT_NAME"
+            ;;
+        "")
+            print_usage
+            exit 0
+            ;;
+        *)
+            log_error "Unknown command: $cmd"
+            print_usage
+            exit 1
+            ;;
+    esac
+}
+
+# =============================================================================
+# MAIN
+# =============================================================================
+
+main() {
+    setup_error_trap
+    
+    parse_args "$@"
+
+    # Surface --method to step scripts via CFG_METHOD so that group dispatch in
+    # run_pipeline.sh and any chr-array driver invocations can pick it up
+    # without threading the value through every internal callsite. Empty value
+    # leaves the per-step default (sbayesr) intact.
+    if [[ -n "${METHOD:-}" ]]; then
+        export CFG_METHOD="${METHOD}"
+    fi
+
+    dispatch_command "$COMMAND"
+}
+
+main "$@"
+
+
+
+

@@ -17,5 +17,6 @@ docker buildx build \
   --progress=plain \
   --tag "${image_tag}" \
   --load \
-  ./docker \
-  "$@"
+  -f ./docker/Dockerfile \
+  "$@" \
+  .

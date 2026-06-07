@@ -1,0 +1,105 @@
+# pgscalculator v2.2.0 Configuration
+
+# Optional: HPC modules to load before running (e.g., singularity)
+# Omit entirely if singularity is already in PATH.
+#modules:
+#  - tools
+#  - singularity/4.1.2
+
+input: /path/to/cleansumstats/output
+outdir: /path/to/output
+genodir: /path/to/genotypes
+genofile: /path/to/genotype_manifest.tsv
+lddir: /path/to/ld_reference
+
+# Genome build of the genotype files (GRCh37 or GRCh38)
+genotype_build: GRCh37
+
+# Liftover reference file (required for dual-position mapfile)
+# Pre-sorted on column 1 with LC_ALL=C
+liftover_reference: /path/to/references/liftover/dbsnp_cleansumstat_reference_GRCh37_GRCh38.txt.gz
+
+# Variant inclusion lists (optional)
+filters:
+  inclusion_list:
+    gt: /path/to/genotype_snpids.txt
+    ss: /path/to/sumstat_snpids.txt
+    ld: /path/to/ldref_snpids.txt
+
+whichn: totalN
+
+# Which posterior methods to compute for each submission.
+# Omit entirely for sBayesR-only (default, same as v2.1).
+# Override per run: ./pgscalculator.sh ... --methods sbayesr,ldpred2
+methods: [sbayesr]
+#methods: [sbayesr, ldpred2]
+#methods: [ldpred2]
+
+sbayesr:
+  # Genome build of the sBayesR LD reference's native positions (GRCh37 or GRCh38).
+  # The dual-position variant map is derived from this via the liftover_reference.
+  # Currently only GRCh37 is supported for the sBayesR LD reference.
+  ld_build: GRCh37
+  gamma: "0.0,0.01,0.1,1"
+  pi: "0.95,0.02,0.02,0.01"
+  burn_in: 2000
+  chain_length: 10000
+  out_freq: 10
+  p_value: 0.99
+  rsq: 0.95
+  threads: 6
+  seed: 80851
+  thin: 10
+  exclude_mhc: true
+  unscale_genotype: true
+  no_mcmc_bin: false
+  impute_n: false
+
+# LDpred2 method (opt-in). Uncomment + adjust paths to enable LDpred2 alongside sBayesR.
+# When ldpred2 is listed in methods:, ldpred2.ld_dir is required (ld_meta_file may be
+# omitted — it defaults to map_hm3{,_plus}.rds under ld_dir). See docs/references.md.
+#ldpred2:
+#  mode: auto
+#  ld_build: GRCh37                                                        # genome build of the LD reference's native positions (bigsnpr map_hm3 is GRCh37)
+#  ld_variant_set: hm3_plus                                                # hm3 | hm3_plus
+#  ld_dir:         /path/to/references/ld-ldpred2/hm3_plus                 # holds LD_with_blocks_chr{1..22}.rds
+#  ld_meta_file:   /path/to/references/ld-ldpred2/hm3_plus/map_hm3_plus.rds
+#  shrink_corr: 0.95
+#  allow_jump_sign: false
+#  hyper_p_max: 0.2
+#  hyper_p_length: 30
+#  burn_in: 500
+#  num_iter: 500
+#  use_mle: true
+#  coef_shrink_keep: 0.95
+#  merge_by_rsid: false
+#  seed: 1
+#  threads: 16
+
+# Scoring columns (variant_id allele effect)
+score_columns: 1 2 5
+
+# PLINK2 settings
+plink:
+  threads: 4
+
+# Benchmark calculation (MAF and LD pruning for benchmark scores)
+benchmark:
+  maf_threshold: 0.05
+  # plink --indep-pairwise: window_kb, step, r2
+  indep_pairwise: [250, 50, 0.25]
+
+# Optional: SLURM settings for --sbatch (weights = two array jobs, independently configured)
+slurm:
+  account: my_account
+  partition: normal
+  driver:             { mem: 1g, cpus: 1, time: '2:00:00' }
+  prep:               { mem: 10g, cpus: 1, time: '1:00:00', max_parallel: 22 }
+  sumstat:            { mem: 1g, cpus: 1, time: '0:30:00', max_parallel: 22 }
+  weights_sbayesr:    { mem: 20g, cpus: 6, time: '2:00:00', max_parallel: 22 }
+  weights_ldpred2:    { mem: 64g, cpus: 16, time: '4:00:00' }              # single genome-wide job (Phase 6+)
+  weights_benchmark:   { mem: 2g, cpus: 2, time: '0:30:00', max_parallel: 22 }
+  score:              { mem: 10g, cpus: 4, time: '0:30:00', max_parallel: 22 }
+  score_sbayesr:      { mem: 10g, cpus: 4, time: '0:30:00', max_parallel: 22 }  # inherits score: if omitted
+  score_ldpred2:      { mem: 10g, cpus: 4, time: '0:30:00', max_parallel: 22 }  # inherits score: if omitted
+  finalize:           { mem: 16g, cpus: 1, time: '1:00:00' }

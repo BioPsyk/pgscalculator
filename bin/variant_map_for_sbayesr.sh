@@ -33,18 +33,21 @@ LC_ALL=C sort -k4,4 ${bim2_file} > bim2_sorted_1.tmp
 LC_ALL=C sort -k1,1 ${ld2_file} > ld2_sorted.tmp
 
 # Perform the joins
-LC_ALL=C join -1 1 -2 4 -o 2.1 2.2 2.3 2.4 "snp2_sorted_fixed.tmp" bim2_sorted_1.tmp > join0.tmp
+# NOTE: `-o` field specs are passed as a single quoted argument so the call is
+# portable across GNU coreutils (>=24.04) and uutils coreutils (>=25.10, Rust).
+# GNU `join` greedily consumes following FIELDSPEC tokens; uutils `join` (clap)
+# treats them as positional arguments and errors out.
+LC_ALL=C join -1 1 -2 4 -o "2.1 2.2 2.3 2.4" "snp2_sorted_fixed.tmp" bim2_sorted_1.tmp > join0.tmp
 LC_ALL=C sort -k1,1 join0.tmp > bim2_sorted_2.tmp
 
-LC_ALL=C join -1 1 -2 1 -o 1.1 1.2 1.5 1.3 1.4 2.4 2.2 2.3 ss2_sorted.tmp bim2_sorted_2.tmp > join1.tmp
+LC_ALL=C join -1 1 -2 1 -o "1.1 1.2 1.5 1.3 1.4 2.4 2.2 2.3" ss2_sorted.tmp bim2_sorted_2.tmp > join1.tmp
 
 
 if [ "${lbuild}" == "${gbuild}" ] ; then
-#  echo "hej ${gbuild} and ${lbuild}" >&2
-  LC_ALL=C  join -1 1 -2 1 -a 1 -e 'NA' -o 1.1 1.2 1.3 1.4 1.5 1.6 1.7 1.8 2.4 2.2 2.3 join1.tmp ld2_sorted.tmp > join2.tmp
+  LC_ALL=C join -1 1 -2 1 -a 1 -e 'NA' -o "1.1 1.2 1.3 1.4 1.5 1.6 1.7 1.8 2.4 2.2 2.3" join1.tmp ld2_sorted.tmp > join2.tmp
 else
   LC_ALL=C sort -k2,2 join1.tmp > join1.resorted.tmp
-  LC_ALL=C join -1 2 -2 1 -a 1 -e 'NA' -o 1.1 1.2 1.3 1.4 1.5 1.6 1.7 1.8 2.4 2.2 2.3 join1.resorted.tmp ld2_sorted.tmp > join2.tmp
+  LC_ALL=C join -1 2 -2 1 -a 1 -e 'NA' -o "1.1 1.2 1.3 1.4 1.5 1.6 1.7 1.8 2.4 2.2 2.3" join1.resorted.tmp ld2_sorted.tmp > join2.tmp
 fi
 
 # Filter rows where neither A1==A1 nor A1==A2 between the files
