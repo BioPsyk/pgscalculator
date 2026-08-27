@@ -11,7 +11,7 @@ _Created by Jesper R. Gådin, Morten Dybdahl Krebs, and Andrew Schork (IBP)_
 - **Prerequisite checks**: Helpful errors if prep/previous steps not done
 - **Reusable prep**: Run prep once, reuse across multiple sumstats
 - **Dual-position mapfile**: Prep builds a variant map with both GRCh37 and GRCh38 positions via `liftover_reference`
-- **Finalize step**: Produces clean user-facing output files (`scores.gz`, `augmented_sumstat.gz`, `variant_map.gz`, `bench_score.gz`)
+- **Finalize step**: Produces clean user-facing output files (`scores_<method>.gz`, `augmented_<method>.gz`, `variant_map.gz`, `bench_score_<method>.gz`)
 - **SLURM integration**: `--sbatch` flag auto-submits with config settings
 - **SLURM driver jobs**: `--sbatch` submits one *driver job* per sumstat which runs `sumstat` and launches chromosome-parallel arrays for `weights` (sBayesR + benchmark, two arrays) and `score`, then a finalize job. Parallelism is controlled by `slurm.<step>.max_parallel` (set `max_parallel: 1` to disable parallelism).
 - **Simplified CLI**: Just `--config`, `--steps`, and `-i`
@@ -20,9 +20,9 @@ _Created by Jesper R. Gådin, Morten Dybdahl Krebs, and Andrew Schork (IBP)_
 
 - **LDpred2** (`calc-ldpred2`): genome-wide posterior estimation via `bigsnpr` (single job, not chr-parallel)
 - **`methods:` config** and **`--methods` CLI**: choose `sbayesr`, `ldpred2`, or both per submission
-- **Per-method outputs**: `scores_sbayesr.gz`, `scores_ldpred2.gz` (symlink `scores.gz` → `scores_sbayesr.gz` when sBayesR-only)
-- **Per-method augmented sumstats**: each method gets its own self-contained `augmented_<method>.gz` (restricted to that method's LD-reference variant set, with its own `benchEffect` column inside); `augmented_sumstat.gz` is a back-compat symlink to the sBayesR file
-- **Per-method benchmarks**: `bench_score_sbayesr.gz` / `bench_score_ldpred2.gz` (`bench_score.gz` → sBayesR, back-compat)
+- **Per-method outputs**: `scores_sbayesr.gz`, `scores_ldpred2.gz`
+- **Per-method augmented sumstats**: each method gets its own self-contained `augmented_<method>.gz` (restricted to that method's LD-reference variant set, with its own `benchEffect` column inside)
+- **Per-method benchmarks**: `bench_score_sbayesr.gz` / `bench_score_ldpred2.gz`
 - **Discovery-driven, method-aware finalize**: finalize produces an augmented file for each method with mapped posteriors on disk and re-runs when a new method is added (incremental-safe)
 - **LDpred2 diagnostics**: `details/ldpred2/summary.tsv` + `chains.png`
 - **Incremental runs**: run sBayesR today and LDpred2 tomorrow in the same `outdir` without re-running sBayesR (see [Incremental runs](#incremental-runs))
@@ -370,7 +370,7 @@ On smaller HPC sites you can run **sBayesR and LDpred2 on different days** in th
   -i /path/to/sumstat_TRAIT
 ```
 
-Produces `scores_sbayesr.gz` and `augmented_sbayesr.gz` (with `augmented_sumstat.gz` symlinked to it).
+Produces `scores_sbayesr.gz` and `augmented_sbayesr.gz`.
 
 **Day 2 — add LDpred2** (same config `outdir`, same sumstat):
 
@@ -514,14 +514,11 @@ outdir/
     └── sumstat_{name}/                # Per-sumstat outputs
         ├── scores_sbayesr.gz          # sBayesR PGS (IID, SCORE_SUM, ALLELE_CT, N_VARIANTS)
         ├── scores_ldpred2.gz          # LDpred2 PGS (when that method has been run)
-        ├── scores.gz                  # Symlink → scores_sbayesr.gz (sBayesR-only / back-compat)
         ├── augmented_sbayesr.gz       # sBayesR set: RSID, alleles, B, SE, Z, P, EAF, MAF, postEffect, benchEffect
         ├── augmented_ldpred2.gz       # LDpred2 set: ... postEffect, postp_ldpred2, benchEffect (its own variant set)
-        ├── augmented_sumstat.gz       # Symlink → augmented_sbayesr.gz (back-compat)
         ├── variant_map.gz             # Variant mapping (rsid ↔ genotype ID; sBayesR map)
         ├── bench_score_sbayesr.gz     # sBayesR benchmark PGS (IID, ALLELE_CT, SCORE1_SUM)
         ├── bench_score_ldpred2.gz     # LDpred2 benchmark PGS (its own variant set)
-        ├── bench_score.gz             # Symlink → bench_score_sbayesr.gz (back-compat)
         ├── details/
         │   ├── steps.tsv              # Per-step variant counts
         │   ├── config.yaml            # Config used for this run

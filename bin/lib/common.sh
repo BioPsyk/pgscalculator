@@ -749,7 +749,7 @@ order_discovered_methods() {
 sumstat_has_any_scores_gz() {
     local sumstat_dir="$1"
     local gz
-    for gz in scores_sbayesr.gz scores_ldpred2.gz scores.gz; do
+    for gz in scores_sbayesr.gz scores_ldpred2.gz; do
         [[ -f "${sumstat_dir}/${gz}" ]] && return 0
     done
     return 1

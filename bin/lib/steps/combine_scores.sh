@@ -63,11 +63,6 @@ combine_scores_for_method() {
     combine_chromosome_scores "$ref_file" "$scores_dir" "$merged_file" "$total_nvar"
     create_final_scores "$merged_file" "$out_path"
 
-    if [[ "$method" == "sbayesr" ]]; then
-        ln -sf "$out_gz" "${sumstat_dir}/scores.gz"
-        log_debug "Symlink: scores.gz -> ${out_gz}"
-    fi
-
     mark_step_completed "$step_dir"
 
     local sample_count

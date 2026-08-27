@@ -1,6 +1,7 @@
 #!/bin/bash
 # pgscalculator v2 - finalize-output step
-# Generate final output files: scores.gz, augmented_sumstat.gz, variant_map.gz, bench_score.gz, and details/
+# Generate final output files: scores_<method>.gz (from combine-scores),
+# augmented_<method>.gz, bench_score_<method>.gz, variant_map.gz, and details/
 
 # This script is sourced by the main pgscalculator CLI
 
@@ -77,8 +78,7 @@ run_finalize_output() {
     # Each method that produced mapped posteriors gets its own augmented_<method>.gz
     # (restricted to that method's LD-reference variant set, with its own
     # benchEffect column kept inside the file) and a per-sample
-    # bench_score_<method>.gz. sBayesR additionally gets back-compat aliases
-    # (augmented_sumstat.gz, bench_score.gz).
+    # bench_score_<method>.gz.
     if [[ -z "$ordered" ]]; then
         log_warn "No mapped posteriors on disk; skipping augmented/benchmark outputs"
     else
@@ -90,7 +90,6 @@ run_finalize_output() {
             log_substep "Augmented sumstat (${m})"
             write_augmented_sumstat_for_method "$sumstat_dir" "$prep_dir" "$m"
         done
-        link_legacy_finalize_aliases "$sumstat_dir" "$ordered"
     fi
     
     # Step 3: Copy variant map to sumstat root (with rsid as col1)
@@ -172,24 +171,6 @@ create_bench_score() {
     sample_count=$(wc -l < "$bench_combined")
     sample_count=$((sample_count - 1))
     log_info "Created ${out_name} with ${sample_count} samples"
-}
-
-# Back-compat aliases: legacy consumers expect augmented_sumstat.gz / bench_score.gz.
-# Point them at the sBayesR method outputs (mirrors scores.gz -> scores_sbayesr.gz).
-link_legacy_finalize_aliases() {
-    local sumstat_dir="$1" ordered="$2"
-    has_method sbayesr "$ordered" || return 0
-    local aug bench
-    aug=$(method_augmented_gz_name sbayesr)
-    bench=$(method_bench_score_gz_name sbayesr)
-    if [[ -f "${sumstat_dir}/${aug}" ]]; then
-        ln -sf "$aug" "${sumstat_dir}/augmented_sumstat.gz"
-        log_debug "Symlink: augmented_sumstat.gz -> ${aug}"
-    fi
-    if [[ -f "${sumstat_dir}/${bench}" ]]; then
-        ln -sf "$bench" "${sumstat_dir}/bench_score.gz"
-        log_debug "Symlink: bench_score.gz -> ${bench}"
-    fi
 }
 
 # augmented_<method>.gz: a fully self-contained, per-method augmented sumstat (§11).
@@ -544,8 +525,15 @@ generate_stepwise_details() {
             n_score_variants=$(for f in "${scores_dir}"/work_chr*/variants.txt; do wc -l < "$f"; done | awk '{s+=$1} END{print s+0}')
         fi
     fi
-    if [[ -f "${sumstat_dir}/scores.gz" ]]; then
-        n_samples=$(gzip -cd "${sumstat_dir}/scores.gz" 2>/dev/null | wc -l || true)
+    local scores_primary=""
+    for gz in scores_sbayesr.gz scores_ldpred2.gz; do
+        if [[ -f "${sumstat_dir}/${gz}" ]]; then
+            scores_primary="${sumstat_dir}/${gz}"
+            break
+        fi
+    done
+    if [[ -n "$scores_primary" ]]; then
+        n_samples=$(gzip -cd "$scores_primary" 2>/dev/null | wc -l || true)
         if [[ "$n_samples" -gt 0 ]]; then n_samples=$((n_samples - 1)); else n_samples=0; fi
     fi
 
@@ -557,7 +545,7 @@ generate_stepwise_details() {
         n_bench=$(for f in "${bench_dir}"/work_chr*/score_input.tsv; do c=$(wc -l < "$f"); echo $((c-1)); done | awk '{s+=$1} END{print s+0}')
     fi
 
-    # Augmented sumstat count (sBayesR primary; alias augmented_sumstat.gz also points here)
+    # Augmented sumstat count (prefer sBayesR, else LDpred2)
     local n_augmented=0
     local aug_primary="${sumstat_dir}/$(method_augmented_gz_name sbayesr)"
     [[ -f "$aug_primary" ]] || aug_primary="${sumstat_dir}/$(method_augmented_gz_name ldpred2)"

@@ -8,12 +8,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **Per-method augmented sumstats:** `augmented_sbayesr.gz` and `augmented_ldpred2.gz`, each restricted to its own LD-reference variant set, keyed by rsid, with its own `benchEffect` column kept inside the file. `augmented_sumstat.gz` becomes a back-compat symlink to the sBayesR file.
-- **Per-method benchmarks:** `calc-benchmark` runs once per active method (`work/benchmark_<method>/`), and finalize emits `bench_score_sbayesr.gz` / `bench_score_ldpred2.gz` (`bench_score.gz` → sBayesR, back-compat).
+- **Per-method augmented sumstats:** `augmented_sbayesr.gz` and `augmented_ldpred2.gz`, each restricted to its own LD-reference variant set, keyed by rsid, with its own `benchEffect` column kept inside the file.
+- **Per-method benchmarks:** `calc-benchmark` runs once per active method (`work/benchmark_<method>/`), and finalize emits `bench_score_sbayesr.gz` / `bench_score_ldpred2.gz`.
 - **LDpred2 diagnostics:** `details/ldpred2/summary.tsv` (mode, seed, h2/p/alpha estimates, LDSC intercept/h2, match/QC/chain counts) and `details/ldpred2/chains.png` (overlaid p/h2 sampling paths of all kept LDpred2-auto chains).
 
 ### Removed
 
+- **Legacy output symlinks:** no longer create `scores.gz`, `bench_score.gz`, or `augmented_sumstat.gz` aliases pointing at the sBayesR per-method files. Use `scores_sbayesr.gz`, `bench_score_sbayesr.gz`, and `augmented_sbayesr.gz` directly.
 - **Legacy v1 Nextflow pipeline.** Removed `main.nf`, `nextflow.config`, `modules/`, `conf/prscs.config`, `conf/sbayesr.config`, `lib/`, the v1 `pgscalculator.sh` wrapper, `concatenate_plink_maf/` (+ `tests/unit/test_concatenate_plink_maf.sh`), and `scripts/kill-nextflow.sh`. The full v1 pipeline (1.3.2) is archived at git tag **`v1.3.2`** — run `git checkout v1.3.2` to recover it. `conf/init-docker-config.sh` and `assets/` are retained (still used by v2).
 - `docker/Dockerfile` no longer installs Nextflow (removed the `java_builder` stage and `.nextflow`/`NXF_OFFLINE` setup); the runtime user was renamed `nextflow` → `pgsuser`. Base image bumped to **`0.8.0`** (`docker/VERSION`) and the `README.md` pull/build references updated to match; `0.8.0` must be built + pushed to Docker Hub. The previous `0.7.0` image still runs v2 unchanged (same toolchain).
 
