@@ -47,6 +47,7 @@ function general_usage(){
   echo "  slurm:"
   echo "    account: my_account"
   echo "    partition: normal"
+  echo "    #reservation: schork   # optional: sbatch --reservation=<name>"
   echo "    driver:            { mem: 1g, cpus: 1, time: '2:00:00' }"
   echo "    prep:              { mem: 10g, cpus: 1, time: '1:00:00', max_parallel: 22 }"
   echo "    sumstat:          { mem: 1g, cpus: 1, time: '0:30:00', max_parallel: 22 }"
@@ -235,14 +236,23 @@ format_sbatch_settings() {
   local max_parallel="${2:-}"
   local account="${slurm_account:-none}"
   local partition="${slurm_partition:-none}"
+  local reservation="${slurm_reservation:-none}"
   local mem="${slurm_mem:-}"
   local cpus="${slurm_cpus:-}"
   local time="${slurm_time:-}"
   if [[ -n "$max_parallel" ]]; then
-    echo "SBATCH: account=${account}, partition=${partition}, mem=${mem}, cpus=${cpus}, time=${time}, array=${array_spec}, max_parallel=${max_parallel}"
+    echo "SBATCH: account=${account}, partition=${partition}, reservation=${reservation}, mem=${mem}, cpus=${cpus}, time=${time}, array=${array_spec}, max_parallel=${max_parallel}"
   else
-    echo "SBATCH: account=${account}, partition=${partition}, mem=${mem}, cpus=${cpus}, time=${time}, array=${array_spec}"
+    echo "SBATCH: account=${account}, partition=${partition}, reservation=${reservation}, mem=${mem}, cpus=${cpus}, time=${time}, array=${array_spec}"
   fi
+}
+
+# Append shared SLURM targeting flags (account / partition / optional reservation).
+# Uses globals: slurm_account, slurm_partition, slurm_reservation; mutates sbatch_args.
+append_slurm_common_sbatch_args() {
+  [[ -n "${slurm_account:-}" ]] && sbatch_args+=(--account="${slurm_account}")
+  [[ -n "${slurm_partition:-}" ]] && sbatch_args+=(--partition="${slurm_partition}")
+  [[ -n "${slurm_reservation:-}" ]] && sbatch_args+=(--reservation="${slurm_reservation}")
 }
 
 # Validate sumstat metadata has required N fields before processing.
@@ -659,6 +669,7 @@ infold_host=$(realpath "${infold}")
   # Read SLURM settings from config
   slurm_account=$(parse_yaml_nested "slurm" "account" "$config_file_host")
   slurm_partition=$(parse_yaml_nested "slurm" "partition" "$config_file_host")
+  slurm_reservation=$(parse_yaml_nested "slurm" "reservation" "$config_file_host")
 
   # Build chromosome list file (robust to non-contiguous ranges)
   chr_list=$(expand_chromosome_list "${cfg_chromosomes:-1-22}")
@@ -1089,8 +1100,7 @@ rc=\$?; echo \"[INFO] Finished ${step_profile} chr\${CHR} at \$(date) (exit=\$rc
     sbatch_args+=(--output="${log_dir}/${job_name}_%A_%a.out")
     sbatch_args+=(--error="${log_dir}/${job_name}_%A_%a.err")
     sbatch_args+=(--array="1-${step_chr_count}%${max_parallel}")
-    [[ -n "$slurm_account" ]] && sbatch_args+=(--account="${slurm_account}")
-    [[ -n "$slurm_partition" ]] && sbatch_args+=(--partition="${slurm_partition}")
+    append_slurm_common_sbatch_args
     sbatch_args+=(--wrap="${task_wrap}")
 
     echo "Submitting SLURM job array..."
@@ -1208,8 +1218,7 @@ rc=\$?; echo \"[INFO] Finished ${step_profile} chr\${CHR} at \$(date) (exit=\$rc
     sbatch_args+=(--job-name="${job_name}")
     sbatch_args+=(--output="${log_dir}/${job_name}_%j.out")
     sbatch_args+=(--error="${log_dir}/${job_name}_%j.err")
-    [[ -n "$slurm_account" ]] && sbatch_args+=(--account="${slurm_account}")
-    [[ -n "$slurm_partition" ]] && sbatch_args+=(--partition="${slurm_partition}")
+    append_slurm_common_sbatch_args
     sbatch_args+=(--wrap="${run_cmd}")
 
     echo "Submitting SLURM single job (${step_profile})..."
@@ -1312,8 +1321,7 @@ rc=\$?; echo \"[INFO] Finished ${step_profile} chr\${CHR} at \$(date) (exit=\$rc
     sbatch_args+=(--job-name="${job_name}")
     sbatch_args+=(--output="${log_dir}/${job_name}_%j.out")
     sbatch_args+=(--error="${log_dir}/${job_name}_%j.err")
-    [[ -n "$slurm_account" ]] && sbatch_args+=(--account="${slurm_account}")
-    [[ -n "$slurm_partition" ]] && sbatch_args+=(--partition="${slurm_partition}")
+    append_slurm_common_sbatch_args
     sbatch_args+=(--wrap="${run_cmd}")
 
     echo "Submitting SLURM finalize job (combine-scores + finalize-output)..."
@@ -1453,6 +1461,7 @@ if [[ "$use_sbatch" == true ]]; then
   # Read SLURM settings from config
   slurm_account=$(parse_yaml_nested "slurm" "account" "$config_file_host")
   slurm_partition=$(parse_yaml_nested "slurm" "partition" "$config_file_host")
+  slurm_reservation=$(parse_yaml_nested "slurm" "reservation" "$config_file_host")
 
   # Enforce: prep must be run on its own
   if [[ -z "${steps_arg:-}" ]]; then
@@ -1521,8 +1530,7 @@ if [[ "$use_sbatch" == true ]]; then
     sbatch_args+=(--job-name="${job_name}")
     sbatch_args+=(--output="${log_dir}/${job_name}_%j.out")
     sbatch_args+=(--error="${log_dir}/${job_name}_%j.err")
-    [[ -n "$slurm_account" ]] && sbatch_args+=(--account="${slurm_account}")
-    [[ -n "$slurm_partition" ]] && sbatch_args+=(--partition="${slurm_partition}")
+    append_slurm_common_sbatch_args
     sbatch_args+=(--wrap="${run_cmd}")
 
     echo "Submitting SLURM job..."
@@ -1589,8 +1597,7 @@ if [[ "$use_sbatch" == true ]]; then
   sbatch_args+=(--job-name="${job_name}")
   sbatch_args+=(--output="${log_dir}/${job_name}_%j.out")
   sbatch_args+=(--error="${log_dir}/${job_name}_%j.err")
-  [[ -n "$slurm_account" ]] && sbatch_args+=(--account="${slurm_account}")
-  [[ -n "$slurm_partition" ]] && sbatch_args+=(--partition="${slurm_partition}")
+  append_slurm_common_sbatch_args
   [[ -n "${SLURM_DEPENDENCY:-}" ]] && sbatch_args+=(--dependency="${SLURM_DEPENDENCY}")
   sbatch_args+=(--wrap="${run_cmd}")
 

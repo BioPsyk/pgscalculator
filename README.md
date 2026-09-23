@@ -140,6 +140,7 @@ benchmark:
 slurm:
   account: my_account
   partition: normal
+  #reservation: schork   # optional: sbatch --reservation=<name>
   driver:             { mem: 1g, cpus: 1, time: '2:00:00' }
   prep:               { mem: 10g, cpus: 1, time: '1:00:00', max_parallel: 22 }
   sumstat:            { mem: 1g, cpus: 1, time: '0:30:00', max_parallel: 22 }
@@ -457,6 +458,7 @@ benchmark:
 slurm:
   account: my_account
   partition: normal
+  #reservation: schork   # optional: sbatch --reservation=<name>
   driver:             { mem: 1g, cpus: 1, time: '2:00:00' }
   prep:               { mem: 10g, cpus: 1, time: '1:00:00', max_parallel: 22 }
   sumstat:            { mem: 1g, cpus: 1, time: '0:30:00', max_parallel: 22 }

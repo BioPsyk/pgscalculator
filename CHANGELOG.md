@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Per-method augmented sumstats:** `augmented_sbayesr.gz` and `augmented_ldpred2.gz`, each restricted to its own LD-reference variant set, keyed by rsid, with its own `benchEffect` column kept inside the file.
 - **Per-method benchmarks:** `calc-benchmark` runs once per active method (`work/benchmark_<method>/`), and finalize emits `bench_score_sbayesr.gz` / `bench_score_ldpred2.gz`.
 - **LDpred2 diagnostics:** `details/ldpred2/summary.tsv` (mode, seed, h2/p/alpha estimates, LDSC intercept/h2, match/QC/chain counts) and `details/ldpred2/chains.png` (overlaid p/h2 sampling paths of all kept LDpred2-auto chains).
+- **Optional SLURM reservation:** `slurm.reservation` in config is passed through to all `--sbatch` submissions as `--reservation=<name>` (e.g. `schork`).
 
 ### Removed
 
