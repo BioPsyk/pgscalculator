@@ -30,7 +30,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- **Module load under `set -u`:** `module load` from config `modules:` no longer aborts the wrapper silently on HPC (Lmod/Environment Modules reference unset vars). Nounset is disabled only around the load.
 - `calc-ldpred2` no longer aborts under `set -u` when `input:` (cleansumstats metadata) is not configured.
 - **Incremental finalize:** `finalize-output` is now method-aware. Previously a single `details/.completed` marker meant a Day-2 run (adding a new method) was skipped entirely, so the new method's `augmented_<method>.gz` was never written. Finalize now re-runs whenever a discovered method is missing its augmented file.
 - **Single-chromosome local prep:** `prep-inclusion-list` / `prep-inclusion-list-ldpred2` no longer fall into per-chromosome "array task" (partial-only) mode just because the config lists a single chromosome (e.g. `chromosomes: 22`). The wrapper now sets `single_chr_task` only when `--_chr` is passed (driver array task), so a normal local `--steps prep` on a single-chromosome config runs the full prep including the combine.

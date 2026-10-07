@@ -321,16 +321,11 @@ validate_sumstat_metadata() {
   echo "Metadata validated: ${n_field} = ${n_value}"
 }
 
-# Load modules from config (e.g., singularity on HPC systems that use module load).
-# Environment Modules / Lmod shell functions often reference unset variables; with
-# `set -u` (from common.sh) that aborts the wrapper silently after "Loading module:".
-# Temporarily disable nounset around `module load`.
+# Load modules from config (e.g., singularity on HPC systems that use module load)
 while IFS= read -r mod; do
   [[ -z "$mod" ]] && continue
   echo "Loading module: $mod"
-  set +u
   module load "$mod"
-  set -u
 done < <(parse_yaml_list "modules" "$config_file_host")
 
 # Read paths from config (support new keys + legacy aliases)
