@@ -253,6 +253,10 @@ append_slurm_common_sbatch_args() {
   [[ -n "${slurm_account:-}" ]] && sbatch_args+=(--account="${slurm_account}")
   [[ -n "${slurm_partition:-}" ]] && sbatch_args+=(--partition="${slurm_partition}")
   [[ -n "${slurm_reservation:-}" ]] && sbatch_args+=(--reservation="${slurm_reservation}")
+  # Always return 0: under `set -e`, a final failed `[[ -n '' ]] && ...` would
+  # otherwise make the function exit status 1 and abort the wrapper silently
+  # when account/partition/reservation are unset (common on some HPCs).
+  return 0
 }
 
 # Validate sumstat metadata has required N fields before processing.
