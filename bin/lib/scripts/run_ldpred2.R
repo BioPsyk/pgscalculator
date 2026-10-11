@@ -119,11 +119,33 @@ p <- add_argument(p, "--n-cases", type = "numeric", default = NA,
                   help = "Case count for h2 scaling")
 p <- add_argument(p, "--n-controls", type = "numeric", default = NA,
                   help = "Control count for h2 scaling")
+p <- add_argument(p, "--trait-type", type = "character", default = "",
+                  help = "Trait type from cleansumstats metadata: quantitative|case-control (default: case-control formula)")
 p <- add_argument(p, "--plot-file", type = "character", default = "",
                   help = "Optional path for LDpred2-auto diagnostic plot (chains.png)")
 p <- add_argument(p, "--summary-file", type = "character", default = "",
                   help = "Optional path for the LDpred2 run diagnostics table (summary.tsv)")
 argv <- parse_args(p)
+
+`%||%` <- function(a, b) {
+    if (is.null(a) || length(a) == 0 || (length(a) == 1 && is.na(a))) b else a
+}
+
+# Normalise cleansumstats stats_TraitType (and aliases) to the two QC regimes
+# in the bigsnpr LDpred2 vignette: logistic (factor 2) vs linear (sd(y)).
+normalize_trait_type <- function(x) {
+    t <- tolower(trimws(as.character(x %||% "")))
+    if (!nzchar(t)) return("case-control")
+    if (t %in% c("quantitative", "continuous", "qt", "quant")) return("quantitative")
+    if (t %in% c("case-control", "casecontrol", "binary", "cc", "logistic")) {
+        return("case-control")
+    }
+    cat(sprintf(
+        "[WARN] Unrecognised --trait-type '%s'; using case-control allelic SD QC\n",
+        as.character(x)
+    ))
+    "case-control"
+}
 
 # Diagnostics collected through the run and flushed to --summary-file at the end
 # (long format: metric<TAB>value). Written even on a successful partial run so
@@ -337,9 +359,40 @@ if (nrow(df_beta) < 100) {
 cat(sprintf("[OK] snp_match retained %d variants\n", nrow(df_beta)))
 add_diag("n_matched", nrow(df_beta))
 
-# --- Allele-frequency QC (bigsnpr vignette) -----------------------------------
+# --- Allele-frequency QC (bigsnpr LDpred2 vignette) ---------------------------
+# Compare genotype SDs inferred from GWAS summary stats to SDs from the LD-ref
+# AF. Must run BEFORE SFBM / LDSC / LDpred2 so bad-scale variants never enter
+# the model. The constant differs by regression type:
+#   case-control (logistic): sd_ss = 2 / sqrt(n_eff * se^2 + beta^2)
+#   quantitative (linear):   sd_ss = sd(y) / sqrt(...), with sd(y) estimated
+#                            as the 1st percentile of sqrt(0.5 * (n*se^2+b^2))
+trait_type <- normalize_trait_type(argv$trait_type)
+add_diag("trait_type", trait_type)
 sd_ldref <- sqrt(2 * df_beta$af_UKBB * (1 - df_beta$af_UKBB))
-sd_ss <- 2 / sqrt(df_beta$n_eff * df_beta$beta_se^2 + df_beta$beta^2)
+denom <- sqrt(df_beta$n_eff * df_beta$beta_se^2 + df_beta$beta^2)
+sd_y_est <- NA_real_
+if (identical(trait_type, "quantitative")) {
+    sd_y_est <- as.numeric(stats::quantile(
+        sqrt(0.5 * (df_beta$n_eff * df_beta$beta_se^2 + df_beta$beta^2)),
+        probs = 0.01,
+        na.rm = TRUE,
+        names = FALSE
+    ))
+    if (!is.finite(sd_y_est) || sd_y_est <= 0) {
+        fail_with(failed_match, sprintf(
+            "Could not estimate sd(y) for quantitative allelic SD QC (got %s)",
+            fmt_num(sd_y_est)
+        ))
+    }
+    sd_ss <- sd_y_est / denom
+    cat(sprintf("[OK] Allelic SD QC: trait_type=quantitative sd(y)=%s\n",
+                fmt_num(sd_y_est)))
+    add_diag("sd_y_est", fmt_num(sd_y_est))
+} else {
+    sd_ss <- 2 / denom
+    cat("[OK] Allelic SD QC: trait_type=case-control (factor=2)\n")
+    add_diag("sd_y_est", "NA")
+}
 is_bad <- sd_ss < 0.5 * sd_ldref |
     sd_ss > sd_ldref + 0.1 |
     sd_ss < 0.05 |

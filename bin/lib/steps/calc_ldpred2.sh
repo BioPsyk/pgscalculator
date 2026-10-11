@@ -88,25 +88,30 @@ run_calc_ldpred2() {
 
     local which_n="${CFG_WHICHN:-totalN}"
     local -a meta_args=()
-    local eff_n case_n ctrl_n total_n
+    local eff_n case_n ctrl_n total_n trait_type
     local metadata_file=""
     [[ -n "${CFG_INPUT:-}" ]] && metadata_file="${CFG_INPUT}/cleaned_metadata.yaml"
 
     if [[ -n "$metadata_file" && -f "$metadata_file" ]]; then
+        trait_type=$(awk -F': ' '$1=="stats_TraitType"{gsub(/^[ \t]+|[ \t]+$/, "", $2); print $2; exit}' "$metadata_file")
+        if [[ -n "$trait_type" ]]; then
+            meta_args+=(--trait-type "$trait_type")
+            log_info "LDpred2 trait_type from metadata: ${trait_type}"
+        fi
         if [[ "$which_n" == "effectiveN" ]]; then
             eff_n=$(awk -F': ' '$1=="stats_EffectiveN"{gsub(/^[ \t]+|[ \t]+$/, "", $2); print $2; exit}' "$metadata_file")
             case_n=$(awk -F': ' '$1=="stats_CaseN"{gsub(/^[ \t]+|[ \t]+$/, "", $2); print $2; exit}' "$metadata_file")
             ctrl_n=$(awk -F': ' '$1=="stats_ControlN"{gsub(/^[ \t]+|[ \t]+$/, "", $2); print $2; exit}' "$metadata_file")
             if [[ -n "$eff_n" ]] && [[ "$eff_n" =~ ^[0-9]+([.][0-9]+)?$ ]]; then
-                meta_args=(--effective-sample-size "$eff_n")
+                meta_args+=(--effective-sample-size "$eff_n")
             elif [[ -n "$case_n" ]] && [[ -n "$ctrl_n" ]] \
                 && [[ "$case_n" =~ ^[0-9]+$ ]] && [[ "$ctrl_n" =~ ^[0-9]+$ ]]; then
-                meta_args=(--n-cases "$case_n" --n-controls "$ctrl_n")
+                meta_args+=(--n-cases "$case_n" --n-controls "$ctrl_n")
             fi
         else
             total_n=$(awk -F': ' '$1=="stats_TotalN"{gsub(/^[ \t]+|[ \t]+$/, "", $2); print $2; exit}' "$metadata_file")
             if [[ -n "$total_n" ]] && [[ "$total_n" =~ ^[0-9]+([.][0-9]+)?$ ]]; then
-                meta_args=(--effective-sample-size "$total_n")
+                meta_args+=(--effective-sample-size "$total_n")
             fi
         fi
     fi
